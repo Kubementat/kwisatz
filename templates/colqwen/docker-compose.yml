@@ -29,8 +29,19 @@ services:
     # base_model_name_or_path entries in adapter_config.json resolve.
     volumes:
       - "${COLQWEN_MODEL_DIR}:${COLQWEN_MODEL_DIR}:ro"
+    # Published on COLQWEN_BIND, which defaults to 127.0.0.1. The service has
+    # no authentication of its own, so the bind address is what keeps
+    # /embed/queries and /embed/images off the network.
+    #
+    # ufw does NOT cover this: Docker installs its published-port DNAT rules
+    # ahead of ufw's filter chains, so a default-deny policy leaves a
+    # 0.0.0.0-published port reachable from the LAN and over any VPN.
+    #
+    # The :-127.0.0.1 fallback is deliberate: an .env without COLQWEN_BIND
+    # would otherwise substitute to ":8100:8000", and an empty host_ip means
+    # all interfaces - the exact failure this setting exists to prevent.
     ports:
-      - "${COLQWEN_PORT}:8000"
+      - "${COLQWEN_BIND:-127.0.0.1}:${COLQWEN_PORT}:8000"
     # GPU via CDI — deliberately NOT `deploy.resources.reservations.devices`.
     # The legacy path injects /dev/nvidia* from an OCI prestart hook, i.e.
     # AFTER runc has created the container's systemd scope, so systemd never

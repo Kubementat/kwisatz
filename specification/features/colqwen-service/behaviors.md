@@ -30,6 +30,7 @@ All tunable values are environment variables with sensible defaults, each with a
 | `COLPALI_VERSION` | `--colpali-version <ver>` | `0.3.13` | `colpali-engine` version installed into the image (last transformers-4.x release; 0.3.14+ pull transformers 5.x, which drops the vidore LoRA adapter weights) |
 | `NGC_PYTORCH_TAG` | `--ngc-tag <tag>` | `25.10-py3` | NVIDIA NGC PyTorch base image tag (`nvcr.io/nvidia/pytorch:<tag>`); torch 2.9 / CUDA 13.0.2, satisfies the colpali-engine 0.3.13 torch pin and runs on driver 580.x |
 | `COLQWEN_PORT` | `--port <n>` | `8100` | Host port mapped to the service |
+| `COLQWEN_BIND` | `--bind <addr>` | `127.0.0.1` | Host address the port is published on. Loopback by default because the service is unauthenticated; **ufw does not protect Docker-published ports** (its DNAT rules run ahead of ufw's filter chains), so the bind address is the actual boundary. A non-loopback value emits a warning |
 
 Additional flags: `--force` (re-generate over an existing installation), `--check` (status only, no changes), `--help`.
 
@@ -84,7 +85,7 @@ The script validates its environment and inputs before generating anything. It n
 
 ### Error Cases
 - **Unknown flag:** exit non-zero with usage hint (`--help`).
-- **Invalid port / version string / relative path:** exit non-zero with a clear message naming the offending variable.
+- **Invalid port / bind address / version string / relative path:** exit non-zero with a clear message naming the offending variable. `COLQWEN_BIND` is only checked for safe characters (`A-Z a-z 0-9 . : _ -`); a well-formed but wrong address surfaces at `docker compose up`, not at generation time.
 - **Docker not installed:** exit non-zero suggesting `setup-docker.sh`.
 - **Docker daemon not running:** exit non-zero suggesting `sudo systemctl start docker`.
 
@@ -125,7 +126,7 @@ The script can be run repeatedly without destroying an existing installation or 
 All user-supplied settings are persisted in `PROJECT_DIR/.env`; the generated Docker files read their configuration exclusively from it.
 
 ### Happy Path
-1. The rendered `.env` contains: `NGC_PYTORCH_TAG`, `COLPALI_VERSION`, `COLQWEN_MODEL_DIR`, `COLQWEN_MODEL`, `COLQWEN_PORT` — each with a short explanatory comment.
+1. The rendered `.env` contains: `NGC_PYTORCH_TAG`, `COLPALI_VERSION`, `COLQWEN_MODEL_DIR`, `COLQWEN_MODEL`, `COLQWEN_PORT`, `COLQWEN_BIND` — each with a short explanatory comment.
 2. `docker compose` automatically loads `.env` from the project directory; the compose file forwards `NGC_PYTORCH_TAG` and `COLPALI_VERSION` as build args and uses the remaining values for volume, environment, and port configuration.
 3. The user changes a value (e.g. `COLPALI_VERSION`), runs `docker compose build && docker compose up -d`, and the service uses the new configuration — without re-running the setup script.
 
@@ -171,7 +172,8 @@ The generated `app/main.py` is a FastAPI service that loads the ColQwen2.5 model
 3. `POST /embed/images` — accepts one or more images as multipart file uploads; responds with `{"embeddings": [...]}` containing one multi-vector embedding (list of vectors) per image, in input order.
 4. `POST /embed/queries` — accepts JSON `{"queries": ["...", ...]}`; responds with `{"embeddings": [...]}` containing one multi-vector embedding per query, in input order.
 5. `GET /health` — responds `200 {"status": "ok"}`. Requests are only served after startup (= model load) completed, so a 200 implies the model is ready; usable as readiness probe by reverse proxies such as llama-swap (default `checkEndpoint: /health`).
-6. The app listens on container port 8000 (mapped to `COLQWEN_PORT` on the host).
+6. The app listens on container port 8000 (published as `COLQWEN_BIND:COLQWEN_PORT` on the host).
+7. The app performs **no authentication of its own** — every endpoint is open to whoever can reach the published port. Access control is therefore entirely a matter of the bind address (see `COLQWEN_BIND`) plus whatever authenticates in front of it, e.g. llama-swap's API key when it proxies the service.
 
 ### Error Cases
 - **Configured model missing or unloadable at startup:** the app logs a clear error naming the configured model reference and exits non-zero (container stops; visible via `docker compose logs`). No silent retry loop, no download attempt.
