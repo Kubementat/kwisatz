@@ -280,12 +280,12 @@ scripts:
     args: []
   setup-agentsview:
     enabled: false
-    description: Install agentsview (session log viewer), optional pg push service
+    description: agentsview session viewer + optional pg push service
     env:
       # AGENTSVIEW_VERSION: "0.44.0"
       # AGENTSVIEW_MACHINE_NAME: ""   # default: hostname
-      # Hub mode: agent|dir|machine-id entries separated by ';'
-      # AGENTSVIEW_SESSION_SOURCES: "claude|/srv/sessions/box/claude/projects|<install-id>"
+      # Hub mode: agent|dir|machine-id, ';'-separated
+      # AGENTSVIEW_SESSION_SOURCES: "claude|/srv/s/claude|<id>"
       # AGENTSVIEW_PG_URL: ""   # secret; stored in ~/.agentsview/pg.env (600)
     args: []
   sync-models:
