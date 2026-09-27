@@ -24,6 +24,8 @@
 #   4. Repo init (idempotent: reuse / init / abort-with-passphrase-message)
 #   5. Passphrase file ~/.config/borg/<client>.pass (0600, generated once)
 #   6. Installs lib/docker-backup.sh -> /usr/local/lib/borg-backup/
+#      (+ nextcloud: adds BACKUP_USER to the data dir's group, www-data, so
+#      the 0770 user-file dir and config.php are readable by borg)
 #   7. Generates wrapper /usr/local/bin/borg-backup-<client>
 #      (create / list / check / restore / restore-db)
 #   8. Installs systemd service + daily timer (Persistent, 15m jitter),
@@ -147,6 +149,8 @@ Options:
                          installed/running ones. Supported: forgejo, planka,
                          kestra, nextcloud, n8n, concourse, openwebui,
                          omnigent. Empty = plain file backup.
+                         nextcloud: the backup user is added to the data
+                         dir's group (www-data) so user files are readable.
   --stop-services <a,b>  Services to `docker compose stop` around the whole
                          run (env: BACKUP_STOP_SERVICES) — short downtime,
                          for services whose raw data must not be copied
@@ -526,6 +530,28 @@ install_lib() {
   success "Installed ${LIB_DEST}"
 }
 
+# Nextcloud keeps user files in a 0770 www-data dir and config.php at 0640 —
+# unreadable for the non-root timer user, so borg would silently skip every
+# user file (only 'Permission denied' warnings, archive still "usable").
+# Everything below is group-readable, so group membership is enough.
+grant_nextcloud_read_access() {
+  local nchome="${NEXTCLOUD_HOME:-/srv/nextcloud}" group
+  [[ ",${BACKUP_SERVICES}," == *",nextcloud,"* && -d "${nchome}/data" ]] || return 0
+  step "Granting ${BACKUP_USER} read access to Nextcloud files"
+  group="$(stat -c '%G' "${nchome}/data")"
+  if id -nG "${BACKUP_USER}" | tr ' ' '\n' | grep -qx "$group"; then
+    success "${BACKUP_USER} already in group '${group}'"
+  else
+    sudo usermod -aG "$group" "${BACKUP_USER}"
+    success "Added ${BACKUP_USER} to group '${group}'"
+  fi
+  # sudo -u re-reads the group list, like the systemd unit does at each run.
+  if ! sudo -u "${BACKUP_USER}" test -r "${nchome}/data" -a -x "${nchome}/data"; then
+    error "${BACKUP_USER} still cannot read ${nchome}/data — Nextcloud user files would not be backed up"
+  fi
+  success "${BACKUP_USER} can read ${nchome}/data"
+}
+
 install_staging_dir() {
   # The wrapper (running as BACKUP_USER) creates <staging>/dumps itself, but
   # the staging parent (e.g. /var/backup-staging) needs to exist and be owned
@@ -745,6 +771,7 @@ main() {
   if [[ -n "$BACKUP_SERVICES" ]]; then
     install_staging_dir
   fi
+  grant_nextcloud_read_access
   write_wrapper
   write_units
 

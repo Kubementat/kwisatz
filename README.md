@@ -208,7 +208,8 @@ sudo ./tasks/setup-backup-client.sh --client mybox --host backup.example.com \
 > never formats or mounts). Remote clients need key-based SSH to the server first
 > (`ssh-copy-id`); with `--services`, the daily timer runs as the backup user,
 > which therefore needs access to the Docker daemon (user in the `docker` group —
-> `setup-docker.sh` adds it). The generated repo passphrase is the **only** way to
+> `setup-docker.sh` adds it); for `nextcloud` the client also adds it to the
+> `www-data` group so the 0770 user-file dir is readable. The generated repo passphrase is the **only** way to
 > read a backup — move `~/.config/borg/<client>.pass` to a password manager when
 > prompted.
 
