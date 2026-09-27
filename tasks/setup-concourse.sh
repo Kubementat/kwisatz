@@ -185,31 +185,47 @@ if [[ "$CONCOURSE_TRAEFIK" == "true" ]]; then
   fi
 fi
 
+# True when this script's own stack is running: the ports it publishes are
+# expected on a converge re-run and must not abort the script.
+_concourse_stack_running() {
+  docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^concourse-web$'
+}
+
 # Port availability check (when not using Traefik)
 if [[ "$CONCOURSE_TRAEFIK" == "false" ]]; then
   if ss -tln 2>/dev/null | grep -qE ":${CONCOURSE_WEB_PORT}[[:space:]]"; then
-    warn "Port ${CONCOURSE_WEB_PORT} is already in use."
-    warn "Either stop the existing service or choose a different CONCOURSE_WEB_PORT."
-    if [[ "$INTERACTIVE" == "true" ]]; then
-      read -rp "    Continue anyway? [y/N] " answer
-      [[ "${answer,,}" == "y" ]] || exit 0
+    if _concourse_stack_running; then
+      info "Port ${CONCOURSE_WEB_PORT} is published by the existing Concourse stack — reusing it."
     else
-      error "Port ${CONCOURSE_WEB_PORT} is already in use. Stop the conflicting service or set CONCOURSE_WEB_PORT to a free port, or re-run with --interactive to confirm manually."
+      warn "Port ${CONCOURSE_WEB_PORT} is already in use."
+      warn "Either stop the existing service or choose a different CONCOURSE_WEB_PORT."
+      if [[ "$INTERACTIVE" == "true" ]]; then
+        read -rp "    Continue anyway? [y/N] " answer
+        [[ "${answer,,}" == "y" ]] || exit 0
+      else
+        error "Port ${CONCOURSE_WEB_PORT} is already in use. Stop the conflicting service or set CONCOURSE_WEB_PORT to a free port, or re-run with --interactive to confirm manually."
+      fi
     fi
   else
     info "Port ${CONCOURSE_WEB_PORT} is available."
   fi
-fi
 
-# TSA port check (always required for worker registration)
-if ss -tln 2>/dev/null | grep -qE ":2225[[:space:]]"; then
-  warn "Port 2225 (TSA) is already in use."
-  warn "The worker will fail to register until port 2225 is free."
-  if [[ "$INTERACTIVE" == "true" ]]; then
-    read -rp "    Continue anyway? [y/N] " answer
-    [[ "${answer,,}" == "y" ]] || exit 0
-  else
-    error "Port 2225 (TSA) is already in use. Free the port, or re-run with --interactive to confirm manually."
+  # TSA host port check (direct mode only: the Traefik variant publishes no
+  # host ports — workers reach TSA via the internal network at
+  # concourse-web:2222).
+  if ss -tln 2>/dev/null | grep -qE ":2225[[:space:]]"; then
+    if _concourse_stack_running; then
+      info "Port 2225 (TSA) is published by the existing Concourse stack — reusing it."
+    else
+      warn "Port 2225 (TSA) is already in use."
+      warn "The worker will fail to register until port 2225 is free."
+      if [[ "$INTERACTIVE" == "true" ]]; then
+        read -rp "    Continue anyway? [y/N] " answer
+        [[ "${answer,,}" == "y" ]] || exit 0
+      else
+        error "Port 2225 (TSA) is already in use. Free the port, or re-run with --interactive to confirm manually."
+      fi
+    fi
   fi
 fi
 
@@ -348,8 +364,14 @@ fi
 
 # Detect external URL if not set
 if [[ -z "$CONCOURSE_EXTERNAL_URL" ]]; then
-  LAN_IP=$(hostname -I | awk '{print $1}')
-  CONCOURSE_EXTERNAL_URL="http://${LAN_IP}:${CONCOURSE_WEB_PORT}"
+  if [[ "$CONCOURSE_TRAEFIK" == "true" ]]; then
+    # Traefik mode: the TLS domain is the external address (no host ports
+    # are published in this variant, so an http://LAN-IP URL is dead).
+    CONCOURSE_EXTERNAL_URL="https://${CONCOURSE_DOMAIN}"
+  else
+    LAN_IP=$(hostname -I | awk '{print $1}')
+    CONCOURSE_EXTERNAL_URL="http://${LAN_IP}:${CONCOURSE_WEB_PORT}"
+  fi
 fi
 
 # Write .env file from template (unquoted heredoc → envsubst)
@@ -366,6 +388,10 @@ envsubst '${CONCOURSE_DB_PASSWORD} ${CONCOURSE_EXTERNAL_URL} ${CONCOURSE_WEB_POR
   < "${TEMPLATE_DIR}/env.template" | sudo tee "${ENV_FILE}" > /dev/null
 
 sudo chmod 600 "${ENV_FILE}"
+# Keep the env file readable by the invoking operator: manual 'docker compose'
+# commands (logs, ps, down) run as that user and hard-fail if they cannot
+# read the .env that compose auto-loads. SUDO_USER covers 'sudo ./script' runs.
+sudo chown "${SUDO_USER:-$USER}" "${ENV_FILE}"
 
 success "Environment file written with auto-generated credentials."
 
@@ -443,14 +469,10 @@ READY=false
 HTTP_CODE=""
 
 while [[ $ELAPSED -lt $MAX_WAIT ]]; do
-  # When using Traefik, check via container; otherwise use localhost
-  if [[ "$CONCOURSE_TRAEFIK" == "true" ]]; then
-    HTTP_CODE=$(sudo docker exec concourse-web curl -s -o /dev/null -w "%{http_code}" \
-      "http://localhost:8080/api/v1/info" 2>/dev/null) || true
-  else
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-      "http://localhost:${CONCOURSE_WEB_PORT}/api/v1/info" 2>/dev/null) || true
-  fi
+  # Check via the public URL: the web image ships no curl, and in Traefik
+  # mode this also proves the router rule and TLS certificate work end-to-end.
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    "${CONCOURSE_EXTERNAL_URL}/api/v1/info" 2>/dev/null) || true
 
   if [[ "$HTTP_CODE" =~ ^(200|302|303)$ ]]; then
     READY=true

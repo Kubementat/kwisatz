@@ -59,7 +59,15 @@ services:
 
   concourse-worker:
     image: ${CONCOURSE_IMAGE}
-    command: worker
+    # The overlay baggageclaim driver expects <state>/overlays/work to exist;
+    # the image entrypoint never creates it, so baggageclaim logs a sweep
+    # error every 30s. Create it first; the trailing exec keeps the concourse
+    # binary as dumb-init's direct child so stop_signal SIGUSR2 still works.
+    entrypoint:
+      - dumb-init
+      - sh
+      - -c
+      - mkdir -p /worker-state/overlays/work && exec entrypoint.sh worker
     container_name: concourse-worker
     restart: unless-stopped
     privileged: true
