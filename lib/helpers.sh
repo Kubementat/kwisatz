@@ -527,9 +527,10 @@ if ! declare -F ufw_status_text > /dev/null 2>&1; then
 
     local out err err_file
     # Try non-interactive sudo (-n) first so a password prompt can never hang
-    # a setup script. On failure, fall back to a possibly-interactive sudo
-    # only when the failure was not a password requirement (which would just
-    # prompt again or fail the same way).
+    # a headless setup script. On failure, fall back to a possibly-interactive
+    # sudo when a TTY is available (a user running the script in a terminal
+    # may type the password; sudo then caches it for the remaining calls).
+    # Without a TTY, a password requirement is a hard failure.
     err_file="$(mktemp)"
     if out="$(sudo -n ufw status verbose 2>"${err_file}")" && grep -q "^Status:" <<<"$out"; then
       rm -f -- "${err_file}"
@@ -540,7 +541,7 @@ if ! declare -F ufw_status_text > /dev/null 2>&1; then
     fi
     err="$(cat -- "${err_file}")"
     rm -f -- "${err_file}"
-    if [[ "${err,,}" == *"password"* ]]; then
+    if [[ "${err,,}" == *"password"* ]] && [[ ! -t 0 ]]; then
       _UFW_STATUS_RC=1
       return 1
     fi
@@ -671,8 +672,10 @@ if ! declare -F ufw_firewall_section > /dev/null 2>&1; then
     ufw_active || active=$?
     if (( active == 2 )); then
       # Present-but-unreadable UFW is a hard failure: a service task must not
-      # silently skip protection.
-      error "UFW is installed but its status could not be read — cannot verify that ${description} ports are open. Fix sudo access to ufw (passwordless 'sudo ufw status') and re-run."
+      # silently skip protection. (Interactive TTY runs prompt for the
+      # password via the ufw_status_text fallback; this path is reached when
+      # no TTY is available and sudo is not passwordless.)
+      error "UFW is installed but its status could not be read — cannot verify that ${description} ports are open. Fix sudo access to ufw (passwordless 'sudo ufw status' or run in an interactive TTY) and re-run."
     fi
     if (( active == 1 )); then
       warn "UFW is inactive — ${description} rules added below will take effect when the firewall is enabled (configure-firewall.sh)."
