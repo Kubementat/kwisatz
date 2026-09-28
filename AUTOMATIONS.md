@@ -92,6 +92,16 @@ Deploys llama-swap, a multi-model LLM proxy with hot-swap support, as a native s
 - Health check endpoint at `/health`
 - Comprehensive config with all options documented
 
+#### `setup-laya.sh`
+Installs [Laya](https://huggingface.co/convaiinnovations/laya) — a self-hosted, non-autoregressive "System 1" decision model (typed `choice`/`score`/`noul` questions, not chat) — as `laya[serve]` into an isolated Python venv at `/srv/laya/venv`. llama-swap spawns it on demand (like `llama-server`), so the script never touches the hand-maintained `config.yaml`; it renders the model block from `templates/laya/llama-swap-configuration.yml` to `/srv/laya/llama-swap-configuration.yml` for the operator to paste in.
+
+**Features:**
+- Idempotent venv install, pinned version (`LAYA_VERSION`, default `0.3.19`), `--check`/`--force`
+- Auto-detects `LAYA_DEVICE` (cuda/cpu) via `nvidia-smi`
+- Generates the llama-swap `models:` entry (`cmd`, `env: LAYA_HOST/LAYA_PORT/LAYA_DEVICE/LAYA_PRELOAD`) from a template, no inline heredocs
+- Writes `start-laya.sh` convenience script (foreground `laya-serve`, defaults `127.0.0.1:8000`, all `LAYA_*` env vars overridable) from `templates/laya/start-laya.sh`
+- See the companion skill `skills/laya/SKILL.md` for how to call the deployed model, and `docs/research/laya-system1-model-research.md` for the underlying research
+
 #### `setup-colqwen.sh`
 Generates a ColQwen2.5 embedding-service Docker project (FastAPI + colpali-engine on an NVIDIA NGC PyTorch base image). Serves multi-vector embeddings (dim 128) for document images and text queries — the retrieval side of visual document RAG. The script only generates the project; build and start it yourself. Models are mounted read-only from the HF cache at the identical path (adapter `base_model_name_or_path` entries resolve) and are never downloaded (fully offline: `HF_HUB_OFFLINE=1`).
 
