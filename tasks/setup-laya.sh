@@ -18,6 +18,7 @@
 #   1. Pre-flight checks: python3, pip, venv module
 #   2. Creates/reuses a venv at LAYA_DIR/venv
 #   3. Installs (or upgrades, with --force) laya[serve] into the venv
+#      on CPU machines: CPU-only torch wheels, skipping the multi-GB CUDA stack
 #   4. Writes/prints the llama-swap model YAML block to
 #      LAYA_DIR/llama-swap-configuration.yml, to paste into config.yaml
 #   5. Writes a convenience start script to LAYA_DIR/start-laya.sh for
@@ -89,7 +90,9 @@ ${BOLD}Environment variables${RESET} (all optional):
   LAYA_VERSION   laya[serve] version to pin (default: 0.3.19)
   LAYA_MODEL_ID  Model ID to use in the llama-swap config (default: laya)
   LAYA_DEVICE    cpu|cuda for the LAYA_DEVICE env var (default: auto-detect
-                 via nvidia-smi)
+                 via nvidia-smi). "cpu" also installs CPU-only torch wheels
+                 (skips the multi-GB nvidia CUDA stack pulled by the default
+                 torch wheel from PyPI).
 EOF
 }
 
@@ -180,12 +183,23 @@ fi
 
 step "Installing laya[serve]==${LAYA_VERSION}"
 
-INSTALLED_VERSION="$("$VENV_PIP" show laya 2>/dev/null | sed -n 's/^Version: //p')"
+# 'pip show' exits 1 when the package is missing; don't let pipefail
+# treat that (the expected fresh-venv case) as a script failure.
+INSTALLED_VERSION="$("$VENV_PIP" show laya 2>/dev/null | sed -n 's/^Version: //p' || true)"
 
 if [[ -x "$VENV_LAYA_SERVE" && "$INSTALLED_VERSION" == "$LAYA_VERSION" && "$FORCE" -eq 0 ]]; then
   success "laya[serve] ${INSTALLED_VERSION} already installed. Use --force to reinstall."
 else
   "$VENV_PIP" install --upgrade pip --quiet
+  if [[ "$LAYA_DEVICE" == "cpu" ]]; then
+    # PyPI's default torch wheel pulls the full nvidia-* CUDA stack (~4 GB);
+    # on CPU-only machines install the small CPU wheels instead.
+    info "Installing CPU-only torch (skips the multi-GB CUDA wheels) — may take a while..."
+    "$VENV_PIP" install torch --index-url https://download.pytorch.org/whl/cpu
+  else
+    info "Downloading torch + CUDA stack (multi-GB) — may take a while..."
+  fi
+  info "Installing laya[serve]==${LAYA_VERSION} (pip output below; this step blocks until fully installed)..."
   "$VENV_PIP" install "laya[serve]==${LAYA_VERSION}"
   success "laya[serve] ${LAYA_VERSION} installed at ${VENV_DIR}."
 fi
