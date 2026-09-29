@@ -72,6 +72,7 @@ providers:
             -m ${models-dir-hf}/models--unsloth--Qwen3.8-27B-GGUF/snapshots/latest/Qwen3.8-27B-UD-Q4_K_XL.gguf
             --mmproj ${models-dir-hf}/models--unsloth--Qwen3.8-27B-GGUF/snapshots/latest/mmproj-BF16.gguf
             --ctx-size 262144
+            --load-mode none
             --jinja
             --top-p '0.95'
             --top-k '20'
@@ -114,6 +115,7 @@ providers:
             -m ${models-dir-hf}/models--bartowski--Ornith-1.5-35B-A3B-GGUF/snapshots/latest/Ornith-1.5-35B-A3B-Q5_K_M.gguf
             --mmproj ${models-dir-hf}/models--bartowski--Ornith-1.5-35B-A3B-GGUF/snapshots/latest/mmproj-Ornith-1.5-35B-A3B-bf16.gguf
             --ctx-size 262144
+            --load-mode none
             --jinja
             --top-p '1.0'
             --temp '1.0'
