@@ -1,0 +1,29 @@
+[Unit]
+Description=Laya (System 1 decision model) API server
+Documentation=https://huggingface.co/convaiinnovations/laya
+After=network.target
+
+[Service]
+Type=simple
+User=${LAYA_USER}
+WorkingDirectory=${LAYA_DIR}
+Environment=LAYA_HOST=${LAYA_HOST}
+Environment=LAYA_PORT=${LAYA_PORT}
+Environment=LAYA_DEVICE=${LAYA_DEVICE}
+Environment=LAYA_PRELOAD=${LAYA_PRELOAD}
+# LAYA_API_KEY lives only in this mode-600 env file (never rendered into the
+# unit); it enables Bearer-token auth on POST /v1/systemone. GET /health and
+# /docs stay open.
+EnvironmentFile=${ENV_FILE}
+ExecStart=${VENV_LAYA_SERVE}
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=laya
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

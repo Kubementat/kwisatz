@@ -1,6 +1,6 @@
 ---
 name: laya
-description: How to understand and use Laya (convaiinnovations/laya), a self-hosted non-autoregressive "System 1" decision model, through this repo's llama-swap deployment. Covers the choice/score/noul question primitives, the /v1/systemone wire protocol, which checkpoint to route to, calibration and other honest limits, and troubleshooting. Use when the user asks to classify/route/triage/score text, wants a fast yes/no or confidence judgment instead of an LLM call, mentions Laya/System 1/Jev-style typed decisions, or asks how to call the locally hosted Laya model.
+description: How to understand and use Laya (convaiinnovations/laya), a self-hosted non-autoregressive "System 1" decision model, through this repo's systemd deployment. Covers the choice/score/noul question primitives, the /v1/systemone wire protocol, which checkpoint to route to, calibration and other honest limits, and troubleshooting. Use when the user asks to classify/route/triage/score text, wants a fast yes/no or confidence judgment instead of an LLM call, mentions Laya/System 1/Jev-style typed decisions, or asks how to call the locally hosted Laya model.
 ---
 
 # Laya (System 1 decision model)
@@ -14,44 +14,55 @@ Use it for fast routing/triage/guardrail/classification decisions that would
 otherwise burn an LLM call on a yes/no or multiple-choice judgment.
 
 Deployed in this repo by `tasks/setup-laya.sh` (installs `laya[serve]` into a
-venv at `/srv/laya/venv`) and wired into llama-swap by hand from the snippet
-it generates at `/srv/laya/llama-swap-configuration.yml` (see
+venv at `/srv/laya/venv` and runs it as the systemd service `laya`, bound to
+`LAYA_HOST:LAYA_PORT`, default `0.0.0.0:7771`; see
 `docs/research/laya-system1-model-research.md` for the full research this
-skill is distilled from). If neither exists yet, stop and recommend running
-`tasks/setup-laya.sh` — this skill is for *using* an existing install.
+skill is distilled from). If neither the venv nor the service exist yet, stop
+and recommend running `tasks/setup-laya.sh` — this skill is for *using* an
+existing install.
 
 ## Orient yourself first
 
-Laya is spawned **on demand** by llama-swap, like any other backend — there
-is no standalone `laya` systemd service to check.
-
 ```bash
-LS="${LLAMA_SWAP_URL:-http://localhost:9292}"
-curl -s "$LS/health"                      # llama-swap itself is up
-curl -s "$LS/v1/models" | grep -i laya    # confirm the model ID is registered
+LAYA="${LAYA_URL:-http://localhost:7771}"
+sudo systemctl status laya                # service is up?
+curl -s "$LAYA/health"                    # {"status":"ok","loaded":[...],"device":"cpu"}
+curl -s "$LAYA/docs"                      # Swagger UI (request/response schema)
+curl -s "$LAYA/openapi.json"              # machine-readable OpenAPI spec
 ```
 
-If `laya` is missing from `/v1/models`, the config snippet was never pasted
-into llama-swap's `config.yaml` — check
-`/srv/laya/llama-swap-configuration.yml` and `systemctl status llama-swap`.
-Find the actual registered model ID (default `laya`, configurable via
-`LAYA_MODEL_ID` at setup time) — don't assume it wasn't renamed.
+If the service is down: `sudo journalctl -u laya -n 50`. On a machine with a
+firewall, the UFW rule `laya-api` (added by `tasks/setup-laya.sh`) allows
+inbound TCP on the API port; when the service was installed with
+`LAYA_HOST=127.0.0.1` it is local-only — tunnel with SSH instead.
 
-## Reaching Laya through llama-swap
+## Calling Laya directly
 
-Laya's own API is `POST /v1/systemone` — **not** an OpenAI chat-completions
-shape, so it cannot go through llama-swap's `/v1/chat/completions` routing.
-Instead use llama-swap's direct upstream passthrough, which still triggers
-on-demand spawning/swap-in the same as a normal request:
+Laya's API is `POST /v1/systemone` — **not** an OpenAI chat-completions
+shape. `GET /health` (no auth) reports `{"status":"ok","loaded":[<checkpoint
+currently in memory>],"device":"cpu|cuda"}`; `GET /docs` is the Swagger UI
+and `GET /openapi.json` the spec (note: the spec defines **no request
+schema** for `/v1/systemone` — verify request shape against the live server).
+
+**Auth**: `tasks/setup-laya.sh` always configures a bearer token — `LAYA_API_KEY`
+if you set it, otherwise generated (`openssl rand -hex 24`) and stored in
+`/srv/laya/.env` (mode 600, loaded by the unit via `EnvironmentFile=`). Every
+`/v1/systemone` call must send `Authorization: Bearer <key>` (wrong/missing
+→ 401 `invalid or missing bearer token`). `/health` and `/docs` stay open.
 
 ```bash
-POST $LS/upstream/laya/v1/systemone
+TOKEN=$(grep -Eo '^LAYA_API_KEY=\S+' /srv/laya/.env | cut -d= -f2)
+curl -s -X POST $LAYA/v1/systemone \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d '{...}'
 ```
 
-(replace `laya` with your `LAYA_MODEL_ID` if it was changed at setup time).
-The first request after idle pays model-load latency; llama-swap's
-`checkEndpoint: /docs` gate in the generated snippet only proves the process
-is up, not that inference is warm.
+**Server-side guardrails** (enforced, not advisory): max **64 questions** per
+call, `state` ≤ **50,000 chars**, request body ≤ **2 MB** (413 above that).
+
+The request body may carry an optional `model` field to pick the checkpoint:
+`english`, `multilingual`, `typed-decisions`, or `convaiinnovations/laya`
+(let the router auto-select; omitting `model` does the same).
 
 ## The `/v1/systemone` request
 
@@ -60,12 +71,20 @@ question primitives:
 
 | Type | Meaning | Answer shape |
 |---|---|---|
-| `choice` | pick one option from `criteria` (a `{name: description}` map) | `{"choice": "<option-name>"}` |
-| `score` | ordinal rating from an ordered `criteria` list | `{"score": "<one-of-the-list>"}` |
-| `noul` | yes/no as a **calibrated probability of "yes"** | `{"noul": 0.0-1.0}` |
+| `choice` | pick one option from `criteria` (a `{name: description}` map) | `{"type":"choice", "choice": "<option-name>", ...}` |
+| `score` | ordinal rating from an ordered `criteria` list | `{"type":"score", "score": <float>, "legend": {"0": "<item-0>", ...}, ...}` |
+| `noul` | yes/no as a **calibrated probability of "yes"** | `{"type":"noul", "noul": 0.0-1.0, ...}` |
+
+The `...` in each answer carries `probabilities`, `confidence`,
+`answer_confidence` and an `action` block (see the full verified response
+shape below). For `score`, `score` is a **float on the ordinal axis**, not a
+label: map it to the nearest `legend` entry (`round(score)` → label), e.g.
+`1.5208` → `2` → `"blocking"`.
 
 ```bash
-curl -s -X POST "$LS/upstream/laya/v1/systemone" \
+TOKEN=$(grep -Eo '^LAYA_API_KEY=\S+' /srv/laya/.env | cut -d= -f2)
+curl -s -X POST "$LAYA/v1/systemone" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "state": "Hi, we were billed twice for March. Please refund the duplicate today.",
@@ -92,32 +111,61 @@ curl -s -X POST "$LS/upstream/laya/v1/systemone" \
   }'
 ```
 
-Expected response shape (`answers` keyed by your question names, plus
-`routing`/`usage` metadata — schema-identical to TypeSafe's hosted Jev API
-per the upstream docs):
+Response shape (**verified against a live server** — the request above,
+`laya[serve]` 0.3.19; `answers` keyed by your question names, plus
+`model`/`routing`/`usage` metadata):
 
 ```json
 {
+  "model": "laya-rl-agent",
   "answers": {
-    "department": {"choice": "billing"},
-    "urgency": {"score": "soon"},
-    "churn_risk": {"noul": 0.92}
+    "department": {
+      "type": "choice",
+      "choice": "billing",
+      "probabilities": {"billing": 0.9905, "technical": 0.0044, "other": 0.0051},
+      "confidence": 0.9454,
+      "answer_confidence": 0.9905,
+      "action": {"act_probability": 1.0}
+    },
+    "urgency": {
+      "type": "score",
+      "score": 1.5208,
+      "legend": {"0": "not urgent", "1": "soon", "2": "blocking"},
+      "probabilities": {"0": 0.1036, "1": 0.2721, "2": 0.6244},
+      "confidence": 0.1962,
+      "answer_confidence": 0.6244,
+      "action": {"act_probability": 1.0}
+    },
+    "churn_risk": {
+      "type": "noul",
+      "noul": 0.1893,
+      "confidence": 0.8107,
+      "answer_confidence": 0.8107,
+      "action": {"act_probability": 1.0}
+    }
   },
-  "routing": {"model": "english"},
-  "usage": {"input_tokens": 41, "output_tokens": 3}
+  "usage": {"input_tokens": 142, "output_tokens": 0},
+  "routing": {
+    "model": "english",
+    "repo": "convaiinnovations/laya",
+    "reason": "English Latin text",
+    "detection": {"script": "latin", "language": "en", "is_english": true, "...": "..."}
+  }
 }
 ```
 
-**This exact JSON shape is inferred from the Python client** (`Router.predict(state, questions)`)
-and the "wire-protocol-identical-to-Jev" claim in the research doc — the raw
-HTTP schema was not independently verified against a running server. Before
-depending on field names in production code, confirm against the live
-Swagger UI: `curl -s "$LS/upstream/laya/docs"` (or open it in a browser via
-an SSH tunnel).
+Note the **request** body has no schema in the OpenAPI spec (`GET
+$LAYA/openapi.json` defines no `requestBody` for `/v1/systemone` and an empty
+200 response schema) — the request shape above was verified by a live call,
+not by the spec. Before depending on response field names in production
+code, re-confirm against `$LAYA/docs` (Swagger) or `$LAYA/openapi.json`,
+especially across `laya[serve]` upgrades.
 
 One HTTP call can carry **multiple questions** about the same `state` — batch
 your questions instead of firing one request per question; batching is also
 markedly faster (10 questions batched: ~72–159 ms vs. ~33–40 ms × 10 serial).
+Inference runs on a **single worker thread** — one forward pass at a time;
+concurrent requests queue, they don't parallelize.
 
 ## Checkpoint routing — pick the right model
 
@@ -158,30 +206,45 @@ instead of lazily on first use.
 
 ## Troubleshooting
 
-- **`laya` missing from `$LS/v1/models`**: the model was never added to
-  llama-swap's `config.yaml` — see `/srv/laya/llama-swap-configuration.yml`
-  and paste it in, then `sudo systemctl restart llama-swap`.
-- **First request after idle is slow / times out**: normal — llama-swap is
-  cold-starting the `laya-serve` process. Retry with a longer client timeout;
-  `LAYA_PRELOAD=1` only preloads *checkpoints inside* the process, it does
-  not keep the process itself warm across llama-swap's idle-unload.
-- **404 on `/v1/systemone`**: you likely hit `$LS/v1/systemone` directly
-  instead of the upstream passthrough — use
-  `$LS/upstream/<model-id>/v1/systemone`.
-- **`server_error` / schema mismatch on the request body**: the JSON shape
-  above is inferred, not verified against a live server — check
-  `$LS/upstream/laya/docs` for the authoritative schema on your install.
-- **GPU not being used**: `LAYA_DEVICE` is fixed at setup time (auto-detected
-  via `nvidia-smi` by `tasks/setup-laya.sh`) — check the `env:` block in
-  `/srv/laya/llama-swap-configuration.yml` / the live `config.yaml`, and
-  re-run `tasks/setup-laya.sh` with `LAYA_DEVICE=cuda` if it guessed wrong.
+- **Service won't come up**: `sudo journalctl -u laya -n 50`. First start
+  downloads checkpoints from Hugging Face and preloads them
+  (`LAYA_PRELOAD=1`) — startup can take minutes on CPU; the setup script's
+  health gate waits up to `LAYA_HEALTH_TIMEOUT` (default 300s) for `/health`
+  (which also reports `loaded` checkpoints and `device`).
+- **First request after a restart is slow / times out**: normal — the
+  checkpoints are being loaded; retry with a longer client timeout.
+  `curl $LAYA/health` shows which checkpoints are `loaded`.
+- **401 on `/v1/systemone`**: missing or wrong bearer token — read it from
+  `/srv/laya/.env` (`LAYA_API_KEY=` line); it is stable across re-runs of
+  `tasks/setup-laya.sh` (never rotated).
+- **413 on `/v1/systemone`**: request body over the 2 MB cap — trim `state`
+  (hard limit 50,000 chars) or questions (max 64 per call).
+- **404 on `/v1/systemone`**: you likely hit the wrong host/port — the API
+  lives directly on the service's bind address (default
+  `http://<host>:7771/v1/systemone`); check the unit's
+  `Environment=LAYA_PORT=...` in `/etc/systemd/system/laya.service`.
+- **422 on `/v1/systemone`** (FastAPI validation error with `detail`):
+  invalid request body — the request shape was verified by a live call, not
+  by the spec (the OpenAPI spec has no `requestBody` schema) — check
+  `$LAYA/docs` for the authoritative schema on your install.
+- **GPU not being used**: `LAYA_DEVICE` is fixed at setup time
+  (auto-detected via `nvidia-smi` by `tasks/setup-laya.sh`) — check the
+  `Environment=LAYA_DEVICE=...` line in `/etc/systemd/system/laya.service`,
+  and re-run `tasks/setup-laya.sh` with `LAYA_DEVICE=cuda` if it guessed
+  wrong.
 
 ## Links
 
-- `tasks/setup-laya.sh` — install/upgrade the venv (`--check`, `--force`,
-  `LAYA_DIR`/`LAYA_VERSION`/`LAYA_MODEL_ID`/`LAYA_DEVICE`)
-- `templates/laya/llama-swap-configuration.yml` — the rendered llama-swap
-  model block lives at `/srv/laya/llama-swap-configuration.yml` after setup
+- `tasks/setup-laya.sh` — install/upgrade the venv + systemd service
+  (`--check`, `--force`, `LAYA_DIR`/`LAYA_VERSION`/`LAYA_PORT`/`LAYA_HOST`/
+  `LAYA_DEVICE`/`LAYA_API_KEY`)
+- `/srv/laya/.env` — bearer token (`LAYA_API_KEY=`, mode 600), auto-generated
+  on first setup, never rotated on re-runs
+- `templates/laya/laya.service` — the systemd unit template, rendered to
+  `/etc/systemd/system/laya.service` after setup (loads the token via
+  `EnvironmentFile=`)
+- `/srv/laya/start-laya.sh` — convenience script to run `laya-serve`
+  manually in the foreground
 - `docs/research/laya-system1-model-research.md` — full research this skill
   is distilled from (checkpoints, benchmarks, GGUF feasibility analysis,
   fine-tuning notes)

@@ -93,12 +93,15 @@ Deploys llama-swap, a multi-model LLM proxy with hot-swap support, as a native s
 - Comprehensive config with all options documented
 
 #### `setup-laya.sh`
-Installs [Laya](https://huggingface.co/convaiinnovations/laya) — a self-hosted, non-autoregressive "System 1" decision model (typed `choice`/`score`/`noul` questions, not chat) — as `laya[serve]` into an isolated Python venv at `/srv/laya/venv`. llama-swap spawns it on demand (like `llama-server`), so the script never touches the hand-maintained `config.yaml`; it renders the model block from `templates/laya/llama-swap-configuration.yml` to `/srv/laya/llama-swap-configuration.yml` for the operator to paste in.
+Installs [Laya](https://huggingface.co/convaiinnovations/laya) — a self-hosted, non-autoregressive "System 1" decision model (typed `choice`/`score`/`noul` questions, not chat) — as `laya[serve]` into an isolated Python venv at `/srv/laya/venv` and runs it as the native systemd service `laya.service`. The server binds `LAYA_HOST` (default `0.0.0.0`):`LAYA_PORT` (default `7771`) and answers typed questions on `POST /v1/systemone`; a UFW inbound rule is added for the port (skipped when bound to loopback) and a bounded HTTP health gate runs after (re)start.
 
 **Features:**
 - Idempotent venv install, pinned version (`LAYA_VERSION`, default `0.3.19`), `--check`/`--force`
-- Auto-detects `LAYA_DEVICE` (cuda/cpu) via `nvidia-smi`
-- Generates the llama-swap `models:` entry (`cmd`, `env: LAYA_HOST/LAYA_PORT/LAYA_DEVICE/LAYA_PRELOAD`) from a template, no inline heredocs
+- Auto-detects `LAYA_DEVICE` (cuda/cpu) via `nvidia-smi`; CPU installs use CPU-only torch wheels
+- Renders `templates/laya/laya.service` via `envsubst` (no inline heredocs), installs to `/etc/systemd/system/laya.service`, enables + starts the service
+- Bearer-token auth: `LAYA_API_KEY` (env var wins), else read back from `/srv/laya/.env` (mode 600, `EnvironmentFile=` in the unit — the token is never rendered into the unit file), else generated via `openssl rand -hex 24`; never rotated on re-runs, printed in the summary. `/v1/systemone` requires `Authorization: Bearer <key>`; `/health` stays open
+- UFW rule via `lib/helpers.sh` (`ufw_firewall_section`), bounded health gate polls `GET /health` for `{"status":"ok","loaded":[...],"device":"..."}` (`LAYA_HEALTH_TIMEOUT` default `300`)
+- Service user is the invoking user (`LAYA_USER` / `SUDO_USER`-aware) so HF model caches land in that user's home
 - Writes `start-laya.sh` convenience script (foreground `laya-serve`, defaults `127.0.0.1:8000`, all `LAYA_*` env vars overridable) from `templates/laya/start-laya.sh`
 - See the companion skill `skills/laya/SKILL.md` for how to call the deployed model, and `docs/research/laya-system1-model-research.md` for the underlying research
 
