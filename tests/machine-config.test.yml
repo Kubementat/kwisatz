@@ -101,6 +101,12 @@ scripts:
     env: {}
     args: []
 
+  setup-postiz:
+    enabled: false
+    description: Postiz scheduler (docker + Temporal) — ad-hoc via --scripts
+    env: {}
+    args: []
+
   setup-monitoring:
     enabled: false
     description: Prometheus + Grafana (docker) — ad-hoc via --scripts

@@ -265,6 +265,23 @@ Installs Forgejo (a Gitea fork) as a Docker container. Supports optional Traefik
 #### `setup-planka.sh`
 Installs Planka, a self-hosted Kanban board, via Docker Compose with PostgreSQL. Auto-generates a secret key and supports interactive or headless admin user creation.
 
+#### `setup-postiz.sh`
+Deploys **Postiz** (self-hosted social-media scheduler, 28+ platforms) via Docker Compose: Postiz app + PostgreSQL + Redis + the full Temporal stack (auto-setup, PostgreSQL, Elasticsearch, UI) — Postiz v2.12+ requires Temporal for cron/scheduled posting. Based on the official `gitroomhq/postiz-docker-compose` compose, slimmed (no `spotlight` debug profile, no `temporal-admin-tools` tty container; `docker exec -it temporal temporal …` covers CLI needs).
+
+**Features:**
+- Pinned immutable images (`ghcr.io/gitroomhq/postiz-app:v2.24.0`, `postgres:17-alpine` for the Postiz DB, `postgres:16` for the Temporal DB, `redis:7.2`, `elasticsearch:7.17.27`, `temporalio/auto-setup:1.28.1`, `temporalio/ui:2.34.0`)
+- Direct mode: publishes `HTTP_PORT` (default `4007`); opt-in Traefik mode (`POSTIZ_TRAEFIK=true POSTIZ_DOMAIN=…`) removes the port and routes via `PROXY_NETWORK` (default `proxy`) with Let's Encrypt TLS
+- Secrets (`JWT_SECRET`, `POSTGRES_PASSWORD`, `TEMPORAL_POSTGRES_PASSWORD`, optional `OPENAI_API_KEY`) auto-generated on first run, stored in `/srv/postiz/.env` (mode 600), reused on re-runs (never rotated); the compose file keeps only literal `${VAR}` placeholders resolved at runtime via `--env-file`
+- Temporal debug ports loopback-only (`127.0.0.1:7233`, Temporal UI on `127.0.0.1:18080`)
+- **Admin bootstrap (API):** the script creates the first organization + SUPERADMIN user via `POST /api/auth/register` (login-first on re-runs, idempotent; Postiz has no seed mechanism — `docs/research/postiz-auto-config-2026-09-30.md`), stores the org's auto-generated public API key as `POSTIZ_API_KEY` in the `.env`, and locks public signup afterwards (`POSTIZ_DISABLE_REGISTRATION=true` default — Postiz still allows exactly the first registration while the org count is 0)
+- Direct mode sets `NOT_SECURED=true`: over plain HTTP the auth cookie would otherwise be flagged `Secure` and browsers drop it (login 200 but no session)
+- Re-runs converge: re-render, reuse secrets, `docker compose up -d`, `wait_for_healthy` gate (`WAIT_TIMEOUT` default `300` — ES+Temporal are slower than the 180 s house default) + HTTP readiness poll
+- Post-install checklist printed at the end (login with the admin user, platform integrations, MCP server wiring) — social-platform OAuth credentials are UI-owned, never in the compose/env template
+
+**Env:** `POSTIZ_HOME` (`/srv/postiz`), `HTTP_PORT` (`4007`), `POSTIZ_TRAEFIK`/`POSTIZ_DOMAIN`/`PROXY_NETWORK`, `POSTIZ_HOST_IP`, `POSTIZ_IMAGE` + the Temporal-stack image vars, `TEMPORAL_UI_PORT` (`18080`), `WAIT_TIMEOUT` (`300`), `OPENAI_API_KEY`, `POSTIZ_DISABLE_REGISTRATION` (`true`), `POSTIZ_ADMIN_EMAIL` (machine user's email), `POSTIZ_ADMIN_ORG` (`my organization`), `POSTIZ_ADMIN_PASSWORD` (auto-generated, in the `.env`).
+
+> **Upgrade procedure:** bump `POSTIZ_IMAGE` to the newest GHCR release tag and re-run the script (or `docker compose --env-file /srv/postiz/.env -f /srv/postiz/docker-compose.yml pull && up -d` in `/srv/postiz`) — Postiz migrations run on boot. Plan: `docs/plans/postiz-setup.md`.
+
 ---
 
 ### CI/CD

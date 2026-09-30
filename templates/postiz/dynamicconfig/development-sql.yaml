@@ -1,0 +1,11 @@
+# Temporal dynamic config — verbatim from the official
+# gitroomhq/postiz-docker-compose repo (checked 2026-09-30). Mounted at
+# /etc/temporal/config/dynamicconfig in the temporal container; without this
+# file Temporal does not come up.
+---
+limit.maxIDLength:
+  - value: 255
+    constraints: {}
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true # Dev setup only. Please don't turn this on in production.
+    constraints: {}

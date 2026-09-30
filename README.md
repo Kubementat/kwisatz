@@ -39,7 +39,7 @@ graph LR
 - **Order guaranteed** — scripts run in the order you listed them; one failure doesn't stop the rest
 - **Agent-friendly** — ships an [Agent Skill](https://agentskills.io) so Claude Code, pi, or any compatible agent can set the machine up for you
 - **Backup-solution** - ships with the repository (see [Backups](README.md#backups))
-- **Not just inference** — 30+ services: Forgejo, Nextcloud, n8n, Neovim, monitoring, remote desktop, Text-to-speech, dev tools, and more
+- **Not just inference** — 30+ services: Forgejo, Nextcloud, n8n, Postiz, Neovim, monitoring, remote desktop, Text-to-speech, dev tools, and more
 - Licensed under MIT License (see [MIT-LICENSE](./MIT-LICENSE))
 
 ---

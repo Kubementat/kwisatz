@@ -232,6 +232,11 @@ scripts:
     description: Install Planka (project management)
     env: {}
     args: []
+  setup-postiz:
+    enabled: false
+    description: Install Postiz (social-media scheduler, docker + Temporal)
+    env: {}
+    args: []
   setup-whispering:
     enabled: false
     description: Install Whispering (speech-to-text service)
