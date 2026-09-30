@@ -105,6 +105,17 @@ Installs [Laya](https://huggingface.co/convaiinnovations/laya) — a self-hosted
 - Writes `start-laya.sh` convenience script (foreground `laya-serve`, defaults `127.0.0.1:8000`, all `LAYA_*` env vars overridable) from `templates/laya/start-laya.sh`
 - See the companion skill `skills/laya/SKILL.md` for how to call the deployed model, and `docs/research/laya-system1-model-research.md` for the underlying research
 
+#### `setup-ollaya.sh`
+Installs [Ollaya](https://github.com/ollaya-dev/ollaya) ("Ollama for decision models", serves `laya`, `winnow`, `decider`, ... behind a TypeSafe-compatible `/v1/systemone` API) and runs `ollaya serve` as the native systemd service `ollaya.service` under the system user `ollaya`. Binds `OLLAYA_HOST` (default `0.0.0.0:11435`); models live in `/srv/ollaya/models`.
+
+**Features:**
+- Uses the official release installer (downloaded to a temp file, sha256-verified, latest release by default, `OLLAYA_VERSION` pins a specific one) with `OLLAYA_NO_SERVICE=1`; skipped when the target version is already installed (re-runs upgrade if a newer release exists) (`--force` to re-run), `--check` for status
+- Renders `templates/ollaya/ollaya.service` via `envsubst`; `OLLAYA_API_KEY` from env > `/srv/ollaya/.env` (mode 600, `EnvironmentFile=`) > `openssl rand -hex 24`, never rotated
+- Health gate: unauthenticated `GET /` ("Ollaya is running"), then authenticated `GET /api/version`
+- Pulls `OLLAYA_PULL_MODELS` (default `laya`) via idempotent `POST /api/pull`
+- UFW rule via `ufw_firewall_section` (skipped on loopback bind); requires glibc >= 2.38 and `zstd`
+- See the companion skill `skills/ollaya/SKILL.md` for using the `ollaya` CLI and API, and `docs/research/ollaya-research.md` for the research
+
 #### `setup-colqwen.sh`
 Generates a ColQwen2.5 embedding-service Docker project (FastAPI + colpali-engine on an NVIDIA NGC PyTorch base image). Serves multi-vector embeddings (dim 128) for document images and text queries — the retrieval side of visual document RAG. The script only generates the project; build and start it yourself. Models are mounted read-only from the HF cache at the identical path (adapter `base_model_name_or_path` entries resolve) and are never downloaded (fully offline: `HF_HUB_OFFLINE=1`).
 

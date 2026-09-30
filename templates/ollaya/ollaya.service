@@ -1,0 +1,35 @@
+# Managed by kwisatz tasks/setup-ollaya.sh — re-running the script re-renders this file.
+# Change settings by re-running the script with different environment variables,
+# or with a drop-in (sudo systemctl edit ollaya).
+[Unit]
+Description=Ollaya decision model server
+Documentation=https://github.com/ollaya-dev/ollaya
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${OLLAYA_USER}
+Group=${OLLAYA_USER}
+WorkingDirectory=${OLLAYA_DIR}
+Environment=HOME=${OLLAYA_DIR}
+Environment=OLLAYA_HOST=${OLLAYA_HOST}
+Environment=OLLAYA_MODELS=${OLLAYA_MODELS}
+Environment=OLLAYA_DEVICE=${OLLAYA_DEVICE}
+Environment=OLLAYA_KEEP_ALIVE=${OLLAYA_KEEP_ALIVE}
+Environment=OLLAYA_MAX_LOADED_MODELS=${OLLAYA_MAX_LOADED_MODELS}
+# OLLAYA_API_KEY lives only in this mode-600 env file (never rendered into the
+# unit). When set, every request except GET/HEAD / needs "Authorization: Bearer <key>".
+EnvironmentFile=${ENV_FILE}
+ExecStart=${OLLAYA_BIN} serve
+Restart=always
+RestartSec=3
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ollaya
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
