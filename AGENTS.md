@@ -3,7 +3,9 @@
 Automation scripts for installing and configuring a server or developer machine for LLM workflows and software development.
 
 ## Getting help
+
 **ALWAYS** read `skills/kwisatz-assistant/SKILL.md` and follow its instructions when the user:
+
 - asks for help, usage instructions, or how to use the repo
 - asks to understand, explain, or describe the repository
 - asks what services are available or which to install
@@ -14,6 +16,7 @@ Automation scripts for installing and configuring a server or developer machine 
 Do NOT answer these questions from your own knowledge — always delegate to the skill.
 
 ## Core Facts
+
 - setup for unix systemd based deployments
 - setup for docker based deployments
   - setup scripts generate `docker-compose.yml` for each service
@@ -34,32 +37,39 @@ Do NOT answer these questions from your own knowledge — always delegate to the
 ## Implementation Instructions
 
 ### Development Workflow
+
 - features/bugfixes are developed in feature branches using `git worktree`
 - features branches are merged to `develop` once the feature development finishes
 - the `develop` branch is merged to `main` branch manually by the user when cutting a new release
 
 ### Important skills
+
 - Always load the `karpathy-guidelines` skill when planning or implementing changes
 
 ### Linting
 
 ALWAYS lint created or modified files with the following tools:
 
-- bash files (`.sh`) -> use `shellcheck`
-- `.yml` -> use `yamllint`
-- json (`.js`, `.json`) -> use `jq`
-- `Dockerfile` -> use hadolint via executing: docker run --rm -i hadolint/hadolint < Dockerfile
-- python (`.py`) -> use `ruff check` (fallback: `python3 -m py_compile` on every new/changed file)
+- bash files (`.sh`) -&gt; use `shellcheck`
+- `.yml` -&gt; use `yamllint`
+- json (`.js`, `.json`) -&gt; use `jq`
+- `Dockerfile` -&gt; use hadolint via executing: docker run --rm -i hadolint/hadolint &lt; Dockerfile
+- python (`.py`) -&gt; use `ruff check` (fallback: `python3 -m py_compile` on every new/changed file)
 
 ### Testing
+
 - For running automation tests use the virtual machine based testing approach as described in ./tests/README.md
 
 ### Common logic
 
 Always check the `lib/` directory for existing functionality when implementing setup scripts in the `tasks/` directory. Try reusing existing functionality.
-When implementing a script in `tasks/` -> ALWAYS inspect the library scripts in `lib/` first.
+When implementing a script in `tasks/` -&gt; ALWAYS inspect the library scripts in `lib/` first.
 
 ### bash Script Specifications
+
+#### Script Execution User
+
+We expect that a non root user is executing the scripts. The scripts themselves should use sudo commands for all operations that need root privileges.
 
 #### Idempotency
 
@@ -85,10 +95,10 @@ Re-running any task script against an existing stack must converge it (render te
 #### Stack health verification
 
 - A task script that starts a docker stack must prove the stack is up before
-  reporting success: `wait_for_healthy` (from `lib/helpers.sh`, or an HTTP
-  readiness poll where one already exists) after every `docker compose up -d`,
-  with a bounded timeout and a non-zero exit on failure. See
-  `specification/project/conventions.md` → *Stack health verification*.
+reporting success: `wait_for_healthy` (from `lib/helpers.sh`, or an HTTP
+readiness poll where one already exists) after every `docker compose up -d`,
+with a bounded timeout and a non-zero exit on failure. See
+`specification/project/conventions.md` → *Stack health verification*.
 
 #### Templating
 
@@ -97,17 +107,17 @@ If you need to use templating (e.g. for creating configuration files) you requir
 #### Secrets and templating
 
 - Secrets (passwords, keys, tokens, URLs containing credentials) are **never**
-  substituted into a generated file. Keep `${VAR}` literal in
-  `templates/<component>/*` and resolve at runtime from
-  `/srv/<service>/.env` (mode 600) via `docker compose --env-file` or
-  `env_file:` in the service section.
+substituted into a generated file. Keep `${VAR}` literal in
+`templates/<component>/*` and resolve at runtime from
+`/srv/<service>/.env` (mode 600) via `docker compose --env-file` or
+`env_file:` in the service section.
 - Non-secret layout values (ports, paths, host names, network names) may be
-  `envsubst`ed at render time.
+`envsubst`ed at render time.
 - Every secret must be **read back** from the service `.env` before generating
-  a new value, so re-runs never rotate credentials a persisted volume depends
-  on (see `setup-monitoring.sh` / `setup-concourse.sh`).
+a new value, so re-runs never rotate credentials a persisted volume depends
+on (see `setup-monitoring.sh` / `setup-concourse.sh`).
 - `envsubst` reads its **environment**; render as the invoking user into a
-  `mktemp` file and install with `sudo install -m 600` (see
-  `setup-traefik.sh`), never `sudo envsubst`.
+`mktemp` file and install with `sudo install -m 600` (see
+`setup-traefik.sh`), never `sudo envsubst`.
 - Shared env-file primitives: `lib/helpers.sh` (`env_file_get`,
-  `env_file_write`).
+`env_file_write`).
