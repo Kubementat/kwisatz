@@ -40,9 +40,9 @@
 #   ORCA_INSTALL_DIR      AppImage install directory (default: /opt/orca)
 #   ORCA_HEALTH_TIMEOUT   Seconds to wait for the readiness JSON (default: 120)
 #
-# Usage:
-#   sudo ./setup-orca.sh
-#   ORCA_PAIRING_ADDRESS=100.64.1.20 sudo ./setup-orca.sh
+# Usage (as a regular user with sudo privileges — sudo is used internally):
+#   ./setup-orca.sh
+#   ORCA_PAIRING_ADDRESS=100.64.1.20 ./setup-orca.sh
 #   ORCA_VERSION=v1.4.218 ORCA_MOBILE_PAIRING=true ORCA_DESKTOP=true ./setup-orca.sh
 # =============================================================================
 
@@ -71,7 +71,7 @@ source "${LIB_PATH}" || {
 : "${ORCA_HEALTH_TIMEOUT:=120}"
 
 if [[ "${ORCA_SERVICE_USER}" == "root" ]]; then
-  warn "ORCA_SERVICE_USER resolves to 'root' — run via sudo as a regular user or set ORCA_SERVICE_USER explicitly."
+  warn "ORCA_SERVICE_USER resolves to 'root' — run the script as a regular user or set ORCA_SERVICE_USER explicitly."
 fi
 
 GITHUB_REPO="stablyai/orca"
@@ -107,9 +107,9 @@ Environment Variables (all optional):
   ORCA_INSTALL_DIR      AppImage install directory (default: /opt/orca)
   ORCA_HEALTH_TIMEOUT   Seconds to wait for the readiness JSON (default: 120)
 
-Examples:
-  sudo ./setup-orca.sh
-  ORCA_PAIRING_ADDRESS=100.64.1.20 sudo ./setup-orca.sh
+Examples (run as a regular user with sudo privileges — sudo is used internally):
+  ./setup-orca.sh
+  ORCA_PAIRING_ADDRESS=100.64.1.20 ./setup-orca.sh
   ORCA_VERSION=v1.4.218 ORCA_MOBILE_PAIRING=true ./setup-orca.sh
 
 After setup, paste the printed pairing URL into
@@ -144,8 +144,14 @@ done
 # ---------------------------------------------------------------------------
 step "Running pre-flight checks"
 
-if [[ $(id -u) -ne 0 ]] && ! sudo -n true 2>/dev/null; then
-  error "This script requires root or passwordless sudo."
+# The script runs as a regular user; all privileged operations go through
+# sudo. Password (interactive) sudo is fine — sudo caches the credential for
+# the remaining calls once it is entered.
+if [[ $(id -u) -ne 0 ]]; then
+  command -v sudo &>/dev/null \
+    || error "Running as a regular user but sudo is not available — privileged steps (apt, systemd, /opt/orca) cannot be performed."
+else
+  warn "Running as root — a regular user with sudo privileges is expected."
 fi
 command -v systemctl &>/dev/null || error "systemctl not found — a systemd host is required."
 for tool in curl apt-get jq file envsubst; do
