@@ -1,0 +1,38 @@
+# orca-serve.service — Orca runtime server (headless `orca serve`)
+# Rendered by tasks/setup-orca.sh via envsubst — do not edit manually.
+#
+# Based on the official headless guide:
+# https://github.com/stablyai/orca/blob/main/docs/reference/headless-linux-server.md
+#
+# Notes:
+# - --json logs a single orca_server_ready line once the listener is bound;
+#   tasks/setup-orca.sh uses it as the readiness contract.
+# - Orca auto-starts Xvfb on :99 when no DISPLAY is set (xvfb package required).
+# - KillMode=mixed: SIGTERM goes to the Orca main process only, so it can
+#   clean up its owned Xvfb before the cgroup is SIGKILLed.
+# - Exit status 3 = userData profile lock (another instance owns the state);
+#   never retry that, so it is excluded from the restart policy.
+
+[Unit]
+Description=Orca runtime server
+Documentation=https://www.onorca.dev/docs/remote-servers
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=${ORCA_SERVICE_USER}
+WorkingDirectory=${ORCA_HOME}
+Environment=LIBGL_ALWAYS_SOFTWARE=1
+ExecStart=${ORCA_APPIMAGE} serve --port ${ORCA_PORT} --json ${ORCA_SERVE_ARGS}
+StandardOutput=journal
+StandardError=journal
+KillMode=mixed
+Restart=on-failure
+RestartPreventExitStatus=3
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

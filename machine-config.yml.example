@@ -207,6 +207,17 @@ scripts:
       OPENCODE_PORT: '8765'
       OPENCODE_HOSTNAME: 0.0.0.0
     args: []
+  setup-orca:
+    enabled: false
+    description: Install Orca remote server (headless orca serve under systemd)
+    env:
+      # Release tag (e.g. v1.4.218) or 'latest'; pairing address clients dial
+      ORCA_VERSION: latest
+      ORCA_PORT: '6768'
+      ORCA_PAIRING_ADDRESS: ''
+      ORCA_MOBILE_PAIRING: 'false'
+      # ORCA_DESKTOP: 'false'   # also install /usr/local/bin/orca-desktop
+    args: []
   setup-excalidraw:
     enabled: false
     description: Install Excalidraw (diagramming tool)

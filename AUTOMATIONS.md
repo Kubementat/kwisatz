@@ -82,6 +82,14 @@ Deploys Open WebUI using Docker Compose, connecting to an external LM Studio ins
 #### `setup-opencode.sh`
 Installs the Opencode AI coding agent. By default only the CLI is installed (npm). `OPENCODE_SERVICE=true` additionally installs the `opencode` systemd service; `USE_DOCKER=true` deploys the Opencode server as a Docker Compose stack (direct or Traefik mode).
 
+#### `setup-orca.sh`
+Installs the Orca remote server (https://www.onorca.dev) in headless mode: the Linux AppImage is installed to `/opt/orca` and `orca serve` runs as the `orca-serve.service` systemd unit under the invoking user by default (lingering enabled so live terminals survive restarts); a different user can be set via `ORCA_SERVICE_USER`. Installs the Xvfb + Electron shared-library prerequisites, verifies the download, prints the pairing URL for clients, and opens the UFW port when the firewall is active.
+
+**Features:**
+- `ORCA_VERSION` (default `latest`), `ORCA_PORT` (default 6768), `ORCA_SERVICE_USER` (default: invoking user/sudo caller), `ORCA_PAIRING_ADDRESS` (Tailscale/LAN address or `https://…/runtime` URL clients should dial; empty = local-only), `ORCA_MOBILE_PAIRING`, `ORCA_DESKTOP` (adds an `/usr/local/bin/orca-desktop` AppImage launcher — only one host mode per machine)
+- Bounded health verification on the `orca_server_ready` JSON contract
+- Idempotent: re-runs skip the download and leave a healthy running service untouched; changed env values re-render the unit and restart
+
 #### `setup-llama-swap.sh`
 Deploys llama-swap, a multi-model LLM proxy with hot-swap support, as a native systemd service. Downloads the Go binary from GitHub releases and generates a comprehensive `config.yaml` with all available options documented.
 
