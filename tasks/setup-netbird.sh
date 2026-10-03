@@ -39,7 +39,7 @@
 #   STUN_PORT              - UDP STUN port published on the host (default: 3478)
 #   PROXY_NETWORK          - Traefik's external Docker network (default: proxy)
 #   NETBIRD_ADMIN_EMAIL    - Optional bootstrap owner user (with NETBIRD_ADMIN_PASSWORD)
-#   NETBIRD_ADMIN_PASSWORD - Optional bootstrap owner password
+#   NETBIRD_ADMIN_PASSWORD - Optional bootstrap owner password (stored as bcrypt hash)
 #   NETBIRD_CLIENT_ENABLED - "true" to start the routing-peer client (default: false)
 #   NETBIRD_SETUP_KEY      - Required when NETBIRD_CLIENT_ENABLED=true
 #   NETBIRD_CLIENT_HOSTNAME - Client container hostname (default: netbird-peer)
@@ -146,7 +146,8 @@ ${BOLD}Environment variables${RESET} (all optional except NETBIRD_DOMAIN):
   STUN_PORT                UDP STUN port published on the host (default: 3478)
   PROXY_NETWORK            Traefik's external Docker network (default: proxy)
   NETBIRD_ADMIN_EMAIL      Optional bootstrap owner user (with NETBIRD_ADMIN_PASSWORD)
-  NETBIRD_ADMIN_PASSWORD   Optional bootstrap owner password
+  NETBIRD_ADMIN_PASSWORD   Optional bootstrap owner password (stored as bcrypt
+                           hash in config.yaml; needs htpasswd)
   NETBIRD_CLIENT_ENABLED   "true" to start the routing-peer client (default: false)
   NETBIRD_SETUP_KEY        Required when NETBIRD_CLIENT_ENABLED=true
   NETBIRD_CLIENT_HOSTNAME  Client container hostname (default: netbird-peer)
@@ -154,6 +155,18 @@ ${BOLD}Environment variables${RESET} (all optional except NETBIRD_DOMAIN):
   WAIT_TIMEOUT             Max seconds to wait for the stack to come up and
                            become healthy after 'docker compose up -d'
                            (default: 180)
+
+${BOLD}Network requirements${RESET} (router port forwarding to this host):
+  443/tcp            Traefik — dashboard, API, gRPC, relay and login (HTTPS)
+  80/tcp             Traefik — Let's Encrypt HTTP challenge and HTTPS redirect
+                     (not needed with the DNS challenge, DNS_PROVIDER=cloudflare)
+  ${STUN_PORT}/udp           STUN — published directly, cannot go through Traefik.
+                     Without it NetBird still works, but more peer connections
+                     fall back to the relay instead of going peer to peer.
+  NETBIRD_DOMAIN must resolve publicly to the router's external IP (use
+  dynamic DNS if that IP changes). No UDP port range is needed, and clients
+  need no inbound ports. Behind carrier-grade NAT (no public IPv4) port
+  forwarding cannot make the server reachable.
 
 ${BOLD}Re-run policy${RESET} (converge by default): re-running an existing stack
 converges it — the generated files are left unchanged, images are pulled, and
@@ -226,8 +239,13 @@ NETBIRD_SILENT_REDIRECT="${NETBIRD_MGMT_URL}/nb-silent-auth"
 
 NETBIRD_OWNER_BLOCK=""
 if [[ -n "$NETBIRD_ADMIN_EMAIL" && -n "$NETBIRD_ADMIN_PASSWORD" ]]; then
+  # NetBird expects auth.owner.password to be a bcrypt hash, not the plain password.
+  command -v htpasswd &>/dev/null \
+    || error "htpasswd is required to hash NETBIRD_ADMIN_PASSWORD — install with: sudo apt-get install apache2-utils"
+  NETBIRD_ADMIN_PASSWORD_HASH="$(printf '%s' "$NETBIRD_ADMIN_PASSWORD" | htpasswd -niBC 10 owner | head -n 1 | cut -d: -f2)"
+  [[ "$NETBIRD_ADMIN_PASSWORD_HASH" == \$2* ]] || error "Could not bcrypt-hash NETBIRD_ADMIN_PASSWORD."
   NETBIRD_OWNER_BLOCK="$(printf '    owner:\n      email: "%s"\n      password: "%s"' \
-    "$NETBIRD_ADMIN_EMAIL" "$NETBIRD_ADMIN_PASSWORD")"
+    "$NETBIRD_ADMIN_EMAIL" "$NETBIRD_ADMIN_PASSWORD_HASH")"
   info "Bootstrap owner '${NETBIRD_ADMIN_EMAIL}' will be configured in config.yaml (first render only)."
 fi
 export NETBIRD_MGMT_URL NETBIRD_ISSUER NETBIRD_DASHBOARD_REDIRECT NETBIRD_SILENT_REDIRECT

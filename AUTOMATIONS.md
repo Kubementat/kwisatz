@@ -371,6 +371,13 @@ Installs the Brave browser from its official apt repository.
 #### `setup-netbird.sh`
 Deploys self-hosted NetBird (a WireGuard-based mesh VPN) as Docker containers: the combined server (management + signal + relay + embedded STUN + embedded IdP) and the dashboard, routed through the Traefik reverse proxy (installed via `setup-traefik.sh` first when it is not running), plus an optional routing-peer client for LAN exposure.
 
+**Network requirements** (router port forwarding to the server):
+- `443/tcp` → Traefik: dashboard, API, gRPC, relay and login (HTTPS)
+- `80/tcp` → Traefik: Let's Encrypt HTTP challenge and HTTPS redirect (not needed with the DNS challenge, `DNS_PROVIDER=cloudflare`)
+- `3478/udp` (`STUN_PORT`) → STUN, published directly because it cannot go through Traefik; without it NetBird still works, but more peer connections fall back to the relay instead of going peer to peer
+- `NETBIRD_DOMAIN` must resolve publicly to the router's external IP (use dynamic DNS if that IP changes)
+- No UDP port range is needed and clients need no inbound ports; behind carrier-grade NAT (no public IPv4) port forwarding cannot make the server reachable
+
 ---
 
 ### Development Tools
