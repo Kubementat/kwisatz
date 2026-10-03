@@ -42,9 +42,11 @@
 #   workspace: optional ABSOLUTE path — the only writable dir (default: $PWD)
 #
 # Options:
-#   --env KEY=VALUE   extra env var passed into the sandbox (repeatable)
-#   --debug-argv      print the bwrap command line and exit (does not exec)
-#   -h, --help        show this help
+#   --env KEY=VALUE       extra env var passed into the sandbox (repeatable)
+#   --ro-bind HOST[:DEST] extra read-only bind; DEST defaults to HOST
+#                         (repeatable)
+#   --debug-argv          print the bwrap command line and exit (does not exec)
+#   -h, --help            show this help
 #
 # Examples:
 #   asb pi                          # sandboxed pi in the current dir
@@ -83,9 +85,11 @@ Arguments:
   args        passed through to the agent
 
 Options:
-  --env KEY=VALUE   extra env var passed into the sandbox (repeatable)
-  --debug-argv      print the bwrap command line and exit (does not exec)
-  -h, --help        show this help
+  --env KEY=VALUE       extra env var passed into the sandbox (repeatable)
+  --ro-bind HOST[:DEST] extra read-only bind; DEST defaults to HOST
+                        (repeatable; both must be absolute, existing dirs)
+  --debug-argv          print the bwrap command line and exit (does not exec)
+  -h, --help            show this help
 
 Guarantees (v1):
   - workspace is the only general writable path (/tmp is a private
@@ -93,6 +97,8 @@ Guarantees (v1):
     private /tmp instead of binding $HOME)
   - /usr /lib /lib64 /bin /sbin are read-only; /etc is per-file
     (resolv.conf, hosts, passwd, group, ssl) — shadow/sudoers are invisible
+  - --ro-bind HOST[:DEST] (repeatable) adds extra read-only binds; DEST
+    defaults to HOST when omitted
   - agent state: ~/.local/bin, ~/.config/opencode read-only; ~/.pi,
     ~/.local/share/opencode, ~/.claude and ~/.claude.json (claude) and
     ~/.codex (codex, incl. its standalone binary) rw — agents write
@@ -155,6 +161,8 @@ REST=("$@")
 WORKSPACE=""
 WORKSPACE_EXPLICIT=0
 ENV_OVERRIDES=()
+RO_BINDS_HOST=()
+RO_BINDS_DEST=()
 AGENT_ARGS=()
 DEBUG_ARGV=0
 
@@ -173,6 +181,44 @@ while (( i < ${#REST[@]} )); do
     --debug-argv)
       DEBUG_ARGV=1
       i=$((i + 1))
+      continue
+      ;;
+    --ro-bind)
+      if (( i + 1 >= ${#REST[@]} )); then
+        err "--ro-bind requires a HOST[:DEST] argument"
+      fi
+      ro_spec="${REST[i+1]}"
+      if [[ "$ro_spec" == *:* ]]; then
+        ro_host="${ro_spec%%:*}"
+        ro_dest="${ro_spec#*:}"
+      else
+        ro_host="$ro_spec"
+        ro_dest="$ro_spec"
+      fi
+      # Validate: both paths must be absolute
+      if [[ "$ro_host" != /* ]]; then
+        err "--ro-bind: host path must be absolute (got: '${ro_host}')"
+      fi
+      if [[ "$ro_dest" != /* ]]; then
+        err "--ro-bind: dest path must be absolute (got: '${ro_dest}')"
+      fi
+      # Validate: both must exist
+      if [[ ! -e "$ro_host" ]]; then
+        err "--ro-bind: host path does not exist (got: '${ro_host}')"
+      fi
+      if [[ ! -e "$ro_dest" ]]; then
+        err "--ro-bind: dest path does not exist (got: '${ro_dest}')"
+      fi
+      # Validate: both must be directories
+      if [[ ! -d "$ro_host" ]]; then
+        err "--ro-bind: host path is not a directory (got: '${ro_host}')"
+      fi
+      if [[ ! -d "$ro_dest" ]]; then
+        err "--ro-bind: dest path is not a directory (got: '${ro_dest}')"
+      fi
+      RO_BINDS_HOST+=("$ro_host")
+      RO_BINDS_DEST+=("$ro_dest")
+      i=$((i + 2))
       continue
       ;;
   esac
@@ -385,6 +431,11 @@ BWRAP_ARGV=(
 
 for d in "${RO_EXTRA_DIRS[@]}"; do
   BWRAP_ARGV+=(--ro-bind "$d" "$d")
+done
+
+# user-supplied --ro-bind HOST[:DEST] (repeatable)
+for (( idx=0; idx<${#RO_BINDS_HOST[@]}; idx++ )); do
+  BWRAP_ARGV+=(--ro-bind "${RO_BINDS_HOST[$idx]}" "${RO_BINDS_DEST[$idx]}")
 done
 
 # skills/prompts symlink targets (ro) — see add_state_link_target above
