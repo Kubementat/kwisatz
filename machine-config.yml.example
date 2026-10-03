@@ -53,7 +53,6 @@ scripts:
     enabled: false
     description: Install self-hosted NetBird (mesh VPN server + dashboard)
     env:
-      NETBIRD_TRAEFIK: 'true'
       NETBIRD_DOMAIN: netbird.example.com
       NETBIRD_HOME: /srv/netbird
     args: []

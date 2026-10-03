@@ -369,7 +369,7 @@ Installs AnyDesk remote desktop from the official apt repository.
 Installs the Brave browser from its official apt repository.
 
 #### `setup-netbird.sh`
-Deploys self-hosted NetBird (a WireGuard-based mesh VPN) as Docker containers: the combined server (management + signal + relay + embedded STUN + embedded IdP) and the dashboard. Supports direct host ports or Traefik reverse-proxy integration, plus an optional routing-peer client for LAN exposure.
+Deploys self-hosted NetBird (a WireGuard-based mesh VPN) as Docker containers: the combined server (management + signal + relay + embedded STUN + embedded IdP) and the dashboard, routed through the Traefik reverse proxy (installed via `setup-traefik.sh` first when it is not running), plus an optional routing-peer client for LAN exposure.
 
 ---
 
