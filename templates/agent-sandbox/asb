@@ -6,7 +6,8 @@
 #
 # Runs a coding agent (pi, opencode, claude, codex) or a bare shell (sh)
 # inside a bwrap
-# sandbox in which the workspace is the ONLY general writable path:
+# sandbox in which the workspace is the ONLY general writable path
+# (explicit --bind dirs are deliberate exceptions):
 #
 #   - system dirs read-only: /usr /lib /lib64 /bin /sbin
 #   - /etc per-file only (resolv.conf, hosts, passwd, group, ssl) — the
@@ -44,6 +45,8 @@
 # Options:
 #   --env KEY=VALUE       extra env var passed into the sandbox (repeatable)
 #   --ro-bind HOST[:DEST] extra read-only bind; DEST defaults to HOST
+#                         (repeatable)
+#   --bind HOST[:DEST]    extra writable bind; DEST defaults to HOST
 #                         (repeatable)
 #   --debug-argv          print the bwrap command line and exit (does not exec)
 #   -h, --help            show this help
@@ -88,16 +91,21 @@ Options:
   --env KEY=VALUE       extra env var passed into the sandbox (repeatable)
   --ro-bind HOST[:DEST] extra read-only bind; DEST defaults to HOST
                         (repeatable; both must be absolute, existing dirs)
+  --bind HOST[:DEST]    extra writable bind; DEST defaults to HOST
+                        (repeatable; both must be absolute, existing dirs)
   --debug-argv          print the bwrap command line and exit (does not exec)
   -h, --help            show this help
 
 Guarantees (v1):
   - workspace is the only general writable path (/tmp is a private
     tmpfs; when the default workspace would be $HOME, asb uses the
-    private /tmp instead of binding $HOME)
+    private /tmp instead of binding $HOME); user --bind dirs are
+    deliberate exceptions
   - /usr /lib /lib64 /bin /sbin are read-only; /etc is per-file
     (resolv.conf, hosts, passwd, group, ssl) — shadow/sudoers are invisible
   - --ro-bind HOST[:DEST] (repeatable) adds extra read-only binds; DEST
+    defaults to HOST when omitted
+  - --bind HOST[:DEST] (repeatable) adds extra writable binds; DEST
     defaults to HOST when omitted
   - agent state: ~/.local/bin, ~/.config/opencode read-only; ~/.pi,
     ~/.local/share/opencode, ~/.claude and ~/.claude.json (claude) and
@@ -133,6 +141,8 @@ Examples:
                                         # are already carried by the rw mount)
   asb codex /path/to/repo
   asb sh -c 'ls'
+  asb pi /srv/projects/myrepo --bind /srv/projects/myrepo-main/.git
+     # make the backing .git of a linked git worktree writable in-sandbox
 EOF
 }
 
@@ -163,6 +173,8 @@ WORKSPACE_EXPLICIT=0
 ENV_OVERRIDES=()
 RO_BINDS_HOST=()
 RO_BINDS_DEST=()
+BINDS_HOST=()
+BINDS_DEST=()
 AGENT_ARGS=()
 DEBUG_ARGV=0
 
@@ -218,6 +230,44 @@ while (( i < ${#REST[@]} )); do
       fi
       RO_BINDS_HOST+=("$ro_host")
       RO_BINDS_DEST+=("$ro_dest")
+      i=$((i + 2))
+      continue
+      ;;
+    --bind)
+      if (( i + 1 >= ${#REST[@]} )); then
+        err "--bind requires a HOST[:DEST] argument"
+      fi
+      bind_spec="${REST[i+1]}"
+      if [[ "$bind_spec" == *:* ]]; then
+        bind_host="${bind_spec%%:*}"
+        bind_dest="${bind_spec#*:}"
+      else
+        bind_host="$bind_spec"
+        bind_dest="$bind_spec"
+      fi
+      # Validate: both paths must be absolute
+      if [[ "$bind_host" != /* ]]; then
+        err "--bind: host path must be absolute (got: '${bind_host}')"
+      fi
+      if [[ "$bind_dest" != /* ]]; then
+        err "--bind: dest path must be absolute (got: '${bind_dest}')"
+      fi
+      # Validate: both must exist
+      if [[ ! -e "$bind_host" ]]; then
+        err "--bind: host path does not exist (got: '${bind_host}')"
+      fi
+      if [[ ! -e "$bind_dest" ]]; then
+        err "--bind: dest path does not exist (got: '${bind_dest}')"
+      fi
+      # Validate: both must be directories
+      if [[ ! -d "$bind_host" ]]; then
+        err "--bind: host path is not a directory (got: '${bind_host}')"
+      fi
+      if [[ ! -d "$bind_dest" ]]; then
+        err "--bind: dest path is not a directory (got: '${bind_dest}')"
+      fi
+      BINDS_HOST+=("$bind_host")
+      BINDS_DEST+=("$bind_dest")
       i=$((i + 2))
       continue
       ;;
@@ -436,6 +486,12 @@ done
 # user-supplied --ro-bind HOST[:DEST] (repeatable)
 for (( idx=0; idx<${#RO_BINDS_HOST[@]}; idx++ )); do
   BWRAP_ARGV+=(--ro-bind "${RO_BINDS_HOST[$idx]}" "${RO_BINDS_DEST[$idx]}")
+done
+
+# user-supplied --bind HOST[:DEST] (repeatable) — additional writable mounts;
+# emitted before the workspace bind so a nested workspace still wins
+for (( idx=0; idx<${#BINDS_HOST[@]}; idx++ )); do
+  BWRAP_ARGV+=(--bind "${BINDS_HOST[$idx]}" "${BINDS_DEST[$idx]}")
 done
 
 # skills/prompts symlink targets (ro) — see add_state_link_target above
