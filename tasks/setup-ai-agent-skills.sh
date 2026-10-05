@@ -9,8 +9,8 @@
 #   ai_agent_skills repository:
 #
 #     1. ensures a local clone of the repo (clones if missing, fast-forward
-#        pull if present; falls back to a plain fetch when local changes
-#        block the fast-forward)
+#        pull if present; if local changes block the fast-forward, warns and
+#        proceeds from the local checkout)
 #     2. installs the selected skills into the target user's
 #        ~/.pi/agent/skills/ via <repo>/install-skill.sh
 #     3. installs agent profiles into ~/.pi/agent/agents/ via
@@ -35,7 +35,7 @@
 #
 # Environment Variables (optional):
 #   AI_SKILLS_REPO_URL     git remote of the ai_agent_skills repo
-#                          (default: ssh://git@192.168.178.57:2223/denkfabrik/ai_agent_skills)
+#                          (default: https://github.com/Kubementat/ai_agent_skills)
 #   AI_SKILLS_USER         target user whose home the stack is installed for
 #                          (default: current user)
 #   AI_SKILLS_DIR          clone location
@@ -80,7 +80,7 @@ ${BOLD}Options:${RESET}
   -h, --help    Show this help and exit
 
 ${BOLD}Environment variables${RESET} (all optional):
-  AI_SKILLS_REPO_URL     git remote (default: ssh://git@192.168.178.57:2223/denkfabrik/ai_agent_skills)
+  AI_SKILLS_REPO_URL     git remote (default: https://github.com/Kubementat/ai_agent_skills)
   AI_SKILLS_USER         target user (default: current user)
   AI_SKILLS_DIR          clone location (default: /home/<user>/skills/ai_agent_skills,
                          /root/skills/ai_agent_skills for root)
@@ -107,7 +107,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Configuration
-AI_SKILLS_REPO_URL="${AI_SKILLS_REPO_URL:-ssh://git@192.168.178.57:2223/denkfabrik/ai_agent_skills}"
+AI_SKILLS_REPO_URL="${AI_SKILLS_REPO_URL:-https://github.com/Kubementat/ai_agent_skills}"
 AI_SKILLS_USER="${AI_SKILLS_USER:-$(id -un)}"
 AI_SKILLS_TO_INSTALL="${AI_SKILLS_TO_INSTALL:-herdr-cli pi-cli ponytail karpathy-guidelines}"
 AI_AGENTS_TO_INSTALL="${AI_AGENTS_TO_INSTALL:-all}"
@@ -170,8 +170,9 @@ step "Ensuring ai_agent_skills repo at ${AI_SKILLS_DIR}"
 if [[ -d "${AI_SKILLS_DIR}/.git" ]]; then
   info "Existing git repository found, pulling (fast-forward)..."
   if ! run_as_user git -C "${AI_SKILLS_DIR}" pull --ff-only; then
-    warn "Fast-forward pull failed (local changes?); falling back to 'git fetch'"
-    run_as_user git -C "${AI_SKILLS_DIR}" fetch
+    local_sha="$(run_as_user git -C "${AI_SKILLS_DIR}" rev-parse --short HEAD)"
+    warn "Fast-forward pull failed (local changes?) — proceeding from the LOCAL checkout at ${local_sha} (possibly stale)."
+    warn "Remedy: resolve local changes in ${AI_SKILLS_DIR} and re-run, or remove ${AI_SKILLS_DIR} and re-run to force a fresh clone."
   fi
 elif [[ -e "${AI_SKILLS_DIR}" ]]; then
   error "${AI_SKILLS_DIR} exists but is not a git repository. Remove it or set AI_SKILLS_DIR to a different location."
@@ -208,19 +209,41 @@ for name in "${HELPER_SCRIPTS[@]}"; do
     error "Helper script not found in repo: ${src}"
   fi
   dest="${USER_LOCAL_BIN}/${name}"
-  if [[ -f "${dest}" ]] && cmp -s "${src}" "${dest}"; then
-    info "Unchanged: ${name}"
-    continue
-  fi
-  # herdr-common.sh is sourced, not executed; everything else is executable
-  if [[ "${name}" == "herdr-common.sh" ]]; then
-    mode=644
+
+  # pipeline-herdr.sh computes $SKILL_DIR as the parent of its own directory
+  # and needs $SKILL_DIR/scripts/herdr-common.sh AND $SKILL_DIR/prompts/*.md
+  # next to it — a plain copy into ~/.local/bin has neither and fails at
+  # runtime. Install a small wrapper that execs the repo copy instead.
+  if [[ "${name}" == "pipeline-herdr.sh" ]]; then
+    wrapper_content=$(cat <<EOF
+#!/usr/bin/env bash
+# Wrapper: execs the repo copy of pipeline-herdr.sh, which requires its
+# sibling prompts/ dir next to scripts/ (see installer).
+exec "${AI_SKILLS_DIR}/${HERDR_CLI_SCRIPTS_DIR}/pipeline-herdr.sh" "\$@"
+EOF
+)
+    if [[ -f "${dest}" ]] && [[ "$(cat "${dest}")" == "${wrapper_content}" ]]; then
+      info "Unchanged: ${name}"
+      continue
+    fi
+    printf '%s\n' "${wrapper_content}" > "${dest}.tmp"
+    mv "${dest}.tmp" "${dest}"
+    chmod 755 "${dest}"
   else
-    mode=755
+    if [[ -f "${dest}" ]] && cmp -s "${src}" "${dest}"; then
+      info "Unchanged: ${name}"
+      continue
+    fi
+    # herdr-common.sh is sourced, not executed; everything else is executable
+    if [[ "${name}" == "herdr-common.sh" ]]; then
+      mode=644
+    else
+      mode=755
+    fi
+    cp "${src}" "${dest}.tmp"
+    mv "${dest}.tmp" "${dest}"
+    chmod "${mode}" "${dest}"
   fi
-  cp "${src}" "${dest}.tmp"
-  mv "${dest}.tmp" "${dest}"
-  chmod "${mode}" "${dest}"
   if [[ "$(id -u)" -eq 0 ]]; then
     chown "${AI_SKILLS_USER}:${AI_SKILLS_USER}" "${dest}"
   fi
