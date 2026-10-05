@@ -170,7 +170,7 @@ step "Ensuring ai_agent_skills repo at ${AI_SKILLS_DIR}"
 if [[ -d "${AI_SKILLS_DIR}/.git" ]]; then
   info "Existing git repository found, pulling (fast-forward)..."
   if ! run_as_user git -C "${AI_SKILLS_DIR}" pull --ff-only; then
-    local_sha="$(run_as_user git -C "${AI_SKILLS_DIR}" rev-parse --short HEAD)"
+    local_sha="$(run_as_user git -C "${AI_SKILLS_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'unborn HEAD')"
     warn "Fast-forward pull failed (local changes?) — proceeding from the LOCAL checkout at ${local_sha} (possibly stale)."
     warn "Remedy: resolve local changes in ${AI_SKILLS_DIR} and re-run, or remove ${AI_SKILLS_DIR} and re-run to force a fresh clone."
   fi
