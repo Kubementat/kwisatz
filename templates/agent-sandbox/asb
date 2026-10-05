@@ -21,8 +21,9 @@
 #     the binary itself for standalone installs); missing dirs skipped
 #   - skills/prompts/commands in the agent's state dirs are often
 #     symlinks into other home dirs (shared skill repos); their resolved
-#     targets are bound ro so they keep working in-sandbox (dangling
-#     links are skipped)
+#     targets AND the path the link directly references (which may be an
+#     intermediate symlink in a chain) are bound ro so they keep working
+#     in-sandbox (dangling links are skipped)
 #   - herdr socket bind-mounted rw (if present) + ALL HERDR_* env vars
 #     forwarded, so the agent's herdr state extension keeps working; asb
 #     exports HERDR_AGENT=<agent> on the host side so herdr maps the
@@ -417,15 +418,27 @@ case "$AGENT" in
   sh) : ;;
 esac
 
-STATE_SYMLINK_TARGETS=()
-add_state_link_target() {
-  local t x
-  t="$(readlink -f -- "$1" 2>/dev/null)" || return 0
-  [[ -e "$t" ]] || return 0
-  for x in "${STATE_SYMLINK_TARGETS[@]}"; do
-    [[ "$x" == "$t" ]] && return 0
+STATE_SYMLINK_BINDS=()
+add_state_link_bind() {
+  local src dest x
+  src="$1"; dest="$2"
+  for x in "${STATE_SYMLINK_BINDS[@]}"; do
+    [[ "$x" == "$src"$'\t'"$dest" ]] && return 0
   done
-  STATE_SYMLINK_TARGETS+=("$t")
+  STATE_SYMLINK_BINDS+=("$src"$'\t'"$dest")
+}
+add_state_link_target() {
+  local f real link abs
+  f="$1"
+  real="$(readlink -f -- "$f" 2>/dev/null)" || return 0
+  [[ -e "$real" ]] || return 0
+  link="$(readlink -- "$f")"
+  [[ "$link" == /* ]] || link="$(dirname -- "$f")/$link"
+  abs="$(realpath -s -m -- "$link" 2>/dev/null)" || return 0
+  add_state_link_bind "$real" "$real"
+  if [[ "$abs" != "$real" ]]; then
+    add_state_link_bind "$real" "$abs"
+  fi
 }
 for d in "${STATE_CONTENT_DIRS[@]}"; do
   for f in "$d"/*; do
@@ -495,8 +508,8 @@ for (( idx=0; idx<${#BINDS_HOST[@]}; idx++ )); do
 done
 
 # skills/prompts symlink targets (ro) — see add_state_link_target above
-for t in "${STATE_SYMLINK_TARGETS[@]}"; do
-  BWRAP_ARGV+=(--ro-bind-try "$t" "$t")
+for bd in "${STATE_SYMLINK_BINDS[@]}"; do
+  BWRAP_ARGV+=(--ro-bind-try "${bd%%$'\t'*}" "${bd#*$'\t'}")
 done
 
 # herdr socket (rw) — skip cleanly when herdr is not installed/running
