@@ -81,6 +81,12 @@ scripts:
     env: {}
     args: []
 
+  setup-ai-agent-skills:
+    enabled: true
+    description: AI agent skills stack (ai_agent_skills clone, skills, agent profiles, herdr-cli helpers)
+    env: {}
+    args: []
+
   setup-traefik:
     enabled: true
     description: Traefik reverse proxy (docker)
