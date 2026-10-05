@@ -293,6 +293,11 @@ scripts:
     description: Install pi coding agent
     env: {}
     args: []
+  setup-ai-agent-skills:
+    enabled: false
+    description: Install AI agent skills stack (skills, agent profiles, herdr-cli helpers) from ai_agent_skills repo
+    env: {}
+    args: []
   setup-agentsview:
     enabled: false
     description: agentsview session viewer + optional pg push service
