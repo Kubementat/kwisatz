@@ -94,3 +94,19 @@ def expand_text(text: str, variables: Mapping[str, str]) -> str:
         return match.group(0)
 
     return PLACEHOLDER_RE.sub(repl, text)
+
+
+def expand_value(value: object, variables: Mapping[str, str]) -> object:
+    """Recursively expand ``${NAME}`` in strings of a YAML value.
+
+    Strings are expanded via :func:`expand_text`; lists and mappings are
+    expanded element-wise; scalars pass through unchanged. Used for the
+    ``llamaSwap:`` pass-through block.
+    """
+    if isinstance(value, str):
+        return expand_text(value, variables)
+    if isinstance(value, list):
+        return [expand_value(v, variables) for v in value]
+    if isinstance(value, dict):
+        return {k: expand_value(v, variables) for k, v in value.items()}
+    return value

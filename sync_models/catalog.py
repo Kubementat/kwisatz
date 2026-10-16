@@ -37,7 +37,11 @@ AGENT_FIELDS = (
 )
 TOP_LEVEL_KEYS = {"env", "providers"}
 PROVIDER_KEYS = {"name", "baseUrl", "apiKey", "models"}
-MODEL_KEYS = {"name", "type", "env", "download", "serve", "agent"}
+MODEL_KEYS = {"name", "type", "env", "download", "serve", "agent", "llamaSwap"}
+# llama-swap fields managed by sync itself — a catalog must not override them
+# through the llamaSwap pass-through.
+LLAMA_SWAP_MANAGED_KEYS = {"cmd", "env"}
+LLAMA_SWAP_FIELD_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 
 
 @dataclass
@@ -58,6 +62,10 @@ class ModelSpec:
     env: list[EnvEntry] = field(default_factory=list)  # per-model env
     download: list[str] = field(default_factory=list)  # non-empty for local
     serve_cmd: str = ""  # non-empty for local
+    # Optional pass-through of extra llama-swap model fields (proxy, cmdStop,
+    # ttl, aliases, ...); copied verbatim (placeholder-expanded) into the
+    # llama-swap config entry.
+    llama_swap: dict[str, object] | None = None
     # Agent metadata with defaults applied (Decision 11):
     context_window: int = AGENT_DEFAULTS["contextWindow"]
     max_tokens: int = AGENT_DEFAULTS["maxTokens"]
@@ -194,6 +202,56 @@ def _validate_env_list(
             continue
         entries.append(EnvEntry(name=name, value=coerced))
     return entries, violations
+
+
+def _yaml_value_ok(value: object) -> bool:
+    """A llamaSwap field value: YAML scalar, list, or mapping (recursive)."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return True
+    if isinstance(value, list):
+        return all(_yaml_value_ok(v) for v in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(k, str) and _yaml_value_ok(v) for k, v in value.items()
+        )
+    return False
+
+
+def _validate_llama_swap_block(
+    llama_swap: object, where: str
+) -> tuple[dict[str, object] | None, list[str]]:
+    """Validate the optional ``llamaSwap:`` pass-through block.
+
+    A mapping of extra llama-swap model fields, copied (placeholder-expanded)
+    into the generated llama-swap entry. ``cmd`` and ``env`` are managed by
+    sync itself and are rejected here.
+    """
+    violations: list[str] = []
+    if llama_swap is None:
+        return None, violations
+    if not isinstance(llama_swap, dict):
+        violations.append(f"{where}: llamaSwap block is not a mapping")
+        return None, violations
+    out: dict[str, object] = {}
+    for key, value in llama_swap.items():
+        if not isinstance(key, str) or not LLAMA_SWAP_FIELD_RE.match(key):
+            violations.append(
+                f"{where}: llamaSwap key '{key}' is not a valid field name"
+            )
+            continue
+        if key in LLAMA_SWAP_MANAGED_KEYS:
+            violations.append(
+                f"{where}: llamaSwap key '{key}' is managed by sync "
+                "(serve.cmd / env) and must not be set here"
+            )
+            continue
+        if not _yaml_value_ok(value):
+            violations.append(
+                f"{where}: llamaSwap '{key}' must be a scalar, list, or mapping"
+            )
+            continue
+        out[key] = value
+    return out, violations
 
 
 def _validate_agent_block(
@@ -399,6 +457,10 @@ def validate_catalog(data: dict, path: Path) -> Catalog:
                 model.get("agent"), mwhere_name
             )
             violations.extend(agent_violations)
+            llama_swap, lswap_violations = _validate_llama_swap_block(
+                model.get("llamaSwap"), mwhere_name
+            )
+            violations.extend(lswap_violations)
 
             prov_spec.models.append(
                 ModelSpec(
@@ -413,6 +475,7 @@ def validate_catalog(data: dict, path: Path) -> Catalog:
                     reasoning=agent_meta["reasoning"],
                     input=agent_meta["input"],
                     thinking_level_map=agent_meta["thinkingLevelMap"],
+                    llama_swap=llama_swap,
                 )
             )
 

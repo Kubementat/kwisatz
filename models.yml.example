@@ -14,8 +14,12 @@
 # together before anything is changed:
 #   top level: env, providers
 #   provider:  name, baseUrl, apiKey, models
-#   model:     name, type (local|remote), env, download, serve, agent
+#   model:     name, type (local|remote), env, download, serve, agent, llamaSwap
 #   agent:     contextWindow, maxTokens, reasoning, input, thinkingLevelMap
+#   llamaSwap: optional pass-through of extra llama-swap model fields (proxy,
+#              cmdStop, ttl, aliases, healthCheckTimeout, ...) copied
+#              placeholder-expanded into the generated config entry;
+#              'cmd' and 'env' are managed by sync and rejected here
 #
 # type: local  -> requires a non-empty download (list of shell commands)
 #                 and a non-empty serve.cmd; sync downloads the weights and

@@ -254,6 +254,12 @@ providers:
   JSON model id), `type` (`local` | `remote`).
 - `type: local` requires non-empty `download` (list of strings) and non-empty `serve.cmd`.
   `download`/`serve` must **not** be present for `type: remote`.
+- `llamaSwap` (optional; accepted on both `local` and `remote` models): pass-through of extra llama-swap model
+  fields (e.g. `proxy`, `cmdStop`, `ttl`, `aliases`, `healthCheckTimeout`).
+  Values are YAML scalars, lists, or mappings; strings are placeholder-expanded.
+  `cmd` and `env` are managed by sync (from `serve.cmd` / per-model `env`) and
+  are rejected here. The block is copied into the new llama-swap config entry
+  as-is (Behavior 3).
 - **Uniqueness:** `name` must be unique **across all local models** (they share the llama-swap
   `models:` namespace). The same `name` may repeat across different providers and remote models
   (agent configs allow the same model id under multiple providers).
