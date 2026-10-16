@@ -149,6 +149,26 @@ scripts:
     env: {}
     args: ["--paths", "/etc"]
 
+  # Kept out of the default fast suite: creates a nested KVM guest inside the
+  # test VM (needs nested virtualization on the host and a bigger test VM):
+  #   tests/run-vm-tests.sh --ram 10 --vcpu 4 --disk 60 --timeout 60 \
+  #     --scripts setup-basics,configure-firewall,setup-docker,setup-hermes
+  # Exercises the prerequisite bootstrap, the egress allowlist (host:22 = the
+  # test VM's own sshd) and 'hermes serve' behind the host proxy, with ufw
+  # active and Docker installed on the test VM.
+  setup-hermes:
+    enabled: false
+    description: Hermes Agent in a nested VM — ad-hoc via --scripts
+    env:
+      # virt-runner's 'create --mount' is not on the repository's default
+      # branch yet; drop this once it is released there.
+      VIRT_RUNNER_BRANCH: "develop"
+      HERMES_VM_DISK: "20"
+      HERMES_ALLOWED_ENDPOINTS: "host:22"
+      HERMES_SERVE: "true"
+      HERMES_SERVE_ALLOW_FROM: "192.168.122.0/24"
+    args: []
+
   # Kept out of the default fast suite (heavy CUDA image pull). VMs are
   # GPU-less: the explicit --cpu arg exercises the CPU guard paths
   # deliberately (D9); auto-detect would pick cpu anyway. NOTE (D9): the CPU

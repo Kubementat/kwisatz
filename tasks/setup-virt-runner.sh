@@ -24,6 +24,7 @@
 #                      (default: https://github.com/Kubementat/virt-runner.git)
 #   VIRT_RUNNER_DIR    Local directory to clone to
 #                      (default: ~/dev/os_projects/virt-runner)
+#   VIRT_RUNNER_BRANCH Branch to check out (default: the repository's default)
 #   VIRT_USERNAME      User to add to libvirt/kvm groups
 #                      (default: current user)
 #
@@ -46,6 +47,7 @@ source "${LIB_PATH}" || {
 # Configuration
 VIRT_RUNNER_REPO="${VIRT_RUNNER_REPO:-https://github.com/Kubementat/virt-runner.git}"
 VIRT_RUNNER_DIR="${VIRT_RUNNER_DIR:-${HOME}/dev/os_projects/virt-runner}"
+VIRT_RUNNER_BRANCH="${VIRT_RUNNER_BRANCH:-}"
 VIRT_USERNAME="${VIRT_USERNAME:-${USER:-}}"
 
 # Parse arguments
@@ -63,6 +65,8 @@ while [[ $# -gt 0 ]]; do
       echo "                     (default: https://github.com/Kubementat/virt-runner.git)"
       echo "  VIRT_RUNNER_DIR    Local directory to clone to"
       echo "                     (default: ~/dev/os_projects/virt-runner)"
+      echo "  VIRT_RUNNER_BRANCH Branch to check out"
+      echo "                     (default: the repository's default)"
       echo "  VIRT_USERNAME      User to add to libvirt/kvm groups"
       echo "                     (default: current user)"
       exit 0
@@ -87,11 +91,12 @@ log "Step 1: Cloning virt-runner repository"
 if [[ -d "${VIRT_RUNNER_DIR}" ]]; then
   log "Repository already exists at ${VIRT_RUNNER_DIR}, updating..."
   cd "${VIRT_RUNNER_DIR}"
+  [[ -z "${VIRT_RUNNER_BRANCH}" ]] || git checkout "${VIRT_RUNNER_BRANCH}"
   git pull --ff-only || log "Warning: Could not update repository (not a git repo or pull failed)"
 else
   log "Cloning to ${VIRT_RUNNER_DIR}"
   mkdir -p "$(dirname "${VIRT_RUNNER_DIR}")"
-  git clone "${VIRT_RUNNER_REPO}" "${VIRT_RUNNER_DIR}"
+  git clone ${VIRT_RUNNER_BRANCH:+--branch "${VIRT_RUNNER_BRANCH}"} "${VIRT_RUNNER_REPO}" "${VIRT_RUNNER_DIR}"
 fi
 
 cd "${VIRT_RUNNER_DIR}"

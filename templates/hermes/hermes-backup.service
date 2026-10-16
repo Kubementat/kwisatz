@@ -1,0 +1,21 @@
+# Guest user unit (~/.config/systemd/user/hermes-backup.service).
+# Writes a `hermes backup` zip to the host-shared backup directory and keeps
+# the 7 newest archives. The archives contain secrets (.env).
+#
+# Additionally mirrors the plain-text config (no SQLite) into
+# /mnt/backups/current/, so the live config is readable on the host without
+# extracting an archive and is swept into host backups
+# (setup-backup-client.sh / borg scans /srv/hermes). state.db and sessions/
+# are deliberately excluded — WAL on virtiofs is not safe to back live.
+[Unit]
+Description=Hermes Agent backup to the host-shared directory /mnt/backups
+ConditionPathIsMountPoint=/mnt/backups
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/bin/sh -c 'exec hermes backup -o "/mnt/backups/hermes-backup-$$(date +%%Y%%m%%d-%%H%%M%%S).zip"'
+ExecStartPost=/bin/sh -c 'ls -1t /mnt/backups/hermes-backup-*.zip 2>/dev/null | tail -n +8 | xargs -r rm -f --'
+# Plain-text config mirror, atomic via directory swap; keeps the previous
+# mirror one cycle longer as current.old.
+ExecStartPost=/bin/sh -c 'umask 077; new=/mnt/backups/current.new; rm -rf "$new"; mkdir -p "$new"; cd "%h/.hermes" 2>/dev/null || { rm -rf "$new"; exit 0; }; for f in config.yaml .env SOUL.md memories skills cron hooks skins; do if [ -e "$f" ]; then cp -a "$f" "$new/"; fi; done; rm -rf /mnt/backups/current.old; [ -d /mnt/backups/current ] && mv /mnt/backups/current /mnt/backups/current.old; mv "$new" /mnt/backups/current'

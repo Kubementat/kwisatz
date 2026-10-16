@@ -1,0 +1,11 @@
+# Host unit (/etc/systemd/system/hermes-vm-proxy.socket), rendered by
+# tasks/setup-hermes.sh. libvirt NAT rejects new connections from the LAN to a
+# guest, so the host accepts them here and forwards them to the VM.
+[Unit]
+Description=Hermes VM remote gateway proxy socket (port ${HERMES_SERVE_PORT})
+
+[Socket]
+ListenStream=0.0.0.0:${HERMES_SERVE_PORT}
+
+[Install]
+WantedBy=sockets.target

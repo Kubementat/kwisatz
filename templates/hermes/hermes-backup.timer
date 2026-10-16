@@ -1,0 +1,10 @@
+# Guest user unit (~/.config/systemd/user/hermes-backup.timer).
+[Unit]
+Description=Daily Hermes Agent backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

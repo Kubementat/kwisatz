@@ -1,19 +1,19 @@
 # =============================================================================
-# Hermes Agent Configuration Template (Local Terminal Backend)
+# Hermes Agent Configuration Template (Local Terminal Backend, VM install)
 # =============================================================================
-# Copy this to ~/.hermes/config.yaml after running setup and customize
-# This configuration is optimized for running Hermes with local terminal
-# in Docker containers (all commands execute inside the gateway container)
+# Example for ~/.hermes/config.yaml inside the Hermes VM created by
+# tasks/setup-hermes.sh (run `hermes setup` first, then customize).
+# The VM is the sandbox: all commands execute locally inside the guest.
 # =============================================================================
 
 ---
 # Terminal backend settings - controls where terminal() tool commands execute
 terminal:
   # Backend type: "local", "docker", "ssh", "modal", "daytona", or "singularity"
-  # For local execution inside the gateway container, use "local"
+  # For local execution inside the VM, use "local"
   backend: local
 
-  # Working directory inside the container (set in docker-compose.yml)
+  # Working directory: the host-shared workspace (host: /srv/hermes/workspace)
   cwd: "/workspace"
 
   # Timeout in seconds for each terminal command
@@ -32,6 +32,14 @@ agent:
 # Main model settings
 model:
   default: "anthropic/claude-opus-4.6"  # Change to your preferred model
+
+  # To run against your own LLM endpoint (llama-swap / vLLM / llama.cpp-server)
+  # instead of a cloud provider, let tasks/setup-hermes.sh wire this section:
+  #   HERMES_LLM_BASE_URL='http://192.168.122.1:9292/v1' \
+  #   HERMES_LLM_MODEL='<id from /v1/models>' \
+  #   HERMES_LLM_API_KEY='<key>'            # optional
+  # It writes provider/base_url/default below plus OPENAI_API_KEY and
+  # OPENAI_BASE_URL into ~/.hermes/.env (the key is never stored in this file).
 
 # Provider-specific configurations (optional - most handled via .env file)
 providers:

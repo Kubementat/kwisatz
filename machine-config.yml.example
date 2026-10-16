@@ -205,8 +205,18 @@ scripts:
     args: []
   setup-hermes:
     enabled: false
-    description: Install Hermes (AI assistant stack)
-    env: {}
+    description: Install Hermes Agent in a dedicated KVM VM (virt-runner)
+    env:
+      HERMES_ALLOWED_ENDPOINTS: ''
+      HERMES_SERVE: 'false'
+      # Wire the main model to your own OpenAI-compatible endpoint instead of
+      # an OAuth/cloud provider — e.g. the local llama-swap, reached from the
+      # VM as the hypervisor address:
+      #   HERMES_LLM_BASE_URL: 'http://192.168.122.1:9292/v1'
+      #   HERMES_LLM_MODEL: '<id from /v1/models>'
+      #   HERMES_LLM_API_KEY: ''   # only if the endpoint requires one
+      HERMES_LLM_BASE_URL: ''
+      HERMES_LLM_MODEL: ''
     args: []
   setup-neovim:
     enabled: false

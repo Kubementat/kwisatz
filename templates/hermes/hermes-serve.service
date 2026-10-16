@@ -1,0 +1,17 @@
+# Guest user unit (~/.config/systemd/user/hermes-serve.service), rendered by
+# tasks/setup-hermes.sh. Backend for Hermes Desktop "Remote gateway" and the
+# web dashboard. Credentials (HERMES_DASHBOARD_BASIC_AUTH_*) are read at runtime
+# from ~/.hermes/.env and never rendered into this file.
+[Unit]
+Description=Hermes Agent serve backend (Desktop remote gateway / dashboard)
+After=network-online.target
+
+[Service]
+EnvironmentFile=%h/.hermes/.env
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=%h/.local/bin/hermes serve --host 0.0.0.0 --port ${HERMES_SERVE_PORT}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

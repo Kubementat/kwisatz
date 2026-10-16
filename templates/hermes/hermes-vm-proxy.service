@@ -1,0 +1,10 @@
+# Host unit (/etc/systemd/system/hermes-vm-proxy.service), rendered by
+# tasks/setup-hermes.sh. Socket-activated by hermes-vm-proxy.socket.
+[Unit]
+Description=Hermes VM remote gateway proxy (-> ${HERMES_VM_IP}:${HERMES_SERVE_PORT})
+Requires=hermes-vm-proxy.socket
+After=hermes-vm-proxy.socket
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd ${HERMES_VM_IP}:${HERMES_SERVE_PORT}
+PrivateTmp=yes

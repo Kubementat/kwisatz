@@ -222,14 +222,20 @@ Installs the Agent Docker Runner (ADR) CLI, a tool that runs coding agents insid
 Clones the Nanobot agent repository, builds the Docker image, and runs the onboarding flow.
 
 #### `setup-hermes.sh`
-Sets up the Hermes Agent environment using the official prebuilt Docker image. Creates configuration files and provides convenience scripts for management.
+Installs Hermes Agent natively inside a dedicated KVM virtual machine created with virt-runner. The VM is the sandbox: Hermes gets a whole machine (local terminal backend, passwordless sudo) while the host controls what the VM may reach. Re-running converges the existing VM; it is never destroyed or re-created.
 
 **Features:**
-- Official Hermes Agent MCP gateway
-- Prebuilt Docker image from nousresearch
-- Setup wizard for initial configuration
-- Hermes Gateway and Chat services
-- Data persistence in `.hermes` directory
+- Runs `setup-virtualization.sh` / `setup-virt-runner.sh` automatically when the prerequisites are missing
+- Ubuntu guest (default 4 GB RAM, 2 vCPU, 50 GB disk) with a static address on the libvirt `default` network
+- Official Hermes installer at a pinned commit (`HERMES_COMMIT`), gateway as a systemd user service
+- Host-enforced egress allowlist (`HERMES_ALLOWED_ENDPOINTS`, e.g. `"host:3000 192.168.1.20:8080-8090"`): internet open, listed LAN/host endpoints allowed, all other private addresses blocked
+- Optional `hermes serve` for Hermes Desktop / the dashboard on the LAN (`HERMES_SERVE=true`, `HERMES_SERVE_ALLOW_FROM`), optionally behind Traefik (`HERMES_TRAEFIK=true`, `HERMES_DOMAIN`)
+- Connects the main model to your own OpenAI-compatible LLM endpoint — llama-swap / vLLM / llama.cpp-server (`HERMES_LLM_BASE_URL`, `HERMES_LLM_MODEL`, optional `HERMES_LLM_API_KEY`): provider `openai-api`, base URL and model converged on every re-run; the endpoint is auto-added to the egress allowlist when it is on this host or another IPv4, and the API key is stored only inside the guest (`~/.hermes/.env`, never rotated)
+- Host shares: `/srv/hermes/workspace` → `/workspace`, `/srv/hermes/backups` → `/mnt/backups` (daily `hermes backup` zips + a plain-text config mirror in `/srv/hermes/backups/current/`); Hermes state (SQLite) stays on the VM disk
+- Host-backup ready: everything under `/srv/hermes` — live workspace, daily backup archives, and the `current/` config mirror (config.yaml, .env, SOUL.md, memories/, skills/, cron/, hooks/, skins/) — is inside the default scope of `setup-backup-client.sh` (borg). Full restores use the newest archive via `hermes import`; `current/` is for browsing and single-file recovery without extracting an archive
+- The gateway service runs from the first install on; configure it with `virt-runner ssh hermes`, `hermes setup`, `hermes gateway restart`
+- Needs a virt-runner with `create --mount` (currently its `develop` branch: `VIRT_RUNNER_BRANCH=develop`)
+- Migration from the former Docker-based setup: `docs/hermes-docker-to-vm-migration.md` (manual, one-off)
 
 #### `setup-unsloth.sh`
 Installs **Unsloth Studio** (the browser-based web UI for running and training AI models) and optionally the **Unsloth Desktop** native app. Studio is installed by default; Desktop requires `UNSLOTH_INSTALL_DESKTOP=true`. Optionally runs Studio as a systemd service (`UNSLOTH_INSTALL_SERVICE=true`).
