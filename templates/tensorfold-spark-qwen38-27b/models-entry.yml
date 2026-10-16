@@ -1,8 +1,8 @@
 # Qwen3.8-27B — TensorFold v0.6.0 (Python engine) on one DGX Spark.
 #
 # Catalog fragment rendered by tasks/setup-tensorfold-spark-qwen38-27b.sh
-# (TENSORFOLD_27B_PORT, LLAMA_SWAP_PORT, HF_CACHE_DIR, KERNEL_CACHE_DIR,
-# TENSORFOLD_27B_HEALTH_TIMEOUT) and merged additively into models.yml by
+# (PROJECT_DIR, TENSORFOLD_27B_PORT, LLAMA_SWAP_PORT, HF_CACHE_DIR,
+# KERNEL_CACHE_DIR) and merged additively into models.yml by
 # tasks/merge-model-entry.py.
 #
 # llama-swap owns the container lifecycle:
@@ -35,9 +35,9 @@ providers:
           - >-
             [[ -f ${KERNEL_CACHE}/.prepared ]] ||
             KERNEL_CACHE=${KERNEL_CACHE}
-            bash /srv/tensorfold-27b/scripts/prepare.sh
+            bash ${PROJECT_DIR}/scripts/prepare.sh
         serve:
-          cmd: "bash /srv/tensorfold-27b/start.sh"
+          cmd: "bash ${PROJECT_DIR}/start.sh"
         # Extra llama-swap fields (pass-through, placeholder-expanded).
         llamaSwap:
           # Single command — llama-swap execs it without a shell. Stopping
@@ -49,10 +49,15 @@ providers:
           checkEndpoint: "/health"
           # First-load wait is the GLOBAL llama-swap healthCheckTimeout, which
           # the setup script raises to TENSORFOLD_27B_HEALTH_TIMEOUT (per-model
-          # values are ignored by llama-swap). Never auto-unload.
+          # values are ignored by llama-swap; llama-swap's own default is 120 s,
+          # kwisatz's template renders 500). Never auto-unload.
           ttl: 0
+          # No case-only alias: a client that lower-cases the model name must
+          # not silently land on the llama.cpp entry qwen3.8-27b. Upstream's
+          # SERVED_NAME (Qwen3.8-27B) is what the *container* calls itself, not
+          # a llama-swap alias.
           aliases:
-            - "Qwen3.8-27B"
+            - "qwen3.8-27b-tensorfold"
             # "qwen3.8" is already an alias of qwen3.8-flash-next
             - "qwen3.8-27"
         agent:
