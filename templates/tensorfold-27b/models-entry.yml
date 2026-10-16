@@ -16,7 +16,7 @@ providers:
   - name: local
     baseUrl: http://localhost:${LLAMA_SWAP_PORT}/v1
     models:
-      - name: qwen3.8-27b
+      - name: qwen3.8-27b-tf  # qwen3.8-27b is the llama.cpp GGUF entry
         type: local
         env:
           # llama-swap runs cmd as root with ProtectHome=read-only — pin the

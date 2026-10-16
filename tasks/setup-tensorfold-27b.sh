@@ -22,7 +22,7 @@
 #   1. pre-flight: docker, CDI GPU spec, DGX Spark, disk, hf CLI, llama-swap
 #   2. clone the recipe into /srv/tensorfold-27b (re-run: fetch + checkout pin)
 #   3. run upstream scripts/prepare.sh (prebuilt image + ~19 GB checkpoints)
-#   4. merge the qwen3.8-27b entry into models.yml (additive; the entry is
+#   4. merge the qwen3.8-27b-tf entry into models.yml (additive; the entry is
 #      replaced if the rendered template changed)
 #   5. run tasks/sync-models.py (merge into llama-swap config.yaml, restart
 #      only on change, poll /health)
@@ -52,7 +52,9 @@ TENSORFOLD_27B_RECIPE_REF="c11ff138871cf43d12898d79dbfa4dc952d17ca4"
 # ~35 GiB image + margin (upstream: MIN_FREE_GB=25 + IMAGE_FREE_GB=35).
 TENSORFOLD_27B_MIN_FREE_GB=60
 
-TENSORFOLD_27B_MODEL_NAME="qwen3.8-27b"
+# Named -tf: qwen3.8-27b is already taken by the llama.cpp GGUF entry in
+# models.yml.default — both runtimes of the same model coexist in llama-swap.
+TENSORFOLD_27B_MODEL_NAME="qwen3.8-27b-tf"
 TENSORFOLD_27B_CONTAINER="qwen38-27b-tf"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────

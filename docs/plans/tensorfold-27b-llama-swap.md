@@ -3,6 +3,12 @@
 **Research:** `docs/research/2026-10-15-qwen38-27b-dgx-spark-tensorfold.md` (authoritative; upstream clone verified at `/tmp/tensorfold-27b`)
 **Builds on:** the Flash Next integration (this repo: `tasks/setup-tensorfold.sh`, `templates/tensorfold/`, `tasks/merge-model-entry.py`, `sync_models/` — just merged to `develop`)
 
+> **Post-review decision (2026-10-16):** the catalog entry is named
+> **`qwen3.8-27b-tf`**, not `qwen3.8-27b` — that name is already taken by the
+> llama.cpp GGUF entry shipped in `models.yml.default` (same model, different
+> runtime). Both runtimes coexist in llama-swap; replace `qwen3.8-27b` with
+> `qwen3.8-27b-tf` everywhere below where it denotes the TensorFold entry.
+
 ## Decisions (this plan)
 
 1. **Sibling script, not a `--model` profile — `tasks/setup-tensorfold-27b.sh`.**
