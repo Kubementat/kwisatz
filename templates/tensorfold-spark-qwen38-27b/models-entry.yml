@@ -47,8 +47,9 @@ providers:
           unloadTimeout: 60
           proxy: "http://127.0.0.1:${TENSORFOLD_27B_PORT}"
           checkEndpoint: "/health"
-          # 19 GB weight load + one-time kernel compile; never auto-unload.
-          healthCheckTimeout: ${TENSORFOLD_27B_HEALTH_TIMEOUT}
+          # First-load wait is the GLOBAL llama-swap healthCheckTimeout, which
+          # the setup script raises to TENSORFOLD_27B_HEALTH_TIMEOUT (per-model
+          # values are ignored by llama-swap). Never auto-unload.
           ttl: 0
           aliases:
             - "Qwen3.8-27B"

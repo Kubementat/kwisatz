@@ -208,8 +208,10 @@ DFlash2 vs. MTP).
 ### 4.1 Reusable as-is
 
 - **`sync_models/` (sync-models.py):** the `llamaSwap` pass-through (`cmdStop`, `proxy`,
-  `checkEndpoint`, `ttl`, `aliases`, `healthCheckTimeout`, `unloadTimeout`) already covers
-  everything 27B needs. **No new schema or merge features required.**
+  `checkEndpoint`, `ttl`, `aliases`, `unloadTimeout`) already covers everything 27B
+  needs. **No new schema or merge features required.** (Correction 2026-10-16: `healthCheckTimeout` is
+  GLOBAL in llama-swap, not a per-model field — the setup script raises the
+  top-level value instead.)
 - **`tasks/merge-model-entry.py`:** catalog entry merge works unchanged.
 - **`tasks/setup-tensorfold-spark-qwen38-flash.sh` structure:** pre-flight (docker, CDI, Spark, disk, hf CLI,
   llama-swap), pinned checkout, `.env` render, `prepare.sh`, catalog merge, `sync-models.py`,

@@ -50,8 +50,9 @@ providers:
           unloadTimeout: 60
           proxy: "http://127.0.0.1:${TENSORFOLD_PORT}"
           checkEndpoint: "/health"
-          # 122 GB weight load on first request; never auto-unload.
-          healthCheckTimeout: ${TENSORFOLD_HEALTH_TIMEOUT}
+          # First-load wait is the GLOBAL llama-swap healthCheckTimeout, which
+          # the setup script raises to TENSORFOLD_HEALTH_TIMEOUT (per-model
+          # values are ignored by llama-swap). Never auto-unload.
           ttl: 0
           aliases:
             - "Qwen3.8-Flash-Next"

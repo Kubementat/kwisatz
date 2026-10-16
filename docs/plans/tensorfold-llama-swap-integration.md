@@ -23,7 +23,9 @@ Workflow (all steps idempotent / converge on re-run):
    installed** (`/srv/llama-swap` + `systemctl status llama-swap`) — point at
    `setup-llama-swap.sh` if missing.
 2. **Clone upstream** into `/srv/tensorfold`, pinned to commit
-   `db281878ddb836fd0df510d8771ecb7e0fe47d26` (TF_REF from research §9.2).
+   `4e1239ddb9d9a4cc3c748e771ae4725335c46a95` (recipe main @ 2026-10-12). The
+   often-quoted `db281878…` from research §9.2 is the TensorFold ENGINE pin
+   (TF_REF inside the recipe), not a recipe-repo commit.
    Re-run: `git fetch` + `git checkout <pin>` (converge, never a fresh clone
    over an existing checkout).
 3. **Prepare:** run `/srv/tensorfold/scripts/prepare.sh` (image pull/build +

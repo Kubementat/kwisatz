@@ -78,14 +78,14 @@ CHECK_ONLY=0
 # ── Input validation ──────────────────────────────────────────────────────────
 
 validate_port() {
-  local port="$1"
+  local name="$1" port="$2"
   if [[ ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
-    error "TENSORFOLD_27B_PORT must be a number between 1 and 65535 (got: ${port})."
+    error "${name} must be a number between 1 and 65535 (got: ${port})."
   fi
 }
 
-validate_port "$TENSORFOLD_27B_PORT"
-validate_port "$LLAMA_SWAP_PORT"
+validate_port TENSORFOLD_27B_PORT "$TENSORFOLD_27B_PORT"
+validate_port LLAMA_SWAP_PORT "$LLAMA_SWAP_PORT"
 if [[ ! "$TENSORFOLD_27B_HEALTH_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
   error "TENSORFOLD_27B_HEALTH_TIMEOUT must be a positive integer (seconds)."
 fi
@@ -98,8 +98,11 @@ usage() {
   echo -e "${BOLD}Options:${RESET}"
   echo "  --port <n>               TensorFold API port the container binds on the"
   echo "                           host network; llama-swap proxies to it (default: 8889)"
-  echo "  --health-timeout <s>     Seconds llama-swap waits for a first model load"
-  echo "                           (19 GB weights + one-time kernel compile; default: 600)"
+  echo "  --health-timeout <s>     Seconds a first model load may take (19 GB"
+  echo "                           weights + one-time kernel compile; default: 600). Raises"
+  echo "                           llama-swap's global healthCheckTimeout to at least this"
+  echo "                           value (the field is global in llama-swap, not per-model)"
+  echo "                           and bounds the smoke-test wait."
   echo "  --dir <path>             Recipe checkout + service dir (default: /srv/tensorfold-27b)"
   echo "  --hf-cache <path>        Host HuggingFace cache dir (default: ~/.cache/huggingface)"
   echo "  --kernel-cache <path>    Kernel cache + lock files + prepared marker"
@@ -136,6 +139,9 @@ usage() {
   echo "  .env is re-rendered, prepare.sh is a no-op when ready, the catalog"
   echo "  entry is replaced only if the rendered template changed, and"
   echo "  sync-models.py restarts llama-swap only when its config changed."
+  echo "  Changing --port on an existing install does NOT converge the llama-swap"
+  echo "  config entry (add-only sync): delete the entry from ${LLAMA_SWAP_DIR}/config/config.yaml"
+  echo "  and re-run."
   exit 0
 }
 
@@ -178,7 +184,10 @@ check_status() {
     echo -e "  ${BOLD}Prepared:${RESET}    ${YELLOW}no — prepare.sh has not completed${RESET}"
   fi
   local catalog="${REPO_ROOT}/models.yml"
-  if [[ -f "$catalog" ]] && grep -q "name: ${TENSORFOLD_27B_MODEL_NAME}" "$catalog"; then
+  # -A1: require 'type: local' right after — a same-named remote entry must not
+  # count as the local tensorfold entry.
+  if [[ -f "$catalog" ]] && grep -A1 -q "name: ${TENSORFOLD_27B_MODEL_NAME}" "$catalog" \
+     && grep -A1 "name: ${TENSORFOLD_27B_MODEL_NAME}" "$catalog" | grep -q "type: local"; then
     echo -e "  ${BOLD}Catalog:${RESET}     ${GREEN}entry in ${catalog}${RESET}"
   else
     echo -e "  ${BOLD}Catalog:${RESET}     ${YELLOW}no ${TENSORFOLD_27B_MODEL_NAME} entry in ${catalog}${RESET}"
@@ -282,6 +291,7 @@ MODEL_CACHE_DIR="${HF_CACHE_DIR}/hub/models--Vontra--Qwen3.8-27B-MLX-4bit"
 DRAFT_CACHE_DIR="${HF_CACHE_DIR}/hub/models--z-lab--Qwen3.8-27B-DFlash2"
 if ! ls -d "${MODEL_CACHE_DIR}"/snapshots/*/ &>/dev/null \
    || ! ls -d "${DRAFT_CACHE_DIR}"/snapshots/*/ &>/dev/null; then
+  mkdir -p "$HF_CACHE_DIR"  # fresh machine: df needs the dir to exist
   FREE_GB=$(df -BG --output=avail "$HF_CACHE_DIR" 2>/dev/null | tail -1 | tr -dc '0-9' || true)
   if [[ -z "$FREE_GB" ]]; then
     error "Could not determine free disk space under ${HF_CACHE_DIR} (df failed)."
@@ -361,6 +371,29 @@ python3 "${SCRIPT_DIR}/merge-model-entry.py" "${MERGE_ARGS[@]}"
 rm -f -- "$_ENTRY"
 success "Catalog merged."
 
+# llama-swap's healthCheckTimeout is GLOBAL (top-level config key, default 600) —
+# a per-model value is accepted but ignored. Raise it to cover the first load
+# (19 GB weights + one-time kernel compile); sync-models.py below restarts
+# llama-swap when the file changed.
+step "Ensuring llama-swap healthCheckTimeout >= ${TENSORFOLD_27B_HEALTH_TIMEOUT}s"
+CONFIG_FILE="${LLAMA_SWAP_DIR}/config/config.yaml"
+if [[ -f "$CONFIG_FILE" ]]; then
+  python3 - "$CONFIG_FILE" "$TENSORFOLD_27B_HEALTH_TIMEOUT" <<'PYEOF'
+import sys, yaml
+path, need = sys.argv[1], int(sys.argv[2])
+with open(path) as f:
+    cfg = yaml.safe_load(f) or {}
+cur = int(cfg.get("healthCheckTimeout", 600))
+if cur < need:
+    cfg["healthCheckTimeout"] = need
+    with open(path, "w") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False, default_flow_style=False)
+    print(f"healthCheckTimeout raised {cur} -> {need} (global; comments in config.yaml are not preserved)")
+else:
+    print(f"healthCheckTimeout already {cur} >= {need}")
+PYEOF
+fi
+
 # ── Sync llama-swap ───────────────────────────────────────────────────────────
 step "Syncing llama-swap (tasks/sync-models.py)"
 
@@ -374,9 +407,10 @@ else
   step "Smoke test through llama-swap (http://localhost:${LLAMA_SWAP_PORT})"
   info "First load pulls ~19 GB of weights into the GPU and compiles CUDA kernels once — up to ${TENSORFOLD_27B_HEALTH_TIMEOUT}s."
 
-# Bare body (upstream start.sh shape) — the TensorFold engine is not known
-# to accept llama.cpp-style chat_template_kwargs.
-_smoke_body="{\"model\": \"${TENSORFOLD_27B_MODEL_NAME}\", \"max_tokens\": 32, \"messages\": [{\"role\": \"user\", \"content\": \"Reply with OK.\"}]}"
+# enable_thinking: false (a documented per-request parameter of this engine) —
+# with the default thinking mode the think block would eat the small token
+# budget and leave message.content empty, failing the check below.
+_smoke_body="{\"model\": \"${TENSORFOLD_27B_MODEL_NAME}\", \"max_tokens\": 32, \"temperature\": 0, \"chat_template_kwargs\": {\"enable_thinking\": false}, \"messages\": [{\"role\": \"user\", \"content\": \"Reply with OK.\"}]}"
 if _smoke_resp="$(curl -s --max-time $(( TENSORFOLD_27B_HEALTH_TIMEOUT + 60 )) \
      "http://localhost:${LLAMA_SWAP_PORT}/v1/chat/completions" \
      -H 'Content-Type: application/json' -d "${_smoke_body}")" \

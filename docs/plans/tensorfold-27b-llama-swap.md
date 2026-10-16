@@ -68,13 +68,13 @@ Workflow (all steps idempotent / converge on re-run):
    or local build + ~19 GB checkpoints + verify — idempotent upstream;
    marker at `$KERNEL_CACHE/.prepared`).
 5. **Catalog entry:** render `templates/tensorfold-spark-qwen38-27b/models-entry.yml`,
-   merge `qwen3.8-27b` into `models.yml` via `tasks/merge-model-entry.py`
+   merge `qwen3.8-27b-tf` into `models.yml` via `tasks/merge-model-entry.py`
    (additive; entry replaced if the rendered template changed; seed from
    `models.yml.default` if `models.yml` is missing — same as Flash Next).
 6. **Sync:** `tasks/sync-models.py` (merge into llama-swap `config.yaml`,
    restart only on change, poll `/health`).
 7. **Smoke test** through llama-swap: `POST http://localhost:9292/v1/chat/completions`
-   with `model: qwen3.8-27b`, `max_tokens: 32`,
+   with `model: qwen3.8-27b-tf`, `max_tokens: 32`,
    `chat_template_kwargs: {enable_thinking: false}` (same shape as the Flash
    Next smoke test), bounded by `TENSORFOLD_27B_HEALTH_TIMEOUT + 60`.
 8. **Flags:** `--port`, `--health-timeout`, `--dir`, `--hf-cache`,
@@ -130,7 +130,7 @@ providers:
   - name: local
     baseUrl: http://localhost:${LLAMA_SWAP_PORT}/v1
     models:
-      - name: qwen3.8-27b
+      - name: qwen3.8-27b-tf
         type: local
         env:
           # llama-swap runs cmd as root with ProtectHome=read-only — pin the
@@ -156,7 +156,9 @@ providers:
           unloadTimeout: 60
           proxy: "http://127.0.0.1:${TENSORFOLD_27B_PORT}"   # 8889
           checkEndpoint: "/health"
-          healthCheckTimeout: ${TENSORFOLD_27B_HEALTH_TIMEOUT}  # 600
+          # (first-load wait: setup script raises the GLOBAL llama-swap
+          #  healthCheckTimeout to ${TENSORFOLD_27B_HEALTH_TIMEOUT}; the field
+          #  is not per-model)
           ttl: 0
           aliases:
             - "Qwen3.8-27B"

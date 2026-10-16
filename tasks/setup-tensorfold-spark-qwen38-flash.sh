@@ -11,7 +11,7 @@
 #
 # Upstream recipe (pinned):
 #   https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
-#   recipe commit ${TENSORFOLD_RECIPE_REF} (main @ 2026-10-15); the TensorFold
+#   recipe commit ${TENSORFOLD_RECIPE_REF} (commit date 2026-10-12); the TensorFold
 #   engine itself is pinned inside the recipe (TF_REF db281878, image
 #   tensorfold-qwen38:zig-db28187) and applied by scripts/prepare.sh.
 #
@@ -43,7 +43,7 @@ source "${SCRIPT_DIR}/../lib/helpers.sh"
 
 # ── Pinned upstream recipe ────────────────────────────────────────────────────
 TENSORFOLD_REPO="https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold"
-# Recipe repo commit (main @ 2026-10-15). Note: the often-quoted pin
+# Recipe repo commit (commit date 2026-10-12). Note: the often-quoted pin
 # db281878ddb836fd0df510d8771ecb7e0fe47d26 is the TensorFold ENGINE commit
 # (TF_REF in the recipe's scripts/config.sh), not a recipe-repo commit.
 TENSORFOLD_RECIPE_REF="4e1239ddb9d9a4cc3c748e771ae4725335c46a95"
@@ -75,14 +75,14 @@ CHECK_ONLY=0
 # ── Input validation ──────────────────────────────────────────────────────────
 
 validate_port() {
-  local port="$1"
+  local name="$1" port="$2"
   if [[ ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
-    error "TENSORFOLD_PORT must be a number between 1 and 65535 (got: ${port})."
+    error "${name} must be a number between 1 and 65535 (got: ${port})."
   fi
 }
 
-validate_port "$TENSORFOLD_PORT"
-validate_port "$LLAMA_SWAP_PORT"
+validate_port TENSORFOLD_PORT "$TENSORFOLD_PORT"
+validate_port LLAMA_SWAP_PORT "$LLAMA_SWAP_PORT"
 if [[ ! "$TENSORFOLD_HEALTH_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
   error "TENSORFOLD_HEALTH_TIMEOUT must be a positive integer (seconds)."
 fi
@@ -95,8 +95,11 @@ usage() {
   echo -e "${BOLD}Options:${RESET}"
   echo "  --port <n>               TensorFold API port the container binds on the"
   echo "                           host network; llama-swap proxies to it (default: 8888)"
-  echo "  --health-timeout <s>     Seconds llama-swap waits for a first model load"
-  echo "                           (122 GiB weight load; default: 900)"
+  echo "  --health-timeout <s>     Seconds a first model load may take (122 GiB"
+  echo "                           weight load; default: 900). Raises llama-swap's"
+  echo "                           global healthCheckTimeout to at least this value"
+  echo "                           (the field is global in llama-swap, not per-model)"
+  echo "                           and bounds the smoke-test wait."
   echo "  --dir <path>             Recipe checkout + service dir (default: /srv/tensorfold)"
   echo "  --hf-cache <path>        Host HuggingFace cache dir (default: ~/.cache/huggingface)"
   echo "  --force                  Stop the running model first (upstream stop.sh) and"
@@ -129,6 +132,9 @@ usage() {
   echo "  .env is re-rendered, prepare.sh is a no-op when ready, the catalog"
   echo "  entry is replaced only if the rendered template changed, and"
   echo "  sync-models.py restarts llama-swap only when its config changed."
+  echo "  Changing --port on an existing install does NOT converge the llama-swap"
+  echo "  config entry (add-only sync): delete the entry from ${LLAMA_SWAP_DIR}/config/config.yaml"
+  echo "  and re-run."
   exit 0
 }
 
@@ -170,7 +176,10 @@ check_status() {
     echo -e "  ${BOLD}Prepared:${RESET}    ${YELLOW}no — prepare.sh has not completed${RESET}"
   fi
   local catalog="${REPO_ROOT}/models.yml"
-  if [[ -f "$catalog" ]] && grep -q "name: ${TENSORFOLD_MODEL_NAME}" "$catalog"; then
+  # -A1: require 'type: local' right after — a same-named remote entry must not
+  # count as the local tensorfold entry.
+  if [[ -f "$catalog" ]] && grep -A1 -q "name: ${TENSORFOLD_MODEL_NAME}" "$catalog" \
+     && grep -A1 "name: ${TENSORFOLD_MODEL_NAME}" "$catalog" | grep -q "type: local"; then
     echo -e "  ${BOLD}Catalog:${RESET}     ${GREEN}entry in ${catalog}${RESET}"
   else
     echo -e "  ${BOLD}Catalog:${RESET}     ${YELLOW}no ${TENSORFOLD_MODEL_NAME} entry in ${catalog}${RESET}"
@@ -270,6 +279,7 @@ success "CDI device nvidia.com/gpu=all is available."
 # precisely on its own).
 MODEL_CACHE_DIR="${HF_CACHE_DIR}/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound"
 if [[ ! -f "${MODEL_CACHE_DIR}/snapshots/1464274120d36a4d8fcaa934552334a7d83ce0fd/config.json" ]]; then
+  mkdir -p "$HF_CACHE_DIR"  # fresh machine: df needs the dir to exist
   FREE_GB=$(df -BG --output=avail "$HF_CACHE_DIR" 2>/dev/null | tail -1 | tr -dc '0-9' || true)
   if [[ -z "$FREE_GB" ]]; then
     error "Could not determine free disk space under ${HF_CACHE_DIR} (df failed)."
@@ -349,6 +359,28 @@ MERGE_ARGS=(
 python3 "${SCRIPT_DIR}/merge-model-entry.py" "${MERGE_ARGS[@]}"
 rm -f -- "$_ENTRY"
 success "Catalog merged."
+
+# llama-swap's healthCheckTimeout is GLOBAL (top-level config key, default 600) —
+# a per-model value is accepted but ignored. Raise it to cover the 122 GiB
+# first load; sync-models.py below restarts llama-swap when the file changed.
+step "Ensuring llama-swap healthCheckTimeout >= ${TENSORFOLD_HEALTH_TIMEOUT}s"
+CONFIG_FILE="${LLAMA_SWAP_DIR}/config/config.yaml"
+if [[ -f "$CONFIG_FILE" ]]; then
+  python3 - "$CONFIG_FILE" "$TENSORFOLD_HEALTH_TIMEOUT" <<'PYEOF'
+import sys, yaml
+path, need = sys.argv[1], int(sys.argv[2])
+with open(path) as f:
+    cfg = yaml.safe_load(f) or {}
+cur = int(cfg.get("healthCheckTimeout", 600))
+if cur < need:
+    cfg["healthCheckTimeout"] = need
+    with open(path, "w") as f:
+        yaml.safe_dump(cfg, f, sort_keys=False, default_flow_style=False)
+    print(f"healthCheckTimeout raised {cur} -> {need} (global; comments in config.yaml are not preserved)")
+else:
+    print(f"healthCheckTimeout already {cur} >= {need}")
+PYEOF
+fi
 
 # ── Sync llama-swap ───────────────────────────────────────────────────────────
 step "Syncing llama-swap (tasks/sync-models.py)"
