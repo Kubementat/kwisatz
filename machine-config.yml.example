@@ -14,8 +14,9 @@ scripts:
     args: []
   # --- GPU ordering ---
   # setup-nvidia-container MUST run BEFORE any GPU task (setup-colqwen,
-  # setup-vllm, setup-vllm-omni, setup-tensorfold): they request the GPU as
-  # the CDI device nvidia.com/gpu=all; pre-flight fails without the spec.
+  # setup-vllm, setup-vllm-omni, setup-tensorfold-spark-qwen38-flash,
+  # setup-tensorfold-spark-qwen38-27b): they request the GPU as the CDI
+  # device nvidia.com/gpu=all; pre-flight fails without the spec.
   setup-nvidia-container:
     enabled: false
     description: NVIDIA Container Toolkit + CDI GPU spec
@@ -93,7 +94,7 @@ scripts:
       VLLM_PORT: '8000'
       VLLM_HOST: 0.0.0.0
     args: []
-  setup-tensorfold:
+  setup-tensorfold-spark-qwen38-flash:
     enabled: false
     description: Qwen3.8 Flash Next on DGX Spark (TensorFold, via llama-swap)
     env:
@@ -102,7 +103,7 @@ scripts:
     # requires a DGX Spark (GB10); runs after setup-nvidia-container and
     # setup-llama-swap
     args: []
-  setup-tensorfold-27b:
+  setup-tensorfold-spark-qwen38-27b:
     enabled: false
     description: Qwen3.8-27B on DGX Spark (TensorFold v0.6.0, via llama-swap)
     env:

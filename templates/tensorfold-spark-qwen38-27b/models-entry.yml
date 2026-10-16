@@ -1,6 +1,6 @@
 # Qwen3.8-27B — TensorFold v0.6.0 (Python engine) on one DGX Spark.
 #
-# Catalog fragment rendered by tasks/setup-tensorfold-27b.sh
+# Catalog fragment rendered by tasks/setup-tensorfold-spark-qwen38-27b.sh
 # (TENSORFOLD_27B_PORT, LLAMA_SWAP_PORT, HF_CACHE_DIR, KERNEL_CACHE_DIR,
 # TENSORFOLD_27B_HEALTH_TIMEOUT) and merged additively into models.yml by
 # tasks/merge-model-entry.py.

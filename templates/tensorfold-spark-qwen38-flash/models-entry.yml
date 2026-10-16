@@ -1,6 +1,6 @@
 # Qwen3.8 Flash Next — TensorFold's Zig engine on one DGX Spark.
 #
-# Catalog fragment rendered by tasks/setup-tensorfold.sh (TENSORFOLD_PORT,
+# Catalog fragment rendered by tasks/setup-tensorfold-spark-qwen38-flash.sh (TENSORFOLD_PORT,
 # LLAMA_SWAP_PORT, HF_CACHE_DIR, KERNEL_CACHE_DIR, TENSORFOLD_HEALTH_TIMEOUT)
 # and merged additively into models.yml by tasks/merge-model-entry.py.
 #
@@ -32,7 +32,7 @@ providers:
           - name: LOG_DIR
             value: ${TENSORFOLD_STATE_DIR}/logs
         # One-time prep (image + ~122 GB checkpoint). No-op while the
-        # upstream prepared marker is present (setup-tensorfold.sh runs
+        # upstream prepared marker is present (setup-tensorfold-spark-qwen38-flash.sh runs
         # scripts/prepare.sh with the same STATE_DIR during install).
         download:
           - >-

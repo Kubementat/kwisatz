@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """merge-model-entry.py — additively merge a rendered catalog fragment into models.yml.
 
-Used by tasks/setup-tensorfold.sh: replaces (or adds) one model entry in the
+Used by the tensorfold setup tasks (tasks/setup-tensorfold-spark-*.sh): replaces (or adds) one model entry in the
 local llama-swap catalog. The catalog is seeded from models.yml.default when
 missing. A re-run is a no-op (no write, no comment loss) while the rendered
 entry is unchanged; --force writes anyway.

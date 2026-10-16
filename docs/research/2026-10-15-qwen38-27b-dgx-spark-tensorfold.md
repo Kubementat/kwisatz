@@ -42,10 +42,10 @@ into the existing **llama-swap** workflow established for the sibling Flash Next
    swap model is the correct usage; loading both simultaneously is only possible with reduced
    settings (Section 6).
 
-**Integration design (recommended):** extend `tasks/setup-tensorfold.sh` with a model profile
-(`--model flash-next|27b`), or add a sibling `tasks/setup-tensorfold-27b.sh` reusing the same
+**Integration design (recommended):** extend `tasks/setup-tensorfold-spark-qwen38-flash.sh` with a model profile
+(`--model flash-next|27b`), or add a sibling `tasks/setup-tensorfold-spark-qwen38-27b.sh` reusing the same
 pattern; either way the new surface area is one template pair
-(`templates/tensorfold-27b/{models-entry.yml,serve.env}`) plus one recipe checkout at
+(`templates/tensorfold-spark-qwen38-27b/{models-entry.yml,serve.env}`) plus one recipe checkout at
 `/srv/tensorfold-27b` (pinned to commit `c11ff138871cf43d12898d79dbfa4dc952d17ca4`).
 
 ---
@@ -211,7 +211,7 @@ DFlash2 vs. MTP).
   `checkEndpoint`, `ttl`, `aliases`, `healthCheckTimeout`, `unloadTimeout`) already covers
   everything 27B needs. **No new schema or merge features required.**
 - **`tasks/merge-model-entry.py`:** catalog entry merge works unchanged.
-- **`tasks/setup-tensorfold.sh` structure:** pre-flight (docker, CDI, Spark, disk, hf CLI,
+- **`tasks/setup-tensorfold-spark-qwen38-flash.sh` structure:** pre-flight (docker, CDI, Spark, disk, hf CLI,
   llama-swap), pinned checkout, `.env` render, `prepare.sh`, catalog merge, `sync-models.py`,
   smoke test — all steps apply identically.
 - **Catalog pattern:** `serve.cmd = bash /srv/tensorfold-27b/start.sh` (blocking with
@@ -221,7 +221,7 @@ DFlash2 vs. MTP).
 
 1. **Recipe checkout:** `/srv/tensorfold-27b`, pinned to `c11ff138871cf43d12898d79dbfa4dc952d17ca4`.
 2. **Port:** 8889 (Flash Next holds 8888). Rendered into `/srv/tensorfold-27b/.env`.
-3. **Templates:** `templates/tensorfold-27b/models-entry.yml` + `serve.env`.
+3. **Templates:** `templates/tensorfold-spark-qwen38-27b/models-entry.yml` + `serve.env`.
 4. **Disk check:** ~60 GB (vs. 160 GB for Flash Next).
 5. **Health timeout:** ~300–600 s is ample (19 GB load + one-time kernel compile), vs. 900 s.
 6. **Download marker:** `${KERNEL_CACHE}/.prepared` (different location than Flash Next's
@@ -229,13 +229,13 @@ DFlash2 vs. MTP).
 
 ### 4.3 Task script: extend vs. new (decision for the plan)
 
-**Option A — extend `tasks/setup-tensorfold.sh` with `--model flash-next|27b` (default
+**Option A — extend `tasks/setup-tensorfold-spark-qwen38-flash.sh` with `--model flash-next|27b` (default
 `flash-next`).** Per-model constants (repo, recipe ref, project dir, port, disk, model name,
 container, kernel cache, health timeout) move into a `case` profile; the ~200-line main flow
 stays shared. Pros: no duplication, one entry point, easy to add more recipes later. Cons: the
 script grows a second config surface; `--check`/`--force` semantics must cover both models.
 
-**Option B — new `tasks/setup-tensorfold-27b.sh` + `templates/tensorfold-27b/`.** Mirrors the
+**Option B — new `tasks/setup-tensorfold-spark-qwen38-27b.sh` + `templates/tensorfold-spark-qwen38-27b/`.** Mirrors the
 existing script (~90% identical). Pros: matches the repo's one-task-script-per-service convention,
 zero risk to the working Flash Next install. Cons: ~250 duplicated lines; drift risk when the
 pattern evolves.
@@ -249,7 +249,7 @@ lowest-risk, convention-matching fallback. Both keep the Flash Next install unto
 
 ### 4.4 Catalog entry (shape)
 
-`templates/tensorfold-27b/models-entry.yml` (rendered with `TENSORFOLD_27B_PORT`,
+`templates/tensorfold-spark-qwen38-27b/models-entry.yml` (rendered with `TENSORFOLD_27B_PORT`,
 `LLAMA_SWAP_PORT`, `HF_CACHE_DIR`, `KERNEL_CACHE_27B_DIR`, `TENSORFOLD_27B_HEALTH_TIMEOUT`):
 
 ```yaml
@@ -297,10 +297,10 @@ Notes:
 
 ### 4.5 serve.env
 
-`templates/tensorfold-27b/serve.env` (rendered to `/srv/tensorfold-27b/.env`):
+`templates/tensorfold-spark-qwen38-27b/serve.env` (rendered to `/srv/tensorfold-27b/.env`):
 
 ```
-# Managed by kwisatz tasks/setup-tensorfold.sh — re-rendered on every run.
+# Managed by kwisatz tasks/setup-tensorfold-spark-qwen38-flash.sh — re-rendered on every run.
 FOREGROUND=1
 PORT=${PORT}     # 8889
 # Engine levers (PARALLEL, CONTEXT, YARN_FACTOR, KV_POOL_GB, KV_DTYPE, PREFILL_FP8,
@@ -382,6 +382,6 @@ The 27B recipe is the Flash Next integration pattern with a smaller model and a 
 instead of the Zig engine. The existing kwisatz machinery (setup task structure, `templates/`,
 `merge-model-entry.py`, `sync_models` llamaSwap pass-through) covers 100% of the integration;
 the new work is one template pair, one recipe pin, one new port (8889), and the decision of
-whether to extend `tasks/setup-tensorfold.sh` (Option A) or add a sibling task script (Option B).
+whether to extend `tasks/setup-tensorfold-spark-qwen38-flash.sh` (Option A) or add a sibling task script (Option B).
 Memory-wise, the two models do not coexist at defaults; llama-swap's swap model is the right
 fit.

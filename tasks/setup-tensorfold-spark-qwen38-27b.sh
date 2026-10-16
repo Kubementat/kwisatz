@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091
 # =============================================================================
-# setup-tensorfold-27b.sh
+# setup-tensorfold-spark-qwen38-27b.sh
 # Installs Qwen3.8-27B on one NVIDIA DGX Spark (GB10, 128 GB unified memory)
 # via TensorFold v0.6.0 (Python engine, tensorfold-qwen38-27b), managed by
 # llama-swap. There is no standalone stack: llama-swap owns the container
@@ -30,16 +30,16 @@
 #      CUDA kernel compile)
 #
 # Usage:
-#   ./setup-tensorfold-27b.sh            # install / converge
-#   ./setup-tensorfold-27b.sh --check    # show status and exit
-#   ./setup-tensorfold-27b.sh --force    # stop the running model, force re-merge
-#   ./setup-tensorfold-27b.sh --help
+#   ./setup-tensorfold-spark-qwen38-27b.sh            # install / converge
+#   ./setup-tensorfold-spark-qwen38-27b.sh --check    # show status and exit
+#   ./setup-tensorfold-spark-qwen38-27b.sh --force    # stop the running model, force re-merge
+#   ./setup-tensorfold-spark-qwen38-27b.sh --help
 # =============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEMPLATE_DIR="${SCRIPT_DIR}/../templates/tensorfold-27b"
+TEMPLATE_DIR="${SCRIPT_DIR}/../templates/tensorfold-spark-qwen38-27b"
 REPO_ROOT="${SCRIPT_DIR}/.."
 
 # shellcheck source=../lib/helpers.sh
@@ -120,7 +120,7 @@ usage() {
   echo "  NVIDIA container toolkit (setup-nvidia-container.sh first), llama-swap"
   echo "  (setup-llama-swap.sh first), ~60 GB free disk, 'hf' CLI"
   echo "  (pip install -U \"huggingface_hub[cli]\"). Does NOT coexist with"
-  echo "  Flash Next (setup-tensorfold.sh) at defaults — use llama-swap's"
+  echo "  Flash Next (setup-tensorfold-spark-qwen38-flash.sh) at defaults — use llama-swap's"
   echo "  one-model-at-a-time swap."
   echo ""
   echo -e "${BOLD}Runtime model:${RESET}"
@@ -334,7 +334,7 @@ success ".env written: FOREGROUND=1, PORT=${TENSORFOLD_27B_PORT}"
 # ── Prepare: image + checkpoints (idempotent upstream) ────────────────────────
 step "Preparing TensorFold (prebuilt image + ~19 GB checkpoints — idempotent, can take a while)"
 
-# KERNEL_CACHE must match the catalog entry (templates/tensorfold-27b/models-entry.yml):
+# KERNEL_CACHE must match the catalog entry (templates/tensorfold-spark-qwen38-27b/models-entry.yml):
 # the llama-swap service runs with ProtectHome=read-only, so the lock files and
 # the prepared marker live under /srv/tensorfold-27b, not $HOME.
 (cd "$PROJECT_DIR" && HF_CACHE="$HF_CACHE_DIR" KERNEL_CACHE="$KERNEL_CACHE_DIR" bash scripts/prepare.sh)

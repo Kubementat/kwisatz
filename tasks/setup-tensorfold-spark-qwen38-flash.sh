@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1091
 # =============================================================================
-# setup-tensorfold.sh
+# setup-tensorfold-spark-qwen38-flash.sh
 # Installs Qwen3.8 Flash Next on one NVIDIA DGX Spark (GB10, 128 GB unified
 # memory) via TensorFold's Zig engine (tensorfold-native), managed by
 # llama-swap. There is no standalone stack: llama-swap owns the container
@@ -26,16 +26,16 @@
 #   6. smoke test through llama-swap (first load is a ~122 GB weight load)
 #
 # Usage:
-#   ./setup-tensorfold.sh            # install / converge
-#   ./setup-tensorfold.sh --check    # show status and exit
-#   ./setup-tensorfold.sh --force    # stop the running model, force re-merge
-#   ./setup-tensorfold.sh --help
+#   ./setup-tensorfold-spark-qwen38-flash.sh            # install / converge
+#   ./setup-tensorfold-spark-qwen38-flash.sh --check    # show status and exit
+#   ./setup-tensorfold-spark-qwen38-flash.sh --force    # stop the running model, force re-merge
+#   ./setup-tensorfold-spark-qwen38-flash.sh --help
 # =============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEMPLATE_DIR="${SCRIPT_DIR}/../templates/tensorfold"
+TEMPLATE_DIR="${SCRIPT_DIR}/../templates/tensorfold-spark-qwen38-flash"
 REPO_ROOT="${SCRIPT_DIR}/.."
 
 # shellcheck source=../lib/helpers.sh
@@ -322,7 +322,7 @@ success ".env written: FOREGROUND=1, PORT=${TENSORFOLD_PORT}"
 # ── Prepare: image + checkpoint (idempotent upstream) ─────────────────────────
 step "Preparing TensorFold (image + ~122 GB checkpoint — idempotent, can take a while)"
 
-# STATE_DIR/LOG_DIR must match the catalog entry (templates/tensorfold/models-entry.yml):
+# STATE_DIR/LOG_DIR must match the catalog entry (templates/tensorfold-spark-qwen38-flash/models-entry.yml):
 # the llama-swap service runs with ProtectHome=read-only, so the prepared marker
 # and the runtime lock/log files live under /srv/tensorfold, not $HOME.
 (cd "$PROJECT_DIR" && HF_CACHE="$HF_CACHE_DIR" KERNEL_CACHE="$KERNEL_CACHE_DIR" \

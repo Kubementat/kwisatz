@@ -1,7 +1,7 @@
 # Plan: TensorFold Qwen3.8-27B on DGX Spark via llama-swap
 
 **Research:** `docs/research/2026-10-15-qwen38-27b-dgx-spark-tensorfold.md` (authoritative; upstream clone verified at `/tmp/tensorfold-27b`)
-**Builds on:** the Flash Next integration (this repo: `tasks/setup-tensorfold.sh`, `templates/tensorfold/`, `tasks/merge-model-entry.py`, `sync_models/` — just merged to `develop`)
+**Builds on:** the Flash Next integration (this repo: `tasks/setup-tensorfold-spark-qwen38-flash.sh`, `templates/tensorfold-spark-qwen38-flash/`, `tasks/merge-model-entry.py`, `sync_models/` — just merged to `develop`)
 
 > **Post-review decision (2026-10-16):** the catalog entry is named
 > **`qwen3.8-27b-tf`**, not `qwen3.8-27b` — that name is already taken by the
@@ -11,7 +11,7 @@
 
 ## Decisions (this plan)
 
-1. **Sibling script, not a `--model` profile — `tasks/setup-tensorfold-27b.sh`.**
+1. **Sibling script, not a `--model` profile — `tasks/setup-tensorfold-spark-qwen38-27b.sh`.**
    Repo convention is one task script per service/recipe (AUTOMATIONS.md and
    `machine-config.yml.example` are keyed per script), and the two recipes
    already diverge on their writable-state surface (Flash Next:
@@ -47,7 +47,7 @@
 
 ## Design
 
-### `tasks/setup-tensorfold-27b.sh` (new, modeled on `tasks/setup-tensorfold.sh`)
+### `tasks/setup-tensorfold-spark-qwen38-27b.sh` (new, modeled on `tasks/setup-tensorfold-spark-qwen38-flash.sh`)
 
 Workflow (all steps idempotent / converge on re-run):
 
@@ -60,14 +60,14 @@ Workflow (all steps idempotent / converge on re-run):
    `https://github.com/MiaAI-Lab/Qwen3.8-27B-DGX-Spark-TensorFold` @
    **`c11ff138871cf43d12898d79dbfa4dc952d17ca4`**. Re-run: `git fetch` +
    `git checkout <pin>`.
-3. **Write `/srv/tensorfold-27b/.env`** from `templates/tensorfold-27b/serve.env`
+3. **Write `/srv/tensorfold-27b/.env`** from `templates/tensorfold-spark-qwen38-27b/serve.env`
    (see below).
 4. **Prepare:** run `/srv/tensorfold-27b/scripts/prepare.sh` with
    `HF_CACHE="$HF_CACHE_DIR" KERNEL_CACHE="$KERNEL_CACHE_DIR"` (prebuilt
    image `ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold:v0.6.0-fb91a0019fdc`
    or local build + ~19 GB checkpoints + verify — idempotent upstream;
    marker at `$KERNEL_CACHE/.prepared`).
-5. **Catalog entry:** render `templates/tensorfold-27b/models-entry.yml`,
+5. **Catalog entry:** render `templates/tensorfold-spark-qwen38-27b/models-entry.yml`,
    merge `qwen3.8-27b` into `models.yml` via `tasks/merge-model-entry.py`
    (additive; entry replaced if the rendered template changed; seed from
    `models.yml.default` if `models.yml` is missing — same as Flash Next).
@@ -103,12 +103,12 @@ Next's `TENSORFOLD_STATE_DIR`.
 **No `STATE_DIR`/`LOG_DIR`** for 27B — the recipe has no such concept; logs
 are `docker logs` only.
 
-### `templates/tensorfold-27b/serve.env` (new)
+### `templates/tensorfold-spark-qwen38-27b/serve.env` (new)
 
 Rendered to `/srv/tensorfold-27b/.env` (only `${PORT}` envsubsted):
 
 ```
-# Managed by kwisatz tasks/setup-tensorfold-27b.sh — re-rendered on every run.
+# Managed by kwisatz tasks/setup-tensorfold-spark-qwen38-27b.sh — re-rendered on every run.
 FOREGROUND=1
 PORT=${PORT}
 HOST=127.0.0.1
@@ -120,7 +120,7 @@ HOST=127.0.0.1
 (`HOST=127.0.0.1` mirrors Flash Next: the API is consumed through
 llama-swap, no unauthenticated direct LAN access.)
 
-### `templates/tensorfold-27b/models-entry.yml` (new)
+### `templates/tensorfold-spark-qwen38-27b/models-entry.yml` (new)
 
 Rendered with `TENSORFOLD_27B_PORT`, `LLAMA_SWAP_PORT`, `HF_CACHE_DIR`,
 `KERNEL_CACHE_DIR`, `TENSORFOLD_27B_HEALTH_TIMEOUT`:
@@ -177,7 +177,7 @@ Notes:
 
 ### `AUTOMATIONS.md` (updated)
 
-New `#### setup-tensorfold-27b.sh` entry next to the Flash Next one:
+New `#### setup-tensorfold-spark-qwen38-27b.sh` entry next to the Flash Next one:
 TensorFold v0.6.0 Python engine (not the Zig engine), prebuilt image
 `ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold:v0.6.0-fb91a0019fdc`
 (local build fallback), ~60 GB disk, port 8889, **checkpoints not
@@ -189,10 +189,10 @@ both recipes**.
 
 ### `machine-config.yml.example` (updated)
 
-New entry after `setup-tensorfold`:
+New entry after `setup-tensorfold-spark-qwen38-flash`:
 
 ```yaml
-  setup-tensorfold-27b:
+  setup-tensorfold-spark-qwen38-27b:
     enabled: false
     description: Qwen3.8-27B on DGX Spark (TensorFold v0.6.0, via llama-swap)
     env:
@@ -205,13 +205,13 @@ New entry after `setup-tensorfold`:
 
 ## Deliverables
 
-1. `tasks/setup-tensorfold-27b.sh` (new, shellcheck-clean, `--help` complete)
-2. `templates/tensorfold-27b/models-entry.yml`
-3. `templates/tensorfold-27b/serve.env`
+1. `tasks/setup-tensorfold-spark-qwen38-27b.sh` (new, shellcheck-clean, `--help` complete)
+2. `templates/tensorfold-spark-qwen38-27b/models-entry.yml`
+3. `templates/tensorfold-spark-qwen38-27b/serve.env`
 4. `AUTOMATIONS.md` — new entry
 5. `machine-config.yml.example` — new entry
 
-Untouched: `tasks/setup-tensorfold.sh`, `templates/tensorfold/`,
+Untouched: `tasks/setup-tensorfold-spark-qwen38-flash.sh`, `templates/tensorfold-spark-qwen38-flash/`,
 `tasks/merge-model-entry.py`, `sync_models/`.
 
 ## Verification

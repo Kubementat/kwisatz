@@ -1,7 +1,7 @@
 > **SUPERSEDED** by `docs/plans/tensorfold-llama-swap-integration.md` (operator decision 2026-10-14:
 > no standalone stack — the model runs through llama-swap).
 
-# Plan: `setup-tensorfold.sh` — Qwen3.8 Flash Next on one DGX Spark
+# Plan: `setup-tensorfold-spark-qwen38-flash.sh` — Qwen3.8 Flash Next on one DGX Spark
 
 **Date:** 2026-10-06
 **Research:** `docs/research/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold.md`
@@ -15,8 +15,8 @@ TensorFold v0.6.1 + MiaAI-Lab patches) as a Docker stack on a DGX Spark
 
 ## Design
 
-- **Service name:** `tensorfold` → `tasks/setup-tensorfold.sh`,
-  `templates/tensorfold/`, project dir `/srv/tensorfold`
+- **Service name:** `tensorfold` → `tasks/setup-tensorfold-spark-qwen38-flash.sh`,
+  `templates/tensorfold-spark-qwen38-flash/`, project dir `/srv/tensorfold`
 - **Pattern:** follow `tasks/setup-vllm.sh` (closest analog: Docker LLM server,
   `.env` + `docker-compose.yml.tmpl` rendered via `envsubst`, converge-by-default
   re-run policy, `wait_for_healthy`, `--check`/`--force`/`--help`)
@@ -61,8 +61,8 @@ TensorFold v0.6.1 + MiaAI-Lab patches) as a Docker stack on a DGX Spark
 
 ## Deliverables
 
-1. `tasks/setup-tensorfold.sh` (shellcheck-clean, `--help` complete)
-2. `templates/tensorfold/docker-compose.yml.tmpl` + `env.template`
+1. `tasks/setup-tensorfold-spark-qwen38-flash.sh` (shellcheck-clean, `--help` complete)
+2. `templates/tensorfold-spark-qwen38-flash/docker-compose.yml.tmpl` + `env.template`
 3. `AUTOMATIONS.md` entry
 4. `machine-config.yml.example` entry (`setup-tensorfold`, enabled: false, env: `TENSORFOLD_PORT`)
 5. Lint: `shellcheck` (script), `yamllint` (yml) — all pass
@@ -70,8 +70,8 @@ TensorFold v0.6.1 + MiaAI-Lab patches) as a Docker stack on a DGX Spark
 
 ## Verification
 
-- `bash tasks/setup-tensorfold.sh --help` renders
-- `shellcheck tasks/setup-tensorfold.sh` clean
+- `bash tasks/setup-tensorfold-spark-qwen38-flash.sh --help` renders
+- `shellcheck tasks/setup-tensorfold-spark-qwen38-flash.sh` clean
 - `yamllint` on example config clean
 - Template renders valid YAML for the default case (dry-run render test)
 

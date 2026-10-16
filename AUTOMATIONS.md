@@ -155,7 +155,7 @@ Deploys **vLLM-Omni** — the official vLLM sub-project for omni-modality servin
 - Optional Traefik reverse-proxy integration
 - Idempotent; supports `--force` and `--check`
 
-#### `setup-tensorfold.sh`
+#### `setup-tensorfold-spark-qwen38-flash.sh`
 Deploys **Qwen3.8 Flash Next** on one DGX Spark (GB10, 128 GB unified memory) via TensorFold's Zig engine (`tensorfold-native`), **managed by llama-swap** (no standalone stack). Clones the pinned MiaAI-Lab recipe into `/srv/tensorfold`, runs its `scripts/prepare.sh` (prebuilt image + ~122 GiB checkpoint `azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound`, pinned revision), and merges a `qwen3.8-flash-next` entry into the llama-swap catalog (`models.yml`) + `sync-models.py`. llama-swap owns the container lifecycle: `serve.cmd` runs the upstream `start.sh` (blocking, `FOREGROUND=1`), `cmdStop` stops it, and requests are proxied from port 9292 to TensorFold on `TENSORFOLD_PORT` (default 8888, fixed host-network port). Spark is hard-required (the recipe is Spark-sized).
 
 **Features:**
@@ -166,7 +166,7 @@ Deploys **Qwen3.8 Flash Next** on one DGX Spark (GB10, 128 GB unified memory) vi
 - Smoke test through llama-swap (default timeout 900 s — 122 GiB weight load); model loads on demand, `ttl: 0` (never auto-unload)
 - Idempotent, converge-by-default; supports `--force` (stop model + force re-merge) and `--check`
 
-#### `setup-tensorfold-27b.sh`
+#### `setup-tensorfold-spark-qwen38-27b.sh`
 Deploys **Qwen3.8-27B** on one DGX Spark (GB10, 128 GB unified memory) via **TensorFold v0.6.0 (Python engine** `c464617`, image `tensorfold-qwen38-27b:v0.6.0`, prebuilt `ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold:v0.6.0-fb91a0019fdc` with local build fallback), **managed by llama-swap** (no standalone stack). Clones the pinned MiaAI-Lab recipe into `/srv/tensorfold-27b`, runs its `scripts/prepare.sh` (image + ~19 GB checkpoints `Vontra/Qwen3.8-27B-MLX-4bit` + `z-lab/Qwen3.8-27B-DFlash2`), and merges a `qwen3.8-27b-tf` entry into the llama-swap catalog (`models.yml`) + `sync-models.py`. llama-swap owns the container lifecycle: `serve.cmd` runs the upstream `start.sh` (blocking, `FOREGROUND=1`), `cmdStop` stops it, and requests are proxied from port 9292 to TensorFold on `TENSORFOLD_27B_PORT` (default 8889 — Flash Next holds 8888, fixed host-network port). Spark is hard-required (the recipe is Spark-sized).
 
 **Features:**

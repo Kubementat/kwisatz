@@ -15,7 +15,7 @@
 
 ## Design
 
-### `tasks/setup-tensorfold.sh` (rewrite of the first-pass script)
+### `tasks/setup-tensorfold-spark-qwen38-flash.sh` (rewrite of the first-pass script)
 
 Workflow (all steps idempotent / converge on re-run):
 1. **Pre-flight:** Docker running, CDI GPU spec (`nvidia.com/gpu=all`),
@@ -32,7 +32,7 @@ Workflow (all steps idempotent / converge on re-run):
    `models.yml` (gitignored, user-local — **not** `models.yml.default`, which
    must stay clean for machines without a Spark). If `models.yml` is missing,
    seed it from `models.yml.default` first. The entry is a template file
-   `templates/tensorfold/models-entry.yml` (repo convention: no inline
+   `templates/tensorfold-spark-qwen38-flash/models-entry.yml` (repo convention: no inline
    templates), merged additively (existing entry untouched on re-run; the
    tensorfold entry is replaced if the template changed).
 5. **Sync:** run `tasks/sync-models.py` (merges into llama-swap `config.yaml`,
@@ -59,17 +59,17 @@ Workflow (all steps idempotent / converge on re-run):
 
 ### Cleanup
 
-- **Delete** `templates/tensorfold/docker-compose.yml.tmpl` and
-  `templates/tensorfold/env.template` (standalone stack dropped)
+- **Delete** `templates/tensorfold-spark-qwen38-flash/docker-compose.yml.tmpl` and
+  `templates/tensorfold-spark-qwen38-flash/env.template` (standalone stack dropped)
 - Rewrite the `AUTOMATIONS.md` entry (no more "Docker stack", now
   "llama-swap-managed")
-- `machine-config.yml.example`: keep the `setup-tensorfold` entry, adjust
+- `machine-config.yml.example`: keep the `setup-tensorfold-spark-qwen38-flash` entry, adjust
   description/env if needed
 
 ## Deliverables
 
-1. `tasks/setup-tensorfold.sh` (rewrite, shellcheck-clean, `--help` complete)
-2. `templates/tensorfold/models-entry.yml` (catalog entry template)
+1. `tasks/setup-tensorfold-spark-qwen38-flash.sh` (rewrite, shellcheck-clean, `--help` complete)
+2. `templates/tensorfold-spark-qwen38-flash/models-entry.yml` (catalog entry template)
 3. Delete old compose/env templates
 4. `AUTOMATIONS.md` + `machine-config.yml.example` updated
 5. Lint: shellcheck, yamllint, YAML validity of the catalog snippet
