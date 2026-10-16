@@ -102,6 +102,15 @@ scripts:
     # requires a DGX Spark (GB10); runs after setup-nvidia-container and
     # setup-llama-swap
     args: []
+  setup-tensorfold-27b:
+    enabled: false
+    description: Qwen3.8-27B on DGX Spark (TensorFold v0.6.0, via llama-swap)
+    env:
+      TENSORFOLD_27B_PORT: '8889'
+      # TENSORFOLD_27B_HEALTH_TIMEOUT: '600'
+    # requires a DGX Spark (GB10) and llama-swap; runs after
+    # setup-nvidia-container and setup-llama-swap; ~60 GB free disk
+    args: []
   setup-colqwen:
     enabled: false
     description: Generate ColQwen2.5 embedding-service project (build manually)

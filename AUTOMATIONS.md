@@ -166,6 +166,19 @@ Deploys **Qwen3.8 Flash Next** on one DGX Spark (GB10, 128 GB unified memory) vi
 - Smoke test through llama-swap (default timeout 900 s — 122 GiB weight load); model loads on demand, `ttl: 0` (never auto-unload)
 - Idempotent, converge-by-default; supports `--force` (stop model + force re-merge) and `--check`
 
+#### `setup-tensorfold-27b.sh`
+Deploys **Qwen3.8-27B** on one DGX Spark (GB10, 128 GB unified memory) via **TensorFold v0.6.0 (Python engine** `c464617`, image `tensorfold-qwen38-27b:v0.6.0`, prebuilt `ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold:v0.6.0-fb91a0019fdc` with local build fallback), **managed by llama-swap** (no standalone stack). Clones the pinned MiaAI-Lab recipe into `/srv/tensorfold-27b`, runs its `scripts/prepare.sh` (image + ~19 GB checkpoints `Vontra/Qwen3.8-27B-MLX-4bit` + `z-lab/Qwen3.8-27B-DFlash2`), and merges a `qwen3.8-27b` entry into the llama-swap catalog (`models.yml`) + `sync-models.py`. llama-swap owns the container lifecycle: `serve.cmd` runs the upstream `start.sh` (blocking, `FOREGROUND=1`), `cmdStop` stops it, and requests are proxied from port 9292 to TensorFold on `TENSORFOLD_27B_PORT` (default 8889 — Flash Next holds 8888, fixed host-network port). Spark is hard-required (the recipe is Spark-sized).
+
+**Features:**
+- Pinned recipe commit; the TensorFold engine pin (`TF_VERSION v0.6.0`, patches `fb91a0019fdc`) is applied by the recipe's `prepare.sh`. **The checkpoints are NOT revision-pinned** — `prepare.sh` downloads the latest revision (known risk)
+- Serve levers (context, parallel, KV pool, YaRN, KV dtype, prefill-fp8, vision, drafts, ...) are upstream settings — set them in `/srv/tensorfold-27b/.env` (see `scripts/config.sh` there)
+- Kernel cache + lock files + prepared marker under `KERNEL_CACHE_DIR` (default `/srv/tensorfold-27b/.cache`, service-writable; llama-swap runs as root with `ProtectHome=read-only`)
+- Pre-flight: llama-swap installed, CDI GPU spec, Spark detection, ~60 GB free disk, `hf` CLI
+- Catalog merge is additive and idempotent (entry replaced only if the rendered template changed); `sync-models.py` restarts llama-swap only on config change
+- Smoke test through llama-swap (default timeout 600 s — 19 GB load + one-time kernel compile); model loads on demand, `ttl: 0` (never auto-unload)
+- Idempotent, converge-by-default; supports `--force` (stop model + force re-merge) and `--check`
+- ~97 GiB resident at the full auto KV pool / ~20 GiB idle with `KV_POOL_GB=0`. **Does not coexist with Flash Next at defaults** — use llama-swap's one-model-at-a-time swap; co-loading needs reduced settings on at least one side AND `TENSORFOLD_MEMORY_RESERVE_GIB=4` on both recipes
+
 #### `setup-omnivoice.sh`
 Builds the OmniVoice.cpp `tts-server` (an OpenAI-compatible text-to-speech HTTP server) from source for the detected GPU backend (Vulkan / CUDA / CPU) and runs it as a native systemd service under a dedicated non-root user. There is no official Docker image, so the single self-contained binary is built from source and installed to `/usr/local/bin`. Models come from the non-gated `Serveurperso/OmniVoice-GGUF` repo (no HF token needed). Defaults to a loopback bind (the server has no TLS/auth); a non-loopback bind adds a UFW rule. A bounded `GET /health` gate proves the stack is up before reporting success.
 
