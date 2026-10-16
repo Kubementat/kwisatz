@@ -155,6 +155,17 @@ Deploys **vLLM-Omni** — the official vLLM sub-project for omni-modality servin
 - Optional Traefik reverse-proxy integration
 - Idempotent; supports `--force` and `--check`
 
+#### `setup-tensorfold.sh`
+Deploys **Qwen3.8 Flash Next** on one DGX Spark (GB10, 128 GB unified memory) via TensorFold's Zig engine (`tensorfold-native`), **managed by llama-swap** (no standalone stack). Clones the pinned MiaAI-Lab recipe into `/srv/tensorfold`, runs its `scripts/prepare.sh` (prebuilt image + ~122 GiB checkpoint `azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound`, pinned revision), and merges a `qwen3.8-flash-next` entry into the llama-swap catalog (`models.yml`) + `sync-models.py`. llama-swap owns the container lifecycle: `serve.cmd` runs the upstream `start.sh` (blocking, `FOREGROUND=1`), `cmdStop` stops it, and requests are proxied from port 9292 to TensorFold on `TENSORFOLD_PORT` (default 8888, fixed host-network port). Spark is hard-required (the recipe is Spark-sized).
+
+**Features:**
+- Pinned recipe commit; the TensorFold engine pin (`TF_REF db281878`, image `tensorfold-qwen38:zig-db28187`) is applied by the recipe's `prepare.sh`
+- Serve levers (context, parallel, KV dtype, vision, ...) are upstream settings — set them in `/srv/tensorfold/.env` (see `scripts/config.sh` there)
+- Pre-flight: llama-swap installed, CDI GPU spec, Spark detection, ~160 GB free disk, `hf` CLI
+- Catalog merge is additive and idempotent (entry replaced only if the rendered template changed); `sync-models.py` restarts llama-swap only on config change
+- Smoke test through llama-swap (default timeout 900 s — 122 GiB weight load); model loads on demand, `ttl: 0` (never auto-unload)
+- Idempotent, converge-by-default; supports `--force` (stop model + force re-merge) and `--check`
+
 #### `setup-omnivoice.sh`
 Builds the OmniVoice.cpp `tts-server` (an OpenAI-compatible text-to-speech HTTP server) from source for the detected GPU backend (Vulkan / CUDA / CPU) and runs it as a native systemd service under a dedicated non-root user. There is no official Docker image, so the single self-contained binary is built from source and installed to `/usr/local/bin`. Models come from the non-gated `Serveurperso/OmniVoice-GGUF` repo (no HF token needed). Defaults to a loopback bind (the server has no TLS/auth); a non-loopback bind adds a UFW rule. A bounded `GET /health` gate proves the stack is up before reporting success.
 

@@ -1,0 +1,64 @@
+# Qwen3.8 Flash Next — TensorFold's Zig engine on one DGX Spark.
+#
+# Catalog fragment rendered by tasks/setup-tensorfold.sh (TENSORFOLD_PORT,
+# LLAMA_SWAP_PORT, HF_CACHE_DIR, KERNEL_CACHE_DIR, TENSORFOLD_HEALTH_TIMEOUT)
+# and merged additively into models.yml by tasks/merge-model-entry.py.
+#
+# llama-swap owns the container lifecycle:
+#   serve.cmd   — upstream start.sh (FOREGROUND=1 → blocking for the
+#                 container's lifetime, so llama-swap can track the process)
+#   llamaSwap.cmdStop — stops the container; the blocking start.sh then exits
+#   llamaSwap.proxy — TensorFold's fixed-port OpenAI API (the container runs
+#                 on the host network; llama-swap's ${PORT} macro would not
+#                 point at it)
+providers:
+  - name: local
+    baseUrl: http://localhost:${LLAMA_SWAP_PORT}/v1
+    models:
+      - name: qwen3.8-flash-next
+        type: local
+        env:
+          # llama-swap runs cmd as root (systemd) with ProtectHome=read-only —
+          # the caches stay in the invoking user's home (read-only bind
+          # mounts), but start.sh flocks $STATE_DIR and writes $LOG_DIR at
+          # load time, so both must be service-writable: /srv is not
+          # protected by ProtectSystem=full.
+          - name: HF_CACHE
+            value: ${HF_CACHE_DIR}
+          - name: KERNEL_CACHE
+            value: ${KERNEL_CACHE_DIR}
+          - name: STATE_DIR
+            value: ${TENSORFOLD_STATE_DIR}
+          - name: LOG_DIR
+            value: ${TENSORFOLD_STATE_DIR}/logs
+        # One-time prep (image + ~122 GB checkpoint). No-op while the
+        # upstream prepared marker is present (setup-tensorfold.sh runs
+        # scripts/prepare.sh with the same STATE_DIR during install).
+        download:
+          - >-
+            [[ -f ${STATE_DIR}/prepared ]] ||
+            STATE_DIR=${STATE_DIR} LOG_DIR=${LOG_DIR}
+            bash /srv/tensorfold/scripts/prepare.sh
+        serve:
+          cmd: "bash /srv/tensorfold/start.sh"
+        # Extra llama-swap fields (pass-through, placeholder-expanded).
+        llamaSwap:
+          # Single command — llama-swap execs it without a shell. Stopping
+          # the container makes start.sh's blocking log follow return.
+          cmdStop: "docker stop -t 30 qwen38-flash-next-tf"
+          # Grace window for cmdStop (docker stop -t 30 + start.sh exit).
+          unloadTimeout: 60
+          proxy: "http://127.0.0.1:${TENSORFOLD_PORT}"
+          checkEndpoint: "/health"
+          # 122 GB weight load on first request; never auto-unload.
+          healthCheckTimeout: ${TENSORFOLD_HEALTH_TIMEOUT}
+          ttl: 0
+          aliases:
+            - "Qwen3.8-Flash-Next"
+            - "qwen3.8-flash"
+            - "qwen3.8"
+        agent:
+          contextWindow: 262144
+          maxTokens: 32768
+          reasoning: true
+          input: [text, image]

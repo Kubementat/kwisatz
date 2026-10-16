@@ -25,7 +25,7 @@ from sync_models import (
 )
 from sync_models.atomicio import atomic_write_text
 from sync_models.catalog import Catalog
-from sync_models.expand import expand_text
+from sync_models.expand import expand_text, expand_value
 from sync_models.verify import ComponentResult
 
 DEFAULT_PORT = 9292
@@ -101,6 +101,11 @@ def sync(
             # Per-model env only (Decision 26): values placeholder-expanded;
             # top-level env is expansion-only and never written.
             entry["env"] = [f"{e.name}={variables[e.name]}" for e in model.env]
+        if model.llama_swap:
+            # llamaSwap pass-through: extra llama-swap fields (proxy, cmdStop,
+            # ttl, aliases, ...) copied placeholder-expanded.
+            for key, value in model.llama_swap.items():
+                entry[key] = expand_value(value, variables)
         models_map[model.name] = entry
         info(f"llama-swap: added model {model.name}")
         result.added.append(model.name)
