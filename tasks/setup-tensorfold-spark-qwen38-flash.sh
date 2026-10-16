@@ -28,6 +28,12 @@
 #      only on change, poll /health)
 #   6. smoke test through llama-swap (first load is a ~122 GB weight load)
 #
+# The steps that are shared with the 27B sibling (pre-flight, the
+# what-needs-downloading gate, pinned checkout, .env render, catalog merge,
+# llama-swap sync/health-timeout/smoke test, --check signals) live in
+# lib/tensorfold-helper.sh; this script keeps the recipe-specific constants and
+# passes them in.
+#
 # Usage:
 #   ./setup-tensorfold-spark-qwen38-flash.sh            # install / converge
 #   ./setup-tensorfold-spark-qwen38-flash.sh --check    # show status and exit
@@ -43,6 +49,8 @@ REPO_ROOT="${SCRIPT_DIR}/.."
 
 # shellcheck source=../lib/helpers.sh
 source "${SCRIPT_DIR}/../lib/helpers.sh"
+# shellcheck source=../lib/tensorfold-helper.sh
+source "${SCRIPT_DIR}/../lib/tensorfold-helper.sh"
 
 # ── Pinned upstream recipe ────────────────────────────────────────────────────
 TENSORFOLD_REPO="https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold"
@@ -185,72 +193,28 @@ check_status() {
   echo ""
   echo -e "${BOLD}tensorfold status${RESET}"
   echo ""
-  if [[ -d "${PROJECT_DIR}/.git" ]]; then
-    local head
-    head="$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
-    if [[ "$head" == "${TENSORFOLD_RECIPE_REF:0:7}" ]]; then
-      echo -e "  ${BOLD}Recipe:${RESET}      ${GREEN}pinned${RESET} (${head})"
-    else
-      echo -e "  ${BOLD}Recipe:${RESET}      ${YELLOW}${head}${RESET} (expected ${TENSORFOLD_RECIPE_REF:0:7} — re-run without --check to converge)"
-    fi
-  else
-    echo -e "  ${BOLD}Recipe:${RESET}      ${YELLOW}not installed${RESET} (${PROJECT_DIR})"
-  fi
-  if [[ -f "${TENSORFOLD_STATE_DIR}/prepared" ]]; then
-    echo -e "  ${BOLD}Prepared:${RESET}    ${GREEN}image + checkpoint ready${RESET}"
-  else
-    echo -e "  ${BOLD}Prepared:${RESET}    ${YELLOW}no — prepare.sh has not completed${RESET}"
-  fi
+  tensorfold_status_recipe "$PROJECT_DIR" "$TENSORFOLD_RECIPE_REF"
+  tensorfold_status_prepared "${TENSORFOLD_STATE_DIR}/prepared" "image + checkpoint ready"
   # Same signals as the pre-flight: presence of checkpoint and image first,
   # then free disk — and what a re-run would still have to download.
-  local pending="" need=0 free
-  if path_has_hf_snapshot "$MODEL_CACHE_DIR"; then
+  tensorfold_resolve_pending_downloads --quiet \
+    --model-label "Checkpoint" \
+    --model-gb "$TENSORFOLD_MODEL_GB" \
+    --image-gb "$TENSORFOLD_IMAGE_GB" \
+    --cache-dir "$MODEL_CACHE_DIR" \
+    --image "$TENSORFOLD_IMAGE" \
+    --hf-cache "$HF_CACHE_DIR"
+  if [[ "$TENSORFOLD_NEEDS_MODEL" -eq 0 ]]; then
     echo -e "  ${BOLD}Checkpoint:${RESET}   ${GREEN}present${RESET} (${MODEL_CACHE_DIR})"
   else
     echo -e "  ${BOLD}Checkpoint:${RESET}   ${YELLOW}not cached${RESET} (${MODEL_CACHE_DIR})"
-    pending="checkpoint ~${TENSORFOLD_MODEL_GB} GB"
-    need=$(( need + TENSORFOLD_MODEL_GB ))
   fi
-  if docker image inspect "$TENSORFOLD_IMAGE" &>/dev/null; then
-    echo -e "  ${BOLD}Image:${RESET}        ${GREEN}${TENSORFOLD_IMAGE}${RESET}"
-  else
-    echo -e "  ${BOLD}Image:${RESET}        ${YELLOW}missing${RESET} (${TENSORFOLD_IMAGE})"
-    [[ -n "$pending" ]] && pending="$pending and "
-    pending="${pending}image ~${TENSORFOLD_IMAGE_GB} GB"
-    need=$(( need + TENSORFOLD_IMAGE_GB ))
-  fi
-  free="$(df -BG --output=avail "$HF_CACHE_DIR" 2>/dev/null | tail -1 | tr -dc '0-9')"
-  echo -e "  ${BOLD}Disk:${RESET}        ${free:-?} GB free under ${HF_CACHE_DIR} (still to download: ${pending:-nothing})"
-  if (( need > 0 )) && [[ -n "$free" ]] && (( free < need )); then
-    echo -e "                 ${YELLOW}below the ~${need} GB that download would need${RESET}"
-  fi
-  local catalog="${REPO_ROOT}/models.yml"
-  # -A1: require 'type: local' right after — a same-named remote entry must not
-  # count as the local tensorfold entry.
-  if [[ -f "$catalog" ]] && grep -A1 -q "name: ${TENSORFOLD_MODEL_NAME}" "$catalog" \
-     && grep -A1 "name: ${TENSORFOLD_MODEL_NAME}" "$catalog" | grep -q "type: local"; then
-    echo -e "  ${BOLD}Catalog:${RESET}     ${GREEN}entry in ${catalog}${RESET}"
-  else
-    echo -e "  ${BOLD}Catalog:${RESET}     ${YELLOW}no ${TENSORFOLD_MODEL_NAME} entry in ${catalog}${RESET}"
-  fi
-  if [[ -f "${LLAMA_SWAP_DIR}/config/config.yaml" ]] \
-     && grep -qE "^[[:space:]]+${TENSORFOLD_MODEL_NAME//./\\.}:" "${LLAMA_SWAP_DIR}/config/config.yaml"; then
-    echo -e "  ${BOLD}llama-swap:${RESET}  ${GREEN}entry in config.yaml${RESET}"
-  else
-    echo -e "  ${BOLD}llama-swap:${RESET}  ${YELLOW}no entry in config.yaml${RESET}"
-  fi
-  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$TENSORFOLD_CONTAINER"; then
-    local state
-    state="$(docker inspect -f '{{.State.Status}}' "$TENSORFOLD_CONTAINER" 2>/dev/null || echo '?')"
-    echo -e "  ${BOLD}Container:${RESET}   ${TENSORFOLD_CONTAINER} (${state})"
-  else
-    echo -e "  ${BOLD}Container:${RESET}   ${YELLOW}not running${RESET} (llama-swap starts it on demand)"
-  fi
-  if curl -sf --max-time 3 "http://localhost:${LLAMA_SWAP_PORT}/health" &>/dev/null; then
-    echo -e "  ${BOLD}Proxy:${RESET}       ${GREEN}llama-swap healthy on port ${LLAMA_SWAP_PORT}${RESET}"
-  else
-    echo -e "  ${BOLD}Proxy:${RESET}       ${YELLOW}llama-swap not answering on port ${LLAMA_SWAP_PORT}${RESET}"
-  fi
+  tensorfold_status_image "$TENSORFOLD_IMAGE"
+  tensorfold_status_disk "$HF_CACHE_DIR"
+  tensorfold_status_catalog "${REPO_ROOT}/models.yml" "$TENSORFOLD_MODEL_NAME"
+  tensorfold_status_llama_swap_entry "${LLAMA_SWAP_DIR}/config/config.yaml" "$TENSORFOLD_MODEL_NAME"
+  tensorfold_status_container "$TENSORFOLD_CONTAINER"
+  tensorfold_status_proxy "$LLAMA_SWAP_PORT"
   echo ""
 }
 
@@ -260,69 +224,13 @@ if [[ "$CHECK_ONLY" -eq 1 ]]; then
 fi
 
 # ── Pre-flight: sanity ────────────────────────────────────────────────────────
+# docker daemon, envsubst/python3+PyYAML/hf, llama-swap, DGX Spark (GB10,
+# sm_121) and the CDI device nvidia.com/gpu=all — all shared with the 27B
+# sibling, so the checks live in lib/tensorfold-helper.sh. Last argument is the
+# sizing sentence printed when the GPU is not a Spark.
 step "Pre-flight checks"
-
-[[ "$(id -u)" -eq 0 ]] && warn "Running as root – not recommended."
-
-if ! grep -qi "ubuntu" /etc/os-release 2>/dev/null; then
-  warn "This script targets Ubuntu. Continuing anyway…"
-fi
-
-if ! command -v docker &>/dev/null; then
-  error "Docker is not installed. Run setup-docker.sh first."
-fi
-if ! docker info &>/dev/null; then
-  error "Docker daemon is not running. Start it with: sudo systemctl start docker"
-fi
-success "Docker $(docker --version | awk '{print $3}' | tr -d ',') detected and running."
-
-if ! command -v envsubst &>/dev/null; then
-  error "envsubst is not installed. Install with: sudo apt-get install gettext-base"
-fi
-if ! command -v python3 &>/dev/null; then
-  error "python3 is not installed. Required for the catalog merge and sync-models.py."
-fi
-if ! python3 -c 'import yaml' &>/dev/null; then
-  error "PyYAML is not installed. Install with: sudo apt install python3-yaml"
-fi
-if ! command -v hf &>/dev/null; then
-  error "The 'hf' CLI is not installed. Install with: pip install -U \"huggingface_hub[cli]\""
-fi
-success "Tooling: envsubst, python3 + PyYAML, hf CLI."
-
-# llama-swap is the runtime owner of the model — hard requirement.
-if [[ ! -d "$LLAMA_SWAP_DIR" ]] || ! systemctl cat llama-swap &>/dev/null; then
-  error "llama-swap is not installed. Run tasks/setup-llama-swap.sh first."
-fi
-success "llama-swap installed (${LLAMA_SWAP_DIR})."
-
-# DGX Spark (GB10) detection: compute capability 12.1 (sm_121). nvidia-smi
-# reports N/A for memory fields on Spark (UMA) — compute capability is the
-# reliable signal. This recipe is Spark-sized (128 GB unified memory), so a
-# Spark is hard-required.
-is_spark() {
-  nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | grep -qi "12\.1"
-}
-if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi &>/dev/null; then
-  error "No working NVIDIA GPU (nvidia-smi missing or failing). This recipe requires a DGX Spark (GB10)."
-fi
-if ! is_spark; then
-  GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)
-  error "Not a DGX Spark (found: ${GPU_NAME:-unknown GPU})."
-  error "This recipe is sized for one DGX Spark (GB10, 128 GB unified memory): ~103 GiB at startup with the defaults."
-fi
-success "DGX Spark (GB10, sm_121) detected."
-
-# The container requests the GPU via the CDI device nvidia.com/gpu=all.
-if ! command -v nvidia-ctk &>/dev/null; then
-  error "nvidia-ctk is not installed. Run setup-nvidia-container.sh first."
-fi
-if ! nvidia-ctk cdi list 2>/dev/null | grep -q "nvidia.com/gpu=all"; then
-  error "No CDI spec for nvidia.com/gpu=all. Run setup-nvidia-container.sh — it generates
-  the spec and installs an apt hook that regenerates it after every driver upgrade.
-  Manual equivalent: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"
-fi
-success "CDI device nvidia.com/gpu=all is available."
+tensorfold_preflight_sanity "$LLAMA_SWAP_DIR" \
+  "This recipe is sized for one DGX Spark (GB10, 128 GB unified memory): ~103 GiB at startup with the defaults."
 
 # ── Pre-flight: what still needs to be downloaded? ────────────────────────────
 # Presence first, disk second, and disk only for what is missing — a re-run on a
@@ -330,75 +238,24 @@ success "CDI device nvidia.com/gpu=all is available."
 # disk must converge and download nothing (conventions.md → Re-run policy:
 # converge by default). A cold install still pays the full TENSORFOLD_MIN_FREE_GB
 # requirement, and prepare.sh re-checks it precisely on its own.
-
-# (a) Checkpoint — any usable cached snapshot counts, not one pinned revision.
-NEEDS_MODEL=1
-if path_has_hf_snapshot "$MODEL_CACHE_DIR"; then
-  NEEDS_MODEL=0
-  success "Checkpoint already present under ${MODEL_CACHE_DIR}"
-fi
-
-# (b) Engine image — prepared by the recipe, tagged locally.
-NEEDS_IMAGE=1
-if docker image inspect "$TENSORFOLD_IMAGE" &>/dev/null; then
-  NEEDS_IMAGE=0
-  success "Engine image already present (${TENSORFOLD_IMAGE})"
-fi
-
-# (c) Free disk, only for the pieces that are still missing.
-if [[ "$NEEDS_MODEL" -eq 1 || "$NEEDS_IMAGE" -eq 1 ]]; then
-  NEEDED_GB=0
-  MISSING=""
-  if [[ "$NEEDS_MODEL" -eq 1 ]]; then
-    NEEDED_GB=$(( NEEDED_GB + TENSORFOLD_MODEL_GB ))
-    MISSING="the ~${TENSORFOLD_MODEL_GB} GB checkpoint"
-  fi
-  if [[ "$NEEDS_IMAGE" -eq 1 ]]; then
-    NEEDED_GB=$(( NEEDED_GB + TENSORFOLD_IMAGE_GB ))
-    [[ -n "$MISSING" ]] && MISSING="$MISSING and "
-    MISSING="${MISSING}the ~${TENSORFOLD_IMAGE_GB} GB engine image"
-  fi
-  require_free_space "$NEEDED_GB" "$HF_CACHE_DIR" "$MISSING"
-else
-  info "Checkpoint and engine image already on disk — nothing to download, free-disk check skipped."
-fi
+# Any usable cached snapshot counts, not one pinned revision
+# (lib/tensorfold-helper.sh → tensorfold_resolve_pending_downloads).
+tensorfold_resolve_pending_downloads \
+  --model-label "Checkpoint" \
+  --model-gb "$TENSORFOLD_MODEL_GB" \
+  --image-gb "$TENSORFOLD_IMAGE_GB" \
+  --cache-dir "$MODEL_CACHE_DIR" \
+  --image "$TENSORFOLD_IMAGE" \
+  --hf-cache "$HF_CACHE_DIR"
 
 # ── --force: stop the running model first ─────────────────────────────────────
-if [[ "$FORCE" -eq 1 && -x "${PROJECT_DIR}/stop.sh" ]]; then
-  info "--force: stopping the running model (upstream stop.sh)…"
-  (cd "$PROJECT_DIR" && bash stop.sh) || true
-fi
+tensorfold_stop_running_model "$PROJECT_DIR" "$FORCE"
 
 # ── Clone upstream (pinned) ───────────────────────────────────────────────────
-step "Upstream recipe: ${PROJECT_DIR}"
-
-if [[ -d "${PROJECT_DIR}/.git" ]]; then
-  info "Converging existing checkout (fetch + checkout ${TENSORFOLD_RECIPE_REF:0:7})…"
-  git -C "$PROJECT_DIR" fetch --quiet origin
-  git -C "$PROJECT_DIR" checkout --quiet "$TENSORFOLD_RECIPE_REF"
-else
-  if [[ -e "$PROJECT_DIR" ]]; then
-    error "${PROJECT_DIR} exists but is not a git checkout — move it aside and re-run."
-  fi
-  # Create the service dir with user ownership; never chown /srv itself.
-  sudo mkdir -p "$(dirname "$PROJECT_DIR")"
-  sudo install -d -m 755 -o "$(id -un)" -g "$(id -gn)" "$PROJECT_DIR"
-  git clone --quiet "$TENSORFOLD_REPO" "$PROJECT_DIR"
-  git -C "$PROJECT_DIR" checkout --quiet "$TENSORFOLD_RECIPE_REF"
-fi
-success "Recipe at $(git -C "$PROJECT_DIR" rev-parse --short HEAD)"
+tensorfold_checkout_pinned_recipe "$PROJECT_DIR" "$TENSORFOLD_REPO" "$TENSORFOLD_RECIPE_REF"
 
 # ── Write /srv/tensorfold/.env (upstream settings file) ───────────────────────
-step "Writing ${PROJECT_DIR}/.env"
-
-_SERVE_ENV="$(mktempfile serve.env)"
-# shellcheck disable=SC2016  # envsubst expects the literal variable list
-(
-  export PORT="$TENSORFOLD_PORT"
-  envsubst '${PORT}' < "${TEMPLATE_DIR}/serve.env"
-) > "$_SERVE_ENV"
-install -m 644 -o "$(id -un)" -g "$(id -gn)" "$_SERVE_ENV" "${PROJECT_DIR}/.env"
-success ".env written: FOREGROUND=1, PORT=${TENSORFOLD_PORT}"
+tensorfold_render_serve_env "${TEMPLATE_DIR}/serve.env" "${PROJECT_DIR}/.env" "$TENSORFOLD_PORT"
 
 # ── Prepare: image + checkpoint (idempotent upstream) ─────────────────────────
 step "Preparing TensorFold (image + ~122 GB checkpoint — idempotent, can take a while)"
@@ -414,70 +271,32 @@ success "Prepare complete."
 step "Merging catalog entry '${TENSORFOLD_MODEL_NAME}' into models.yml"
 
 export TENSORFOLD_PORT LLAMA_SWAP_PORT HF_CACHE_DIR KERNEL_CACHE_DIR TENSORFOLD_HEALTH_TIMEOUT TENSORFOLD_STATE_DIR
-_ENTRY="$(mktempfile models-entry.yml)"
-# shellcheck disable=SC2016  # envsubst expects the literal variable list
-envsubst '${TENSORFOLD_PORT} ${LLAMA_SWAP_PORT} ${HF_CACHE_DIR} ${KERNEL_CACHE_DIR} ${TENSORFOLD_HEALTH_TIMEOUT} ${TENSORFOLD_STATE_DIR}' \
-  < "${TEMPLATE_DIR}/models-entry.yml" > "$_ENTRY"
-
-MERGE_ARGS=(
-  --catalog "${REPO_ROOT}/models.yml"
-  --default "${REPO_ROOT}/models.yml.default"
-  --entry "$_ENTRY"
-  --name "$TENSORFOLD_MODEL_NAME"
-  --provider local
-)
-[[ "$FORCE" -eq 1 ]] && MERGE_ARGS+=(--force)
-python3 "${SCRIPT_DIR}/merge-model-entry.py" "${MERGE_ARGS[@]}"
-rm -f -- "$_ENTRY"
-success "Catalog merged."
+# Render + additive merge (merge-model-entry.py): the entry is replaced only if
+# the rendered template changed, --force re-writes it.
+# shellcheck disable=SC2016  # the last argument is envsubst's literal variable list
+tensorfold_merge_model_entry \
+  "${TEMPLATE_DIR}/models-entry.yml" \
+  "${REPO_ROOT}/models.yml" \
+  "${REPO_ROOT}/models.yml.default" \
+  "$TENSORFOLD_MODEL_NAME" \
+  "$FORCE" \
+  '${TENSORFOLD_PORT} ${LLAMA_SWAP_PORT} ${HF_CACHE_DIR} ${KERNEL_CACHE_DIR} ${TENSORFOLD_HEALTH_TIMEOUT} ${TENSORFOLD_STATE_DIR}'
 
 # llama-swap's healthCheckTimeout is GLOBAL (top-level config key, default 600) —
 # a per-model value is accepted but ignored. Raise it to cover the 122 GiB
 # first load; sync-models.py below restarts llama-swap when the file changed.
-step "Ensuring llama-swap healthCheckTimeout >= ${TENSORFOLD_HEALTH_TIMEOUT}s"
-CONFIG_FILE="${LLAMA_SWAP_DIR}/config/config.yaml"
-if [[ -f "$CONFIG_FILE" ]]; then
-  python3 - "$CONFIG_FILE" "$TENSORFOLD_HEALTH_TIMEOUT" <<'PYEOF'
-import sys, yaml
-path, need = sys.argv[1], int(sys.argv[2])
-with open(path) as f:
-    cfg = yaml.safe_load(f) or {}
-cur = int(cfg.get("healthCheckTimeout", 600))
-if cur < need:
-    cfg["healthCheckTimeout"] = need
-    with open(path, "w") as f:
-        yaml.safe_dump(cfg, f, sort_keys=False, default_flow_style=False)
-    print(f"healthCheckTimeout raised {cur} -> {need} (global; comments in config.yaml are not preserved)")
-else:
-    print(f"healthCheckTimeout already {cur} >= {need}")
-PYEOF
-fi
+tensorfold_llama_swap_raise_health_timeout "${LLAMA_SWAP_DIR}/config/config.yaml" "$TENSORFOLD_HEALTH_TIMEOUT"
 
 # ── Sync llama-swap ───────────────────────────────────────────────────────────
-step "Syncing llama-swap (tasks/sync-models.py)"
-
-python3 "${SCRIPT_DIR}/sync-models.py"
-success "llama-swap in sync."
+# Merges models.yml into config.yaml, restarts only on change, polls /health.
+tensorfold_sync_llama_swap
 
 # ── Smoke test through llama-swap ─────────────────────────────────────────────
 if [[ "$SKIP_SMOKE" -eq 1 ]]; then
   warn "Smoke test skipped (--skip-smoke)."
 else
-  step "Smoke test through llama-swap (http://localhost:${LLAMA_SWAP_PORT})"
-  info "First load pulls ~66 GiB of weights into the GPU — up to ${TENSORFOLD_HEALTH_TIMEOUT}s."
-
-_smoke_body="{\"model\": \"${TENSORFOLD_MODEL_NAME}\", \"max_tokens\": 32, \"temperature\": 0, \"chat_template_kwargs\": {\"enable_thinking\": false}, \"messages\": [{\"role\": \"user\", \"content\": \"Reply with OK.\"}]}"
-if _smoke_resp="$(curl -s --max-time $(( TENSORFOLD_HEALTH_TIMEOUT + 60 )) \
-     "http://localhost:${LLAMA_SWAP_PORT}/v1/chat/completions" \
-     -H 'Content-Type: application/json' -d "${_smoke_body}")" \
-   && python3 -c 'import json,sys; r=json.loads(sys.argv[1]); c=r["choices"][0]["message"].get("content") or ""; sys.exit(0 if c.strip() else 1)' "${_smoke_resp}" 2>/dev/null; then
-  success "Smoke test passed — the model answers through llama-swap."
-else
-  error "Smoke test failed — the model is not answering through llama-swap."
-  error "Check: curl http://localhost:${LLAMA_SWAP_PORT}/running | jq .  and  docker logs -f ${TENSORFOLD_CONTAINER}"
-  error "Retry:   curl -s http://localhost:${LLAMA_SWAP_PORT}/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\":\"${TENSORFOLD_MODEL_NAME}\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with OK.\"}],\"max_tokens\":32}'"
-  error "Re-run $0 (or use --skip-smoke if you will fix this manually)."
-fi
+  tensorfold_smoke_test "$TENSORFOLD_MODEL_NAME" "$LLAMA_SWAP_PORT" "$TENSORFOLD_HEALTH_TIMEOUT" "$TENSORFOLD_CONTAINER" \
+    "First load pulls ~66 GiB of weights into the GPU — up to ${TENSORFOLD_HEALTH_TIMEOUT}s."
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────────
