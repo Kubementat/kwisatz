@@ -16,7 +16,8 @@
 #   tensorfold-qwen38:zig-db28187) and applied by scripts/prepare.sh.
 #
 # Workflow (all steps idempotent, converge on re-run):
-#   1. pre-flight: docker, CDI GPU spec, DGX Spark, hf CLI, llama-swap; then
+#   1. pre-flight: docker, CDI GPU spec, DGX Spark, hf CLI, llama-swap — and its
+#      config.yaml being writable (before the download, not after it); then
 #      *what still needs downloading* — checkpoint present? engine image
 #      present? — and only if something is missing, the free-disk check. A
 #      re-run with both already on disk converges on a full disk.
@@ -237,6 +238,7 @@ check_status() {
   tensorfold_status_disk "$HF_CACHE_DIR"
   tensorfold_status_catalog "${REPO_ROOT}/models.yml" "$TENSORFOLD_MODEL_NAME"
   tensorfold_status_llama_swap_entry "${LLAMA_SWAP_DIR}/config/config.yaml" "$TENSORFOLD_MODEL_NAME"
+  tensorfold_status_llama_swap_writable "${LLAMA_SWAP_DIR}/config/config.yaml"
   tensorfold_status_container "$TENSORFOLD_CONTAINER"
   tensorfold_status_proxy "$LLAMA_SWAP_PORT"
   tensorfold_kernel_cache_move_note "$KERNEL_CACHE_DIR" "$KERNEL_CACHE_DIR_LEGACY"
@@ -273,6 +275,14 @@ tensorfold_resolve_pending_downloads \
   --cache-dir "$MODEL_CACHE_DIR" \
   --image "$TENSORFOLD_IMAGE" \
   --hf-cache "$HF_CACHE_DIR"
+
+# ── Pre-flight: can llama-swap's config be written? ───────────────────────────
+# The config write happens after prepare.sh (raise + sync-models.py), and the
+# default config.yaml that setup-llama-swap.sh creates is root:root 644 — so a
+# cold install would burn the whole ~122 GiB download before noticing. Same
+# contract as sync-models.py's pre-flight, read-only, and silent when there is no
+# config yet (lib/tensorfold-helper.sh).
+tensorfold_require_llama_swap_config_writable "${LLAMA_SWAP_DIR}/config/config.yaml"
 
 # ── --force: stop the running model first ─────────────────────────────────────
 tensorfold_stop_running_model "$PROJECT_DIR" "$FORCE"

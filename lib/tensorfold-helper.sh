@@ -539,6 +539,52 @@ if ! declare -F tensorfold_merge_model_entry > /dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# tensorfold_require_llama_swap_config_writable <config_file>
+#   Read-only, non-mutating pre-flight probe: will the sync that runs AFTER the
+#   download be able to write llama-swap's config.yaml? A cold install hits the
+#   default root:root 644 config.yaml that tasks/setup-llama-swap.sh creates, and
+#   tensorfold_llama_swap_raise_health_timeout only notices that once
+#   scripts/prepare.sh has already pulled ~122 GiB (flash) / ~19 GB (27B).
+#   conventions.md → fail fast with actionable messages, so ask BEFORE downloading.
+#
+#   Contract — deliberately the same one sync_models/llama_swap.py's pre-flight
+#   applies (os.access(path, W_OK) or os.access(path.parent, W_OK)) and that the
+#   raise reuses, so the probe's verdict and the later action's verdict cannot
+#   disagree. Directory write access alone counts because both writers REPLACE
+#   the file (sync_models/atomicio.py: mkstemp in the parent dir + os.replace;
+#   the raise: install), never writing into the existing inode.
+#
+#     - file missing         -> PASS silently. llama-swap may not be configured
+#       yet; the raise handles that case with an info, and a first install must
+#       not be blocked over a file that does not exist yet.
+#     - parent dir missing   -> WARN, do not fail. There is nothing to write
+#       into, and tensorfold_require_llama_swap (same pre-flight) already errors
+#       when llama-swap is not installed at all.
+#     - file present and either the file or its directory is W_OK -> PASS.
+#     - file present and neither is W_OK -> FAIL with the raise's wording plus
+#       the fact that nothing has been downloaded yet.
+#
+#   Writes nothing, creates nothing, needs no sudo: no test file, no chmod.
+# ---------------------------------------------------------------------------
+if ! declare -F tensorfold_require_llama_swap_config_writable > /dev/null 2>&1; then
+  tensorfold_require_llama_swap_config_writable() {
+    local config_file="${1:?tensorfold_require_llama_swap_config_writable: no config file}"
+    local dir
+    dir="$(dirname "$config_file")"
+    if [[ ! -e "$config_file" ]]; then
+      if [[ ! -d "$dir" ]]; then
+        warn "No ${dir} yet — llama-swap is not configured, so there is no config to make writable."
+      fi
+      return 0
+    fi
+    if [[ -w "$config_file" || -w "$dir" ]]; then
+      return 0
+    fi
+    error "llama-swap config not writable: ${config_file} — fix ownership/permissions or run as a user with write access, then re-run (the same gate tasks/sync-models.py applies, e.g.: sudo chown $(id -un):$(id -gn) ${config_file}). Nothing has been downloaded yet — this check runs before scripts/prepare.sh, and tensorfold_llama_swap_raise_health_timeout would have hit it only after the checkpoint download."
+  }
+fi
+
+# ---------------------------------------------------------------------------
 # tensorfold_llama_swap_raise_health_timeout <config_file> <seconds>
 #   llama-swap's healthCheckTimeout is GLOBAL (top-level config key) — a
 #   per-model value is accepted but ignored (llama-swap internal/config
@@ -585,7 +631,10 @@ if ! declare -F tensorfold_llama_swap_raise_health_timeout > /dev/null 2>&1; the
       return 0
     fi
 
-    # Same writability contract as sync_models/llama_swap.py's pre-flight.
+    # Same writability contract as sync_models/llama_swap.py's pre-flight. The
+    # pre-flight probe (tensorfold_require_llama_swap_config_writable) already
+    # covered the common case before the download — kept here as a defence, the
+    # file could have been replaced in between.
     if [[ ! -w "$config_file" && ! -w "$(dirname "$config_file")" ]]; then
       error "llama-swap config not writable: ${config_file} — fix ownership/permissions or run as a user with write access, then re-run (the same gate tasks/sync-models.py applies, e.g.: sudo chown $(id -un):$(id -gn) ${config_file}). Nothing else in ${config_file} was touched."
     fi
@@ -1109,6 +1158,24 @@ if ! declare -F tensorfold_status_llama_swap_entry > /dev/null 2>&1; then
       echo -e "  ${BOLD}llama-swap:${RESET}  ${GREEN}entry in config.yaml${RESET}"
     else
       echo -e "  ${BOLD}llama-swap:${RESET}  ${YELLOW}no entry in config.yaml${RESET}"
+    fi
+    return 0
+  }
+fi
+
+# tensorfold_status_llama_swap_writable <config_file>
+#   The same verdict tensorfold_require_llama_swap_config_writable gates the
+#   install on, reported before anyone starts a ~122 GiB download.
+if ! declare -F tensorfold_status_llama_swap_writable > /dev/null 2>&1; then
+  tensorfold_status_llama_swap_writable() {
+    local config="$1" dir
+    dir="$(dirname "$config")"
+    if [[ ! -e "$config" ]]; then
+      echo -e "  ${BOLD}Config:${RESET}      ${YELLOW}not created yet${RESET} (${config})"
+    elif [[ -w "$config" || -w "$dir" ]]; then
+      echo -e "  ${BOLD}Config:${RESET}      ${GREEN}writable${RESET} (${config})"
+    else
+      echo -e "  ${BOLD}Config:${RESET}      ${RED}read-only${RESET} (${config} — sudo chown $(id -un):$(id -gn) ${config})"
     fi
     return 0
   }
