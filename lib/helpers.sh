@@ -690,4 +690,3 @@ if ! declare -F ufw_firewall_section > /dev/null 2>&1; then
     done
   }
 fi
-
