@@ -1,0 +1,61 @@
+# Qwen3.8-27B — TensorFold v0.6.0 (Python engine) on one DGX Spark.
+#
+# Catalog fragment rendered by tasks/setup-tensorfold-27b.sh
+# (TENSORFOLD_27B_PORT, LLAMA_SWAP_PORT, HF_CACHE_DIR, KERNEL_CACHE_DIR,
+# TENSORFOLD_27B_HEALTH_TIMEOUT) and merged additively into models.yml by
+# tasks/merge-model-entry.py.
+#
+# llama-swap owns the container lifecycle:
+#   serve.cmd   — upstream start.sh (FOREGROUND=1 → blocking for the
+#                 container's lifetime, so llama-swap can track the process)
+#   llamaSwap.cmdStop — stops the container; the blocking start.sh then exits
+#   llamaSwap.proxy — TensorFold's fixed-port OpenAI API (the container runs
+#                 on the host network; llama-swap's ${PORT} macro would not
+#                 point at it)
+providers:
+  - name: local
+    baseUrl: http://localhost:${LLAMA_SWAP_PORT}/v1
+    models:
+      - name: qwen3.8-27b-tf  # qwen3.8-27b is the llama.cpp GGUF entry
+        type: local
+        env:
+          # llama-swap runs cmd as root with ProtectHome=read-only — pin the
+          # caches to the invoking user's HF cache (upstream bind-mounts it
+          # read-write) and to the service-writable /srv kernel cache
+          # (locks + prepared marker).
+          - name: HF_CACHE
+            value: ${HF_CACHE_DIR}
+          - name: KERNEL_CACHE
+            value: ${KERNEL_CACHE_DIR}
+        # One-time prep (image + ~19 GB checkpoints). No-op while the
+        # upstream prepared marker is present. ${KERNEL_CACHE} resolves from
+        # the per-model env (sync-models.py expansion); KERNEL_CACHE is also
+        # passed to prepare.sh so the marker lands where the service looks.
+        download:
+          - >-
+            [[ -f ${KERNEL_CACHE}/.prepared ]] ||
+            KERNEL_CACHE=${KERNEL_CACHE}
+            bash /srv/tensorfold-27b/scripts/prepare.sh
+        serve:
+          cmd: "bash /srv/tensorfold-27b/start.sh"
+        # Extra llama-swap fields (pass-through, placeholder-expanded).
+        llamaSwap:
+          # Single command — llama-swap execs it without a shell. Stopping
+          # the container makes start.sh's blocking log follow return.
+          cmdStop: "docker stop -t 30 qwen38-27b-tf"
+          # Grace window for cmdStop (docker stop -t 30 + start.sh exit).
+          unloadTimeout: 60
+          proxy: "http://127.0.0.1:${TENSORFOLD_27B_PORT}"
+          checkEndpoint: "/health"
+          # 19 GB weight load + one-time kernel compile; never auto-unload.
+          healthCheckTimeout: ${TENSORFOLD_27B_HEALTH_TIMEOUT}
+          ttl: 0
+          aliases:
+            - "Qwen3.8-27B"
+            # "qwen3.8" is already an alias of qwen3.8-flash-next
+            - "qwen3.8-27"
+        agent:
+          contextWindow: 262144
+          maxTokens: 32768
+          reasoning: true
+          input: [text, image]   # video is available via the raw API only
