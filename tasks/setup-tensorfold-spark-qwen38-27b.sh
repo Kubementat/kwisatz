@@ -47,6 +47,8 @@ REPO_ROOT="${SCRIPT_DIR}/.."
 
 # shellcheck source=../lib/helpers.sh
 source "${SCRIPT_DIR}/../lib/helpers.sh"
+# shellcheck source=../lib/tensorfold-helper.sh
+source "${SCRIPT_DIR}/../lib/tensorfold-helper.sh"
 
 # ── Pinned upstream recipe ────────────────────────────────────────────────────
 TENSORFOLD_27B_REPO="https://github.com/MiaAI-Lab/Qwen3.8-27B-DGX-Spark-TensorFold"
