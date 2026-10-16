@@ -16,21 +16,28 @@
 #   hash fb91a0019fdc, image tensorfold-qwen38-27b:v0.6.0) and applied by
 #   scripts/prepare.sh. NOTE: the checkpoints (Vontra/Qwen3.8-27B-MLX-4bit,
 #   z-lab/Qwen3.8-27B-DFlash2) are NOT revision-pinned — prepare.sh downloads
-#   the latest revision.
+#   the latest revision. This script records the revisions a run resolved in
+#   ${PROJECT_DIR}/.checkpoint-revisions and warns loudly when a later run
+#   (or upstream) resolves different weights; see AUTOMATIONS.md.
 #
 # Workflow (all steps idempotent, converge on re-run):
 #   1. pre-flight: docker, CDI GPU spec, DGX Spark, hf CLI, llama-swap; then
 #      *what still needs downloading* — checkpoints present? engine image
 #      present? — and only if something is missing, the free-disk check. A
 #      re-run with all of it already on disk converges on a full disk.
-#   2. clone the recipe into /srv/tensorfold-27b (re-run: fetch + checkout pin)
-#   3. run upstream scripts/prepare.sh (prebuilt image + ~19 GB checkpoints)
+#   2. clone the recipe into /srv/tensorfold-27b (re-run: fetch + force-checkout
+#      the pin)
+#   3. run upstream scripts/prepare.sh (prebuilt image + ~19 GB checkpoints) and
+#      record the checkpoint revisions it resolved
 #   4. merge the qwen3.8-27b-tf entry into models.yml (additive; the entry is
 #      replaced if the rendered template changed)
 #   5. run tasks/sync-models.py (merge into llama-swap config.yaml, restart
 #      only on change, poll /health)
 #   6. smoke test through llama-swap (first load: 19 GB weights + one-time
 #      CUDA kernel compile)
+#
+# Trust boundary: the llama-swap service (root) execs start.sh/prepare.sh from
+# this checkout, so anyone who can write /srv/tensorfold-27b owns the host.
 #
 # The steps that are shared with the Flash Next sibling (pre-flight, the
 # what-needs-downloading gate, pinned checkout, .env render, catalog merge,
@@ -82,12 +89,14 @@ TENSORFOLD_27B_MODEL_NAME="qwen3.8-27b-tf"
 TENSORFOLD_27B_CONTAINER="qwen38-27b-tf"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
+# Paths that depend on PROJECT_DIR are resolved AFTER argument parsing, so
+# --dir / PROJECT_DIR actually moves everything (review 27B F1).
 PROJECT_DIR="${PROJECT_DIR:-/srv/tensorfold-27b}"
-HF_CACHE_DIR="${HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
+HF_CACHE_DIR="${HF_CACHE_DIR:-${HOME:-/root}/.cache/huggingface}"
 # Kernel cache + lock files + prepared marker. NOT $HOME: llama-swap runs
 # start.sh as root with ProtectHome=read-only, and the 27B recipe flocks
 # $KERNEL_CACHE/.start.lock and writes $KERNEL_CACHE/.prepared at load time.
-KERNEL_CACHE_DIR="${KERNEL_CACHE_DIR:-${PROJECT_DIR}/.cache}"
+KERNEL_CACHE_DIR="${KERNEL_CACHE_DIR:-}"
 TENSORFOLD_27B_PORT="${TENSORFOLD_27B_PORT:-8889}"
 LLAMA_SWAP_PORT="${LLAMA_SWAP_PORT:-9292}"
 LLAMA_SWAP_DIR="${LLAMA_SWAP_DIR:-/srv/llama-swap}"
@@ -95,24 +104,11 @@ SKIP_SMOKE=0
 # Seconds for llama-swap to wait for a first load (19 GB weights + one-time
 # CUDA kernel compile).
 TENSORFOLD_27B_HEALTH_TIMEOUT="${TENSORFOLD_27B_HEALTH_TIMEOUT:-600}"
+# Where the resolved checkpoint revisions are recorded (KEY=value, not secrets).
+TENSORFOLD_27B_REVISION_STATE="${PROJECT_DIR}/.checkpoint-revisions"
 
 FORCE=0
 CHECK_ONLY=0
-
-# ── Input validation ──────────────────────────────────────────────────────────
-
-validate_port() {
-  local name="$1" port="$2"
-  if [[ ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
-    error "${name} must be a number between 1 and 65535 (got: ${port})."
-  fi
-}
-
-validate_port TENSORFOLD_27B_PORT "$TENSORFOLD_27B_PORT"
-validate_port LLAMA_SWAP_PORT "$LLAMA_SWAP_PORT"
-if [[ ! "$TENSORFOLD_27B_HEALTH_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
-  error "TENSORFOLD_27B_HEALTH_TIMEOUT must be a positive integer (seconds)."
-fi
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -134,12 +130,14 @@ usage() {
   echo "  --force                  Stop the running model first (upstream stop.sh) and"
   echo "                           force the catalog re-merge even if unchanged"
   echo "  --skip-smoke             Skip the post-install smoke test through llama-swap"
+  echo "                           (llama-swap is still health-checked; the model itself"
+  echo "                            is not exercised)"
   echo "  --check                  Show installation status and exit"
   echo "  --help                   Show this help"
   echo ""
   echo -e "${BOLD}Environment variables${RESET} (all flags above have env-var equivalents):"
   echo "  TENSORFOLD_27B_PORT, TENSORFOLD_27B_HEALTH_TIMEOUT, PROJECT_DIR, HF_CACHE_DIR,"
-  echo "  KERNEL_CACHE_DIR, LLAMA_SWAP_PORT, LLAMA_SWAP_DIR"
+  echo "  KERNEL_CACHE_DIR, LLAMA_SWAP_PORT, LLAMA_SWAP_DIR,"
   echo "  TENSORFOLD_27B_MIN_FREE_GB, TENSORFOLD_27B_IMAGE_GB"
   echo ""
   echo -e "${BOLD}Requirements:${RESET}"
@@ -147,9 +145,7 @@ usage() {
   echo "  the GPU (~97 GiB resident at the full auto KV pool), Docker with the"
   echo "  NVIDIA container toolkit (setup-nvidia-container.sh first), llama-swap"
   echo "  (setup-llama-swap.sh first), ~60 GB free disk for a cold install, 'hf' CLI"
-  echo "  (pip install -U \"huggingface_hub[cli]\"). Does NOT coexist with"
-  echo "  Flash Next (setup-tensorfold-spark-qwen38-flash.sh) at defaults — use llama-swap's"
-  echo "  one-model-at-a-time swap."
+  echo "  (pip install -U \"huggingface_hub[cli]\") — see Coexistence below."
   echo ""
   echo -e "${BOLD}Free disk:${RESET}"
   echo "  A cold install needs ~${TENSORFOLD_27B_MIN_FREE_GB} GB free under HF_CACHE_DIR (~19 GiB of both"
@@ -165,25 +161,44 @@ usage() {
   echo "    http://localhost:${LLAMA_SWAP_PORT}/v1  (model: ${TENSORFOLD_27B_MODEL_NAME})"
   echo "  Serve levers (context, parallel, KV pool, YaRN, vision, ...) are upstream"
   echo "  settings: add them to ${PROJECT_DIR}/.env (see scripts/config.sh there)."
+  echo "  A re-run re-renders only the keys this script owns (FOREGROUND, PORT,"
+  echo "  HOST) and keeps everything else in that file."
+  echo ""
+  echo -e "${BOLD}Coexistence${RESET} (Qwen3.8 Flash Next via setup-tensorfold-spark-qwen38-flash.sh):"
+  echo "  This model does NOT fit alongside Flash Next at defaults — use"
+  echo "  llama-swap's one-model-at-a-time swap. Co-loading needs reduced"
+  echo "  settings on one side and TENSORFOLD_MEMORY_RESERVE_GIB=4 in"
+  echo "  ${PROJECT_DIR}/.env (this recipe defaults to 0; Flash Next already"
+  echo "  keeps 10 GiB — do not lower it). At defaults the 27B 'auto' KV pool"
+  echo "  refuses to start instead of thrashing the host. Ports: 27B 8889,"
+  echo "  Flash Next 8888."
+  echo ""
+  echo -e "${BOLD}Checkpoint revisions${RESET} (the recipe pins none):"
+  echo "  prepare.sh always resolves the newest revision of both checkpoints."
+  echo "  The resolved SHAs are recorded in ${PROJECT_DIR}/.checkpoint-revisions and"
+  echo "  compared on every re-run and with --check; a divergence warns and never"
+  echo "  fails the run. See AUTOMATIONS.md for the residual risk."
   echo ""
   echo -e "${BOLD}Re-run policy${RESET} (converge by default):"
-  echo "  Re-running converges: the checkout is re-pinned (fetch + checkout), the"
-  echo "  .env is re-rendered, prepare.sh is a no-op when ready, the catalog"
-  echo "  entry is replaced only if the rendered template changed, and"
-  echo "  sync-models.py restarts llama-swap only when its config changed."
-  echo "  Changing --port on an existing install does NOT converge the llama-swap"
-  echo "  config entry (add-only sync): delete the entry from ${LLAMA_SWAP_DIR}/config/config.yaml"
-  echo "  and re-run."
+  echo "  Re-running converges: the checkout is re-pinned (fetch + force checkout),"
+  echo "  the .env is re-rendered without dropping operator-added levers,"
+  echo "  prepare.sh is a no-op when ready, the catalog entry is replaced only if"
+  echo "  the rendered template changed, and sync-models.py restarts llama-swap"
+  echo "  only when its config changed."
+  echo "  Changing --port/--dir/--hf-cache/--kernel-cache on an existing install does"
+  echo "  NOT converge the llama-swap entry (add-only sync in sync-models.py), even"
+  echo "  though models.yml is updated. Converge the entry by deleting its section"
+  echo "  from ${LLAMA_SWAP_DIR}/config/config.yaml and re-running."
   exit 0
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --port)             shift; TENSORFOLD_27B_PORT="$1" ;;
-    --health-timeout)   shift; TENSORFOLD_27B_HEALTH_TIMEOUT="$1" ;;
-    --dir)              shift; PROJECT_DIR="$1" ;;
-    --hf-cache)         shift; HF_CACHE_DIR="$1" ;;
-    --kernel-cache)     shift; KERNEL_CACHE_DIR="$1" ;;
+    --port)             shift; [[ $# -gt 0 ]] || error "--port requires an argument"; TENSORFOLD_27B_PORT="$1" ;;
+    --health-timeout)   shift; [[ $# -gt 0 ]] || error "--health-timeout requires an argument"; TENSORFOLD_27B_HEALTH_TIMEOUT="$1" ;;
+    --dir)              shift; [[ $# -gt 0 ]] || error "--dir requires an argument"; PROJECT_DIR="$1" ;;
+    --hf-cache)         shift; [[ $# -gt 0 ]] || error "--hf-cache requires an argument"; HF_CACHE_DIR="$1" ;;
+    --kernel-cache)     shift; [[ $# -gt 0 ]] || error "--kernel-cache requires an argument"; KERNEL_CACHE_DIR="$1" ;;
     --force)            FORCE=1 ;;
     --skip-smoke)       SKIP_SMOKE=1 ;;
     --check)            CHECK_ONLY=1 ;;
@@ -192,6 +207,16 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+# Defaults that depend on a parsed value resolve here, not at load time
+# (review 27B F1: --dir used to leave .cache/locks/.prepared at the old path).
+: "${KERNEL_CACHE_DIR:=${PROJECT_DIR}/.cache}"
+TENSORFOLD_27B_REVISION_STATE="${PROJECT_DIR}/.checkpoint-revisions"
+
+# Validation of the FINAL values (review flash F4 / 27B: validating the defaults
+# at load time meant --port abc was never checked).
+tensorfold_validate_serving_settings TENSORFOLD_27B_PORT "$TENSORFOLD_27B_PORT" \
+  LLAMA_SWAP_PORT "$LLAMA_SWAP_PORT" TENSORFOLD_27B_HEALTH_TIMEOUT "$TENSORFOLD_27B_HEALTH_TIMEOUT"
 
 # HF cache layout of the two checkpoints (…/hub/models--<org>--<repo>), resolved
 # after argument parsing so --check and the pre-flight probe the same paths. The
@@ -229,6 +254,12 @@ check_status() {
   tensorfold_status_llama_swap_entry "${LLAMA_SWAP_DIR}/config/config.yaml" "$TENSORFOLD_27B_MODEL_NAME"
   tensorfold_status_container "$TENSORFOLD_27B_CONTAINER"
   tensorfold_status_proxy "$LLAMA_SWAP_PORT"
+  # Advisory cross-check + checkpoint revision drift (the recipe pins none).
+  tensorfold_sibling_port_warning "$TENSORFOLD_27B_PORT" /srv/tensorfold/.env
+  tensorfold_checkpoint_revision_recheck "$TENSORFOLD_27B_REVISION_STATE" MODEL \
+    "Vontra/Qwen3.8-27B-MLX-4bit" "$MODEL_CACHE_DIR" echo
+  tensorfold_checkpoint_revision_recheck "$TENSORFOLD_27B_REVISION_STATE" DRAFT \
+    "z-lab/Qwen3.8-27B-DFlash2" "$DRAFT_CACHE_DIR" echo
   echo ""
 }
 
@@ -271,22 +302,40 @@ tensorfold_stop_running_model "$PROJECT_DIR" "$FORCE"
 # ── Clone upstream (pinned) ───────────────────────────────────────────────────
 tensorfold_checkout_pinned_recipe "$PROJECT_DIR" "$TENSORFOLD_27B_REPO" "$TENSORFOLD_27B_RECIPE_REF"
 
-# ── Write /srv/tensorfold-27b/.env (upstream settings file) ───────────────────
+# ── Write ${PROJECT_DIR}/.env (upstream settings file) ────────────────────────
 tensorfold_render_serve_env "${TEMPLATE_DIR}/serve.env" "${PROJECT_DIR}/.env" "$TENSORFOLD_27B_PORT"
+
+# ── Checkpoint revision drift (the recipe pins no revision) ───────────────────
+# Before prepare.sh: warn when the cache or upstream resolves different weights
+# than the ones recorded on the last install, so the operator knows a big new
+# download is coming. Advisory — never fails the run (see
+# lib/tensorfold-helper.sh → tensorfold_checkpoint_revision_recheck).
+tensorfold_checkpoint_revision_recheck "$TENSORFOLD_27B_REVISION_STATE" MODEL \
+  "Vontra/Qwen3.8-27B-MLX-4bit" "$MODEL_CACHE_DIR" log
+tensorfold_checkpoint_revision_recheck "$TENSORFOLD_27B_REVISION_STATE" DRAFT \
+  "z-lab/Qwen3.8-27B-DFlash2" "$DRAFT_CACHE_DIR" log
 
 # ── Prepare: image + checkpoints (idempotent upstream) ────────────────────────
 step "Preparing TensorFold (prebuilt image + ~19 GB checkpoints — idempotent, can take a while)"
 
 # KERNEL_CACHE must match the catalog entry (templates/tensorfold-spark-qwen38-27b/models-entry.yml):
 # the llama-swap service runs with ProtectHome=read-only, so the lock files and
-# the prepared marker live under /srv/tensorfold-27b, not $HOME.
+# the prepared marker live under ${PROJECT_DIR}, not $HOME.
 (cd "$PROJECT_DIR" && HF_CACHE="$HF_CACHE_DIR" KERNEL_CACHE="$KERNEL_CACHE_DIR" bash scripts/prepare.sh)
 success "Prepare complete."
+
+# ── Record the checkpoint revisions prepare.sh resolved ───────────────────────
+# Best-effort and non-fatal: the recipe exposes no MODEL_REVISION, so this is
+# the only pinning the repo can do on its own side (see AUTOMATIONS.md).
+tensorfold_checkpoint_revision_record "$TENSORFOLD_27B_REVISION_STATE" MODEL \
+  "Vontra/Qwen3.8-27B-MLX-4bit" "$MODEL_CACHE_DIR"
+tensorfold_checkpoint_revision_record "$TENSORFOLD_27B_REVISION_STATE" DRAFT \
+  "z-lab/Qwen3.8-27B-DFlash2" "$DRAFT_CACHE_DIR"
 
 # ── Merge the catalog entry into models.yml ───────────────────────────────────
 step "Merging catalog entry '${TENSORFOLD_27B_MODEL_NAME}' into models.yml"
 
-export TENSORFOLD_27B_PORT LLAMA_SWAP_PORT HF_CACHE_DIR KERNEL_CACHE_DIR TENSORFOLD_27B_HEALTH_TIMEOUT
+export TENSORFOLD_27B_PORT LLAMA_SWAP_PORT PROJECT_DIR HF_CACHE_DIR KERNEL_CACHE_DIR
 # Render + additive merge (merge-model-entry.py): the entry is replaced only if
 # the rendered template changed, --force re-writes it.
 # shellcheck disable=SC2016  # the last argument is envsubst's literal variable list
@@ -296,27 +345,30 @@ tensorfold_merge_model_entry \
   "${REPO_ROOT}/models.yml.default" \
   "$TENSORFOLD_27B_MODEL_NAME" \
   "$FORCE" \
-  '${TENSORFOLD_27B_PORT} ${LLAMA_SWAP_PORT} ${HF_CACHE_DIR} ${KERNEL_CACHE_DIR} ${TENSORFOLD_27B_HEALTH_TIMEOUT}'
+  '${PROJECT_DIR} ${TENSORFOLD_27B_PORT} ${LLAMA_SWAP_PORT} ${HF_CACHE_DIR} ${KERNEL_CACHE_DIR}'
 
-# llama-swap's healthCheckTimeout is GLOBAL (top-level config key, default 600) —
-# a per-model value is accepted but ignored. Raise it to cover the first load
-# (19 GB weights + one-time kernel compile); sync-models.py below restarts
-# llama-swap when the file changed.
+# llama-swap's healthCheckTimeout is GLOBAL (top-level config key; llama-swap's
+# own default is 120 s, kwisatz's template renders 500). A per-model value is
+# accepted but ignored, so raise the global to cover the first load (19 GB
+# weights + one-time kernel compile) — and, because sync-models.py restarts only
+# when it has something to write, let the sync below force the restart when only
+# the raise changed the file.
 tensorfold_llama_swap_raise_health_timeout "${LLAMA_SWAP_DIR}/config/config.yaml" "$TENSORFOLD_27B_HEALTH_TIMEOUT"
 
 # ── Sync llama-swap ───────────────────────────────────────────────────────────
 # Merges models.yml into config.yaml, restarts only on change, polls /health.
-tensorfold_sync_llama_swap
+tensorfold_sync_llama_swap "${LLAMA_SWAP_DIR}/config/config.yaml" "$LLAMA_SWAP_PORT" "$TENSORFOLD_27B_CONTAINER"
 
 # ── Smoke test through llama-swap ─────────────────────────────────────────────
 if [[ "$SKIP_SMOKE" -eq 1 ]]; then
-  warn "Smoke test skipped (--skip-smoke)."
+  tensorfold_require_llama_swap_up "$TENSORFOLD_27B_MODEL_NAME" "$LLAMA_SWAP_PORT" 60 "$TENSORFOLD_27B_CONTAINER"
+  warn "Smoke test skipped (--skip-smoke): the model was NOT exercised — run $0 without --skip-smoke or load it manually."
 else
   # enable_thinking: false (a documented per-request parameter of this engine) —
   # with the default thinking mode the think block would eat the small token
   # budget and leave message.content empty, failing the check.
   tensorfold_smoke_test "$TENSORFOLD_27B_MODEL_NAME" "$LLAMA_SWAP_PORT" "$TENSORFOLD_27B_HEALTH_TIMEOUT" "$TENSORFOLD_27B_CONTAINER" \
-    "First load pulls ~19 GB of weights into the GPU and compiles CUDA kernels once — up to ${TENSORFOLD_27B_HEALTH_TIMEOUT}s."
+    "First load maps ~19 GB of checkpoint weights into unified memory and compiles CUDA kernels once — up to ${TENSORFOLD_27B_HEALTH_TIMEOUT}s."
 fi
 
 # ── Summary ────────────────────────────────────────────────────────────────────
@@ -328,8 +380,9 @@ echo ""
 echo -e "  ${BOLD}Recipe:${RESET}        ${PROJECT_DIR} ($(git -C "$PROJECT_DIR" rev-parse --short HEAD))"
 echo -e "  ${BOLD}HF cache:${RESET}      ${HF_CACHE_DIR}"
 echo -e "  ${BOLD}Kernel cache:${RESET}  ${KERNEL_CACHE_DIR}"
-echo -e "  ${BOLD}TensorFold port:${RESET} ${TENSORFOLD_27B_PORT} (fixed, host network — via /srv/tensorfold-27b/.env)"
-echo -e "  ${BOLD}Model:${RESET}         ${TENSORFOLD_27B_MODEL_NAME} (aliases: Qwen3.8-27B, qwen3.8-27)"
+echo -e "  ${BOLD}TensorFold port:${RESET} ${TENSORFOLD_27B_PORT} (fixed, host network — via ${PROJECT_DIR}/.env)"
+echo -e "  ${BOLD}Model:${RESET}         ${TENSORFOLD_27B_MODEL_NAME} (aliases: qwen3.8-27b-tensorfold, qwen3.8-27)"
+echo -e "  ${BOLD}Revisions:${RESET}     ${TENSORFOLD_27B_REVISION_STATE} ($0 --check)"
 echo ""
 echo -e "${BOLD}Useful commands:${RESET}"
 echo -e "  Status:       $0 --check"
@@ -346,6 +399,7 @@ echo -e "  fails until the stale container is removed: docker rm -f ${TENSORFOLD
 echo ""
 echo -e "  ${BOLD}Coexistence:${RESET} this model does NOT fit alongside Flash Next at"
 echo -e "  defaults — use llama-swap's one-model-at-a-time swap. Co-loading needs"
-echo -e "  reduced settings on at least one side AND TENSORFOLD_MEMORY_RESERVE_GIB=4"
-echo -e "  in both recipes' .env files."
+echo -e "  reduced settings on one side AND TENSORFOLD_MEMORY_RESERVE_GIB=4 in"
+echo -e "  ${PROJECT_DIR}/.env (this recipe defaults to 0; Flash Next already keeps"
+echo -e "  10 GiB — do not lower it). See $0 --help."
 echo ""

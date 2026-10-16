@@ -320,8 +320,10 @@ PORT=${PORT}     # 8889
 **Practical answer:** llama-swap's model-swap usage (one model loaded at a time) is the correct
 default for this machine. The 27B fits comfortably alone (~97 GiB at full pool, ~20 GiB idle
 with `KV_POOL_GB=0`). Co-loading requires explicitly reduced settings on at least one side, and
-with `TENSORFOLD_MEMORY_RESERVE_GIB=0` both recipes, an overcommit freezes the host — if
-co-loading is wanted, raise `TENSORFOLD_MEMORY_RESERVE_GIB` (e.g. 4) on both.
+with `TENSORFOLD_MEMORY_RESERVE_GIB=0` (the 27B recipe default), an overcommit freezes the host —
+if co-loading is wanted, raise `TENSORFOLD_MEMORY_RESERVE_GIB` (e.g. 4) **in
+`/srv/tensorfold-27b/.env` only**: the Flash Next recipe already keeps 10 GiB, and setting 4
+there would lower its floor instead of raising the 27B's.
 
 ---
 
@@ -354,8 +356,10 @@ docker logs -f qwen38-27b-tf                                          # logs
 
 1. **No checkpoint revision pin.** `Vontra/Qwen3.8-27B-MLX-4bit` and `z-lab/Qwen3.8-27B-DFlash2`
    download at latest revision; a future upstream change silently swaps weights. The recipe repo
-   pin does not cover this. Mitigation: none upstream; optionally pin via `hf download
-   --revision` in prepare or accept the drift.
+   pin does not cover this. Mitigation upstream: none (no `MODEL_REVISION`). Mitigation in this
+   repo: `setup-tensorfold-spark-qwen38-27b.sh` records the SHAs `prepare.sh` resolved in
+   `/srv/tensorfold-27b/.checkpoint-revisions` and warns on drift at install and with `--check`
+   (detection, not prevention — pin via `hf download --revision` or a recipe change to prevent it).
 2. **Port conflict.** Both recipes default to 8888. The 27B must run on a different port (8889)
    via `.env`; `start.sh` dies if the port is taken, so the conflict is loud, not silent.
 3. **Memory overcommit.** With `TENSORFOLD_MEMORY_RESERVE_GIB=0` (the recipe default) and the

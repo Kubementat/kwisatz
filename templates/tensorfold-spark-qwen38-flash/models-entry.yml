@@ -1,8 +1,9 @@
 # Qwen3.8 Flash Next — TensorFold's Zig engine on one DGX Spark.
 #
-# Catalog fragment rendered by tasks/setup-tensorfold-spark-qwen38-flash.sh (TENSORFOLD_PORT,
-# LLAMA_SWAP_PORT, HF_CACHE_DIR, KERNEL_CACHE_DIR, TENSORFOLD_HEALTH_TIMEOUT)
-# and merged additively into models.yml by tasks/merge-model-entry.py.
+# Catalog fragment rendered by tasks/setup-tensorfold-spark-qwen38-flash.sh
+# (PROJECT_DIR, TENSORFOLD_PORT, LLAMA_SWAP_PORT, HF_CACHE_DIR,
+# KERNEL_CACHE_DIR, TENSORFOLD_STATE_DIR) and merged additively into models.yml
+# by tasks/merge-model-entry.py.
 #
 # llama-swap owns the container lifecycle:
 #   serve.cmd   — upstream start.sh (FOREGROUND=1 → blocking for the
@@ -18,11 +19,12 @@ providers:
       - name: qwen3.8-flash-next
         type: local
         env:
-          # llama-swap runs cmd as root (systemd) with ProtectHome=read-only —
-          # the caches stay in the invoking user's home (read-only bind
-          # mounts), but start.sh flocks $STATE_DIR and writes $LOG_DIR at
-          # load time, so both must be service-writable: /srv is not
-          # protected by ProtectSystem=full.
+          # llama-swap runs cmd as root (systemd) with ProtectHome=read-only,
+          # so nothing the service has to write may live under the invoking
+          # user's home: the kernel cache, the prepared marker and the
+          # runtime lock/log files all sit under PROJECT_DIR, which
+          # ProtectSystem=full does not protect. HF_CACHE stays where the
+          # user downloaded the checkpoint (read-write bind mount upstream).
           - name: HF_CACHE
             value: ${HF_CACHE_DIR}
           - name: KERNEL_CACHE
@@ -31,16 +33,17 @@ providers:
             value: ${TENSORFOLD_STATE_DIR}
           - name: LOG_DIR
             value: ${TENSORFOLD_STATE_DIR}/logs
-        # One-time prep (image + ~122 GB checkpoint). No-op while the
-        # upstream prepared marker is present (setup-tensorfold-spark-qwen38-flash.sh runs
-        # scripts/prepare.sh with the same STATE_DIR during install).
+        # One-time prep (image + ~122 GiB checkpoint, of which ~66 GiB becomes
+        # GPU-resident). No-op while the upstream prepared marker is present
+        # (setup-tensorfold-spark-qwen38-flash.sh runs scripts/prepare.sh with
+        # the same STATE_DIR during install).
         download:
           - >-
             [[ -f ${STATE_DIR}/prepared ]] ||
             STATE_DIR=${STATE_DIR} LOG_DIR=${LOG_DIR}
-            bash /srv/tensorfold/scripts/prepare.sh
+            bash ${PROJECT_DIR}/scripts/prepare.sh
         serve:
-          cmd: "bash /srv/tensorfold/start.sh"
+          cmd: "bash ${PROJECT_DIR}/start.sh"
         # Extra llama-swap fields (pass-through, placeholder-expanded).
         llamaSwap:
           # Single command — llama-swap execs it without a shell. Stopping
@@ -52,12 +55,14 @@ providers:
           checkEndpoint: "/health"
           # First-load wait is the GLOBAL llama-swap healthCheckTimeout, which
           # the setup script raises to TENSORFOLD_HEALTH_TIMEOUT (per-model
-          # values are ignored by llama-swap). Never auto-unload.
+          # values are ignored by llama-swap; llama-swap's own default is 120 s,
+          # kwisatz's template renders 500). Never auto-unload.
           ttl: 0
           aliases:
             - "Qwen3.8-Flash-Next"
             - "qwen3.8-flash"
             - "qwen3.8"
+            # "qwen3.8-27" is not here — 27B owns it
         agent:
           contextWindow: 262144
           maxTokens: 32768
