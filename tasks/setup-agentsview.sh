@@ -9,6 +9,10 @@
 # (telemetry is disabled via env var, see --help) and optionally ingests
 # session directories synced from other machines (hub mode).
 #
+# Optionally configures LLM-generated insights ([insights] block + the API key
+# in an env file the service reads via EnvironmentFile), so `agentsview insight
+# generate` uses a local model instead of a cloud endpoint.
+#
 # Additionally installs a systemd *system* service `agentsview.service` that
 # runs the agentsview server (web UI + API + background sync) on
 # AGENTSVIEW_PORT (default 7777). The config gets `require_auth = true` and
@@ -50,6 +54,9 @@ Modes (selected by env vars):
                    other machines; each becomes a [[session_sources]] entry.
   pg push          AGENTSVIEW_PG_URL set (or already stored in pg.env) ->
                    systemd user service running 'agentsview pg push --watch'.
+  insights         AGENTSVIEW_INSIGHTS_URL + _MODEL set -> renders an
+                   [insights] block so 'agentsview insight generate' uses that
+                   OpenAI-compatible endpoint instead of a cloud provider.
 
 ${BOLD}Options:${RESET}
   -h, --help    Show this help and exit
@@ -72,6 +79,19 @@ ${BOLD}Environment variables${RESET} (all optional):
   AGENTSVIEW_PG_URL            PostgreSQL URL (contains credentials). Stored in
                                \$AGENTSVIEW_DATA_DIR/pg.env (mode 600), read back
                                on re-runs; never written to config.toml or the unit.
+  AGENTSVIEW_INSIGHTS_URL      LLM endpoint for insight generation, e.g.
+                               http://192.168.178.104:9292/v1 (OpenAI-compatible).
+                               Presence enables insights; requires a model name.
+  AGENTSVIEW_INSIGHTS_MODEL    Model served by that endpoint (e.g.
+                               qwen3.8-flash-next). Required when URL is set.
+  AGENTSVIEW_INSIGHTS_API_KEY  Optional key for the endpoint. Stored in
+                               \$AGENTSVIEW_DATA_DIR/insights.env (mode 600),
+                               read back on re-runs and never rotated; the unit
+                               reads that file via EnvironmentFile and the
+                               config only names the variable (api_key_env).
+  AGENTSVIEW_INSIGHTS_TIMEOUT  Per-request timeout (default: 300s). Keep this
+                               generous: llama-swap may load the model first,
+                               which alone can take ~2 minutes.
   AGENTSVIEW_FORCE_CONFIG      true = overwrite an existing config.toml (a .bak is kept).
                                Default: an existing config.toml is left untouched
                                (agentsview also writes to it) and a diff is shown.
@@ -90,10 +110,32 @@ ${BOLD}Notes:${RESET}
   - Telemetry has no config key: AGENTSVIEW_TELEMETRY_ENABLED=0 is set in
     the service units and in ~/.profile (managed line). Daemons started
     elsewhere (e.g. a desktop launcher) need it set too.
+  - Insight generation is optional and off by default. Endpoint and model are
+    read back from an existing config.toml, so a re-run without these vars
+    keeps a previously configured block. Plain http to a non-loopback host
+    needs allow_http = true, which this script derives from the URL and warns
+    about (transcript content then leaves the machine in cleartext).
   - The pg push service is a custom unit (not 'agentsview pg service
     install', which rejects env-provided URLs and would force the password
     into config.toml). Headless machines need lingering:
     loginctl enable-linger \$USER (hinted, not run).
+  - An existing config.toml is never rewritten, so enabling insights on a host
+    that already has one needs AGENTSVIEW_FORCE_CONFIG=true (keeps a .bak, but
+    replaces hand-edited sections such as hand-added [[remote_hosts]]).
+
+${BOLD}Example: insights on a local model (recommended form)${RESET}
+  Insight generation is local by nature (it reads this machine's transcripts),
+  so binding the API to loopback is the tighter setup:
+
+    AGENTSVIEW_HOST=127.0.0.1 \\
+    AGENTSVIEW_INSIGHTS_URL=http://192.168.178.104:9292/v1 \\
+    AGENTSVIEW_INSIGHTS_MODEL=qwen3.8-flash-next \\
+    AGENTSVIEW_INSIGHTS_API_KEY=sk-... \\
+    ./tasks/setup-agentsview.sh
+
+  Then generate, e.g.:
+    agentsview insight generate --type daily_activity \\
+      --date-from 2026-10-02 --date-to 2026-10-16
 EOF
 }
 
@@ -113,6 +155,7 @@ AGENTSVIEW_FORCE_CONFIG="${AGENTSVIEW_FORCE_CONFIG:-false}"
 AGENTSVIEW_PORT="${AGENTSVIEW_PORT:-7777}"
 AGENTSVIEW_HOST="${AGENTSVIEW_HOST:-0.0.0.0}"
 AGENTSVIEW_HEALTH_TIMEOUT="${AGENTSVIEW_HEALTH_TIMEOUT:-120}"
+AGENTSVIEW_INSIGHTS_TIMEOUT="${AGENTSVIEW_INSIGHTS_TIMEOUT:-300s}"
 AGENTSVIEW_DISABLE_UPDATE_CHECK="true"
 export AGENTSVIEW_DATA_DIR AGENTSVIEW_BIN_DIR AGENTSVIEW_MACHINE_NAME AGENTSVIEW_DISABLE_UPDATE_CHECK
 # The server unit runs as the invoking user (agentsview indexes that user's
@@ -121,6 +164,7 @@ AGENTSVIEW_SERVICE_USER="${SUDO_USER:-$(id -un)}"
 
 REPO="kenn-io/agentsview"
 PG_ENV_FILE="${AGENTSVIEW_DATA_DIR}/pg.env"
+INSIGHTS_ENV_FILE="${AGENTSVIEW_DATA_DIR}/insights.env"
 CONFIG_FILE="${AGENTSVIEW_DATA_DIR}/config.toml"
 UNIT_NAME="agentsview-pg-push.service"
 UNIT_FILE="$HOME/.config/systemd/user/${UNIT_NAME}"
@@ -198,6 +242,98 @@ else
 fi
 export AGENTSVIEW_AUTH_TOKEN AGENTSVIEW_HOST AGENTSVIEW_PORT AGENTSVIEW_SERVICE_USER
 
+# --- insight generation (optional) ------------------------------------------
+# Presence of the URL enables [insights]; the model is mandatory with it
+# (agentsview rejects endpoint/model pairs that are only half present). Values
+# are read back from an existing config.toml first, so a re-run without these
+# vars keeps a block configured earlier.
+step "Configuring insight generation (optional)"
+mkdir -p "$AGENTSVIEW_DATA_DIR"
+chmod 700 "$AGENTSVIEW_DATA_DIR"
+
+# insights_existing_value <key> -- value of <key> inside the [insights] table
+# of an existing config (root-level tables elsewhere end the scan).
+insights_existing_value() {
+  [[ -f "$CONFIG_FILE" ]] || return 0
+  awk -v k="$1" '
+    /^\[insights\][[:space:]]*$/ { in_block = 1; next }
+    /^[[:space:]]*\[/    { in_block = 0 }
+    in_block {
+      line = $0
+      sub(/^[[:space:]]*/, "", line)
+      if (line ~ ("^" k "[[:space:]]*=")) {
+        sub(/^[^=]*=[[:space:]]*"?/, "", line)
+        sub(/"[[:space:]]*$/, "", line)
+        print line
+      }
+    }' "$CONFIG_FILE" | head -n1
+}
+
+AGENTSVIEW_INSIGHTS_URL="${AGENTSVIEW_INSIGHTS_URL:-$(insights_existing_value endpoint)}"
+AGENTSVIEW_INSIGHTS_MODEL="${AGENTSVIEW_INSIGHTS_MODEL:-$(insights_existing_value model)}"
+# Explicit env wins; otherwise the stored key (never rotated on re-runs).
+if [[ -z "${AGENTSVIEW_INSIGHTS_API_KEY:-}" ]]; then
+  AGENTSVIEW_INSIGHTS_API_KEY="$(env_file_get "$INSIGHTS_ENV_FILE" AGENTSVIEW_INSIGHTS_API_KEY || true)"
+fi
+
+INSIGHTS_ENABLED=false
+AGENTSVIEW_INSIGHTS_ALLOW_HTTP=false
+AGENTSVIEW_INSIGHTS_API_KEY_ENV_LINE=""
+if [[ -n "$AGENTSVIEW_INSIGHTS_URL" && -n "$AGENTSVIEW_INSIGHTS_MODEL" ]]; then
+  INSIGHTS_ENABLED=true
+  case "$AGENTSVIEW_INSIGHTS_URL" in
+    https://*) AGENTSVIEW_INSIGHTS_ALLOW_HTTP=false ;;
+    http://*)
+      if [[ "$AGENTSVIEW_INSIGHTS_URL" == http://127.0.0.1* \
+            || "$AGENTSVIEW_INSIGHTS_URL" == http://localhost* \
+            || "$AGENTSVIEW_INSIGHTS_URL" == http://\[::1\]* ]]; then
+        AGENTSVIEW_INSIGHTS_ALLOW_HTTP=false
+      else
+        # agentsview refuses cleartext to a non-loopback host unless allow_http
+        # is true; derive it (the kwisatz trust model is a bearer-protected LAN)
+        # but say what it costs.
+        AGENTSVIEW_INSIGHTS_ALLOW_HTTP=true
+        warn "Insight endpoint '${AGENTSVIEW_INSIGHTS_URL}' is plain http on a non-loopback host:"
+        warn "  transcript content leaves this machine unencrypted (allow_http = true)."
+      fi
+      ;;
+    *) error "AGENTSVIEW_INSIGHTS_URL must start with http:// or https:// (got '${AGENTSVIEW_INSIGHTS_URL}')" ;;
+  esac
+  if [[ -n "$AGENTSVIEW_INSIGHTS_API_KEY" ]]; then
+    # Quoted TOML string built via printf on purpose: a literal with embedded
+    # quotes trips shellcheck's "quotes will be treated literally" warning when
+    # exported, and this value is only ever consumed by envsubst.
+    AGENTSVIEW_INSIGHTS_API_KEY_ENV_LINE="api_key_env = $(printf '%s' '"AGENTSVIEW_INSIGHTS_API_KEY"')"
+  else
+    warn "No insight API key configured -- the endpoint is called without authentication."
+    warn "Set AGENTSVIEW_INSIGHTS_API_KEY (or use https:// with your own auth)."
+  fi
+  info "Insights: ${AGENTSVIEW_INSIGHTS_URL} (${AGENTSVIEW_INSIGHTS_MODEL}, timeout ${AGENTSVIEW_INSIGHTS_TIMEOUT})"
+elif [[ -n "$AGENTSVIEW_INSIGHTS_URL" ]]; then
+  error "AGENTSVIEW_INSIGHTS_URL is set but AGENTSVIEW_INSIGHTS_MODEL is not -- agentsview requires endpoint and model together."
+elif [[ -n "$AGENTSVIEW_INSIGHTS_MODEL" ]]; then
+  warn "AGENTSVIEW_INSIGHTS_MODEL set without AGENTSVIEW_INSIGHTS_URL -- insight generation stays disabled."
+else
+  info "Insight generation disabled (set AGENTSVIEW_INSIGHTS_URL and AGENTSVIEW_INSIGHTS_MODEL to enable)."
+fi
+
+if [[ "$INSIGHTS_ENABLED" == "true" ]]; then
+  stored_key="$(env_file_get "$INSIGHTS_ENV_FILE" AGENTSVIEW_INSIGHTS_API_KEY || true)"
+  if [[ -n "$AGENTSVIEW_INSIGHTS_API_KEY" && "$AGENTSVIEW_INSIGHTS_API_KEY" != "$stored_key" ]]; then
+    printf 'AGENTSVIEW_INSIGHTS_API_KEY=%s\n' "$AGENTSVIEW_INSIGHTS_API_KEY" | env_file_write "$INSIGHTS_ENV_FILE"
+    success "Insight API key written to ${INSIGHTS_ENV_FILE} (mode 600)"
+  elif [[ -n "$stored_key" ]]; then
+    success "Insight API key reused from ${INSIGHTS_ENV_FILE} (not rotated)"
+  fi
+  # The service runs as AGENTSVIEW_SERVICE_USER and must be able to read it.
+  if [[ "$AGENTSVIEW_SERVICE_USER" != "$(id -un)" && -f "$INSIGHTS_ENV_FILE" ]]; then
+    sudo chown "$AGENTSVIEW_SERVICE_USER" "$INSIGHTS_ENV_FILE" 2>/dev/null \
+      || warn "Could not chown ${INSIGHTS_ENV_FILE} to ${AGENTSVIEW_SERVICE_USER} -- insight generation will fail with HTTP 401."
+  fi
+fi
+export AGENTSVIEW_INSIGHTS_URL AGENTSVIEW_INSIGHTS_MODEL AGENTSVIEW_INSIGHTS_TIMEOUT
+export AGENTSVIEW_INSIGHTS_ALLOW_HTTP AGENTSVIEW_INSIGHTS_API_KEY_ENV_LINE
+
 # --- config ------------------------------------------------------------------
 step "Writing ${CONFIG_FILE}"
 mkdir -p "$AGENTSVIEW_DATA_DIR"
@@ -217,6 +353,14 @@ if [[ -n "$AGENTSVIEW_SESSION_SOURCES" ]]; then
   done
 fi
 
+# Appended last on purpose: a TOML table header is always root-relative, so an
+# [insights] table at the end cannot nest anything under it, and vice versa.
+if [[ "$INSIGHTS_ENABLED" == "true" ]]; then
+  # shellcheck disable=SC2016  # envsubst expects the literal variable list
+  envsubst '${AGENTSVIEW_INSIGHTS_URL} ${AGENTSVIEW_INSIGHTS_MODEL} ${AGENTSVIEW_INSIGHTS_TIMEOUT} ${AGENTSVIEW_INSIGHTS_ALLOW_HTTP} ${AGENTSVIEW_INSIGHTS_API_KEY_ENV_LINE} ${AGENTSVIEW_DATA_DIR}' \
+    < "${TEMPLATE_DIR}/insights.toml.tpl" >> "$rendered"
+fi
+
 if [[ ! -f "$CONFIG_FILE" ]]; then
   install -m 600 "$rendered" "$CONFIG_FILE"
   success "Created config.toml"
@@ -229,6 +373,12 @@ elif [[ "$AGENTSVIEW_FORCE_CONFIG" == "true" ]]; then
 else
   warn "config.toml differs from the rendered config; left untouched (agentsview may have added keys)."
   warn "Set AGENTSVIEW_FORCE_CONFIG=true to overwrite. Diff (existing vs desired):"
+  if [[ "$INSIGHTS_ENABLED" == "true" ]]; then
+    warn "The rendered config includes the [insights] block, so without"
+    warn "AGENTSVIEW_FORCE_CONFIG=true insight generation is NOT enabled on this host."
+    warn "That flag replaces hand-edited sections (e.g. hand-added [[remote_hosts]]);"
+    warn "auth_token is read back first and survives, and a .bak is kept."
+  fi
   diff -u "$CONFIG_FILE" "$rendered" || true
   warn "If the existing config lacks require_auth/auth_token, agentsview generates its own at startup -- the live token is re-read below."
 fi
@@ -354,6 +504,13 @@ echo -e "  ${BOLD}API base${RESET}     http://<host>:${AGENTSVIEW_PORT}/api/v1/.
 echo -e "  ${BOLD}Auth token${RESET}   ${AGENTSVIEW_AUTH_TOKEN}"
 echo -e "  ${BOLD}Unit${RESET}         ${SERVER_UNIT_FILE}"
 echo -e "  ${BOLD}Config${RESET}       ${CONFIG_FILE}"
+if [[ "$INSIGHTS_ENABLED" == "true" ]]; then
+  echo -e "  ${BOLD}Insights${RESET}     ${AGENTSVIEW_INSIGHTS_URL} (${AGENTSVIEW_INSIGHTS_MODEL})"
+  echo -e "  ${BOLD}Key file${RESET}     ${INSIGHTS_ENV_FILE}"
+  echo -e "  ${BOLD}Timeout${RESET}      ${AGENTSVIEW_INSIGHTS_TIMEOUT}"
+else
+  echo -e "  ${BOLD}Insights${RESET}     disabled (see --help for AGENTSVIEW_INSIGHTS_URL/_MODEL)"
+fi
 echo ""
 echo -e "${BOLD}Useful commands:${RESET}"
 echo -e "  Status:   sudo systemctl status ${SERVER_UNIT_NAME}"
@@ -367,4 +524,11 @@ echo -e "  • For remote sync, a collector adds a [[remote_hosts]] entry with"
 echo -e "    url = \"http://<host>:${AGENTSVIEW_PORT}\" and this token."
 echo -e "  • The token is never rotated on re-runs -- it is read back from"
 echo -e "    ${CONFIG_FILE}; only AGENTSVIEW_FORCE_CONFIG=true rewrites the file."
+if [[ "$INSIGHTS_ENABLED" == "true" ]]; then
+  echo -e "  • Insight generation uses the endpoint above. An existing"
+echo -e "    config.toml is not rewritten -- re-run with"
+echo -e "    AGENTSVIEW_FORCE_CONFIG=true if this host already had one."
+  echo -e "  • Generate one: agentsview insight generate --type daily_activity \\"
+echo -e "      --date-from YYYY-MM-DD --date-to YYYY-MM-DD"
+fi
 echo ""
