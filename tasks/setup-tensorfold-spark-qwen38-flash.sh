@@ -16,7 +16,10 @@
 #   tensorfold-qwen38:zig-db28187) and applied by scripts/prepare.sh.
 #
 # Workflow (all steps idempotent, converge on re-run):
-#   1. pre-flight: docker, CDI GPU spec, DGX Spark, disk, hf CLI, llama-swap
+#   1. pre-flight: docker, CDI GPU spec, DGX Spark, hf CLI, llama-swap; then
+#      *what still needs downloading* — checkpoint present? engine image
+#      present? — and only if something is missing, the free-disk check. A
+#      re-run with both already on disk converges on a full disk.
 #   2. clone the recipe into /srv/tensorfold (re-run: fetch + checkout pin)
 #   3. run upstream scripts/prepare.sh (image + ~122 GB checkpoint)
 #   4. merge the qwen3.8-flash-next entry into models.yml (additive; the
@@ -47,9 +50,19 @@ TENSORFOLD_REPO="https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spar
 # db281878ddb836fd0df510d8771ecb7e0fe47d26 is the TensorFold ENGINE commit
 # (TF_REF in the recipe's scripts/config.sh), not a recipe-repo commit.
 TENSORFOLD_RECIPE_REF="4e1239ddb9d9a4cc3c748e771ae4725335c46a95"
-# Free disk needed before a checkpoint download: ~122 GiB checkpoint +
-# ~35 GiB image + margin (upstream: MIN_FREE_GB=140 + IMAGE_FREE_GB=40).
-TENSORFOLD_MIN_FREE_GB=160
+# Free disk, per piece that still has to be downloaded — the pre-flight demands
+# only what is actually missing (upstream: MIN_FREE_GB=140 + IMAGE_FREE_GB=40,
+# checked again, precisely, inside scripts/prepare.sh):
+#   TENSORFOLD_MODEL_GB    ~122 GiB checkpoint + margin
+#   TENSORFOLD_IMAGE_GB    the engine image
+#   TENSORFOLD_MIN_FREE_GB the total for a cold install (nothing downloaded yet)
+TENSORFOLD_MIN_FREE_GB="${TENSORFOLD_MIN_FREE_GB:-160}"
+TENSORFOLD_IMAGE_GB="${TENSORFOLD_IMAGE_GB:-40}"
+TENSORFOLD_MODEL_GB=$(( TENSORFOLD_MIN_FREE_GB - TENSORFOLD_IMAGE_GB ))
+# The engine image scripts/prepare.sh leaves behind (its scripts/config.sh:
+# IMAGE=tensorfold-qwen38:zig-<TF_REF:0:7>; a pulled ghcr.io/miaai-lab/… image
+# is tagged with it). Keep in step with the TensorFold pin inside the recipe.
+TENSORFOLD_IMAGE="tensorfold-qwen38:zig-db28187"
 
 TENSORFOLD_MODEL_NAME="qwen3.8-flash-next"
 TENSORFOLD_CONTAINER="qwen38-flash-next-tf"
@@ -110,14 +123,22 @@ usage() {
   echo ""
   echo -e "${BOLD}Environment variables${RESET} (all flags above have env-var equivalents):"
   echo "  TENSORFOLD_PORT, TENSORFOLD_HEALTH_TIMEOUT, PROJECT_DIR, HF_CACHE_DIR,"
-  echo "  KERNEL_CACHE_DIR, TENSORFOLD_STATE_DIR, LLAMA_SWAP_PORT, LLAMA_SWAP_DIR"
+  echo "  KERNEL_CACHE_DIR, TENSORFOLD_STATE_DIR, LLAMA_SWAP_PORT, LLAMA_SWAP_DIR,"
+  echo "  TENSORFOLD_MIN_FREE_GB, TENSORFOLD_IMAGE_GB"
   echo ""
   echo -e "${BOLD}Requirements:${RESET}"
   echo "  One DGX Spark (GB10, 128 GB unified memory) with nothing else large on"
   echo "  the GPU (~103 GiB at startup with the recipe defaults), Docker with the"
   echo "  NVIDIA container toolkit (setup-nvidia-container.sh first), llama-swap"
-  echo "  (setup-llama-swap.sh first), ~160 GB free disk, 'hf' CLI"
+  echo "  (setup-llama-swap.sh first), ~160 GB free disk for a cold install, 'hf' CLI"
   echo "  (pip install -U \"huggingface_hub[cli]\")."
+  echo ""
+  echo -e "${BOLD}Free disk:${RESET}"
+  echo "  A cold install needs ~${TENSORFOLD_MIN_FREE_GB} GB free under HF_CACHE_DIR (~122 GiB"
+  echo "  checkpoint + the engine image). That check runs only while the checkpoint"
+  echo "  or the engine image is still missing — a re-run with both present needs no"
+  echo "  free space at all and converges (scripts/prepare.sh re-checks the exact"
+  echo "  download itself). Tune with TENSORFOLD_MIN_FREE_GB / TENSORFOLD_IMAGE_GB."
   echo ""
   echo -e "${BOLD}Runtime model:${RESET}"
   echo "  The model is NOT a standalone stack. llama-swap starts the container"
@@ -153,6 +174,11 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# HF cache layout of the pinned checkpoint (…/hub/models--<org>--<repo>),
+# resolved after argument parsing so --check and the pre-flight probe the same
+# path. The revision is NOT part of the probe (see path_has_hf_snapshot).
+MODEL_CACHE_DIR="${HF_CACHE_DIR}/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound"
+
 # ── --check ───────────────────────────────────────────────────────────────────
 
 check_status() {
@@ -174,6 +200,29 @@ check_status() {
     echo -e "  ${BOLD}Prepared:${RESET}    ${GREEN}image + checkpoint ready${RESET}"
   else
     echo -e "  ${BOLD}Prepared:${RESET}    ${YELLOW}no — prepare.sh has not completed${RESET}"
+  fi
+  # Same signals as the pre-flight: presence of checkpoint and image first,
+  # then free disk — and what a re-run would still have to download.
+  local pending="" need=0 free
+  if path_has_hf_snapshot "$MODEL_CACHE_DIR"; then
+    echo -e "  ${BOLD}Checkpoint:${RESET}   ${GREEN}present${RESET} (${MODEL_CACHE_DIR})"
+  else
+    echo -e "  ${BOLD}Checkpoint:${RESET}   ${YELLOW}not cached${RESET} (${MODEL_CACHE_DIR})"
+    pending="checkpoint ~${TENSORFOLD_MODEL_GB} GB"
+    need=$(( need + TENSORFOLD_MODEL_GB ))
+  fi
+  if docker image inspect "$TENSORFOLD_IMAGE" &>/dev/null; then
+    echo -e "  ${BOLD}Image:${RESET}        ${GREEN}${TENSORFOLD_IMAGE}${RESET}"
+  else
+    echo -e "  ${BOLD}Image:${RESET}        ${YELLOW}missing${RESET} (${TENSORFOLD_IMAGE})"
+    [[ -n "$pending" ]] && pending="$pending and "
+    pending="${pending}image ~${TENSORFOLD_IMAGE_GB} GB"
+    need=$(( need + TENSORFOLD_IMAGE_GB ))
+  fi
+  free="$(df -BG --output=avail "$HF_CACHE_DIR" 2>/dev/null | tail -1 | tr -dc '0-9')"
+  echo -e "  ${BOLD}Disk:${RESET}        ${free:-?} GB free under ${HF_CACHE_DIR} (still to download: ${pending:-nothing})"
+  if (( need > 0 )) && [[ -n "$free" ]] && (( free < need )); then
+    echo -e "                 ${YELLOW}below the ~${need} GB that download would need${RESET}"
   fi
   local catalog="${REPO_ROOT}/models.yml"
   # -A1: require 'type: local' right after — a same-named remote entry must not
@@ -275,21 +324,43 @@ if ! nvidia-ctk cdi list 2>/dev/null | grep -q "nvidia.com/gpu=all"; then
 fi
 success "CDI device nvidia.com/gpu=all is available."
 
-# Disk: only enforced while the checkpoint is missing (prepare.sh re-checks
-# precisely on its own).
-MODEL_CACHE_DIR="${HF_CACHE_DIR}/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound"
-if [[ ! -f "${MODEL_CACHE_DIR}/snapshots/1464274120d36a4d8fcaa934552334a7d83ce0fd/config.json" ]]; then
-  mkdir -p "$HF_CACHE_DIR"  # fresh machine: df needs the dir to exist
-  FREE_GB=$(df -BG --output=avail "$HF_CACHE_DIR" 2>/dev/null | tail -1 | tr -dc '0-9' || true)
-  if [[ -z "$FREE_GB" ]]; then
-    error "Could not determine free disk space under ${HF_CACHE_DIR} (df failed)."
-  fi
-  if (( FREE_GB < TENSORFOLD_MIN_FREE_GB )); then
-    error "Only ${FREE_GB} GB free under ${HF_CACHE_DIR}; the download needs ~${TENSORFOLD_MIN_FREE_GB} GB (~122 GiB checkpoint + image + margin)."
-  fi
-  info "Disk: ${FREE_GB} GB free under ${HF_CACHE_DIR} (need ~${TENSORFOLD_MIN_FREE_GB})"
-else
+# ── Pre-flight: what still needs to be downloaded? ────────────────────────────
+# Presence first, disk second, and disk only for what is missing — a re-run on a
+# nearly full machine where the checkpoint and the engine image are already on
+# disk must converge and download nothing (conventions.md → Re-run policy:
+# converge by default). A cold install still pays the full TENSORFOLD_MIN_FREE_GB
+# requirement, and prepare.sh re-checks it precisely on its own.
+
+# (a) Checkpoint — any usable cached snapshot counts, not one pinned revision.
+NEEDS_MODEL=1
+if path_has_hf_snapshot "$MODEL_CACHE_DIR"; then
+  NEEDS_MODEL=0
   success "Checkpoint already present under ${MODEL_CACHE_DIR}"
+fi
+
+# (b) Engine image — prepared by the recipe, tagged locally.
+NEEDS_IMAGE=1
+if docker image inspect "$TENSORFOLD_IMAGE" &>/dev/null; then
+  NEEDS_IMAGE=0
+  success "Engine image already present (${TENSORFOLD_IMAGE})"
+fi
+
+# (c) Free disk, only for the pieces that are still missing.
+if [[ "$NEEDS_MODEL" -eq 1 || "$NEEDS_IMAGE" -eq 1 ]]; then
+  NEEDED_GB=0
+  MISSING=""
+  if [[ "$NEEDS_MODEL" -eq 1 ]]; then
+    NEEDED_GB=$(( NEEDED_GB + TENSORFOLD_MODEL_GB ))
+    MISSING="the ~${TENSORFOLD_MODEL_GB} GB checkpoint"
+  fi
+  if [[ "$NEEDS_IMAGE" -eq 1 ]]; then
+    NEEDED_GB=$(( NEEDED_GB + TENSORFOLD_IMAGE_GB ))
+    [[ -n "$MISSING" ]] && MISSING="$MISSING and "
+    MISSING="${MISSING}the ~${TENSORFOLD_IMAGE_GB} GB engine image"
+  fi
+  require_free_space "$NEEDED_GB" "$HF_CACHE_DIR" "$MISSING"
+else
+  info "Checkpoint and engine image already on disk — nothing to download, free-disk check skipped."
 fi
 
 # ── --force: stop the running model first ─────────────────────────────────────

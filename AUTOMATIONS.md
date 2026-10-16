@@ -161,7 +161,7 @@ Deploys **Qwen3.8 Flash Next** on one DGX Spark (GB10, 128 GB unified memory) vi
 **Features:**
 - Pinned recipe commit; the TensorFold engine pin (`TF_REF db281878`, image `tensorfold-qwen38:zig-db28187`) is applied by the recipe's `prepare.sh`
 - Serve levers (context, parallel, KV dtype, vision, ...) are upstream settings — set them in `/srv/tensorfold/.env` (see `scripts/config.sh` there)
-- Pre-flight: llama-swap installed, CDI GPU spec, Spark detection, ~160 GB free disk, `hf` CLI
+- Pre-flight: llama-swap installed, CDI GPU spec, Spark detection, `hf` CLI — then, in that order, "checkpoint cached?" (any `snapshots/*/config.json` + weights, revision-independent), "engine image present?", and free disk (~160 GB) checked **only for what still has to be downloaded**: a re-run with checkpoint + image on disk converges even on a full filesystem
 - Catalog merge is additive and idempotent (entry replaced only if the rendered template changed); `sync-models.py` restarts llama-swap only on config change
 - Smoke test through llama-swap (default timeout 900 s — 122 GiB weight load); model loads on demand, `ttl: 0` (never auto-unload)
 - Idempotent, converge-by-default; supports `--force` (stop model + force re-merge) and `--check`
@@ -173,7 +173,7 @@ Deploys **Qwen3.8-27B** on one DGX Spark (GB10, 128 GB unified memory) via **Ten
 - Pinned recipe commit; the TensorFold engine pin (`TF_VERSION v0.6.0`, patches `fb91a0019fdc`) is applied by the recipe's `prepare.sh`. **The checkpoints are NOT revision-pinned** — `prepare.sh` downloads the latest revision (known risk)
 - Serve levers (context, parallel, KV pool, YaRN, KV dtype, prefill-fp8, vision, drafts, ...) are upstream settings — set them in `/srv/tensorfold-27b/.env` (see `scripts/config.sh` there)
 - Kernel cache + lock files + prepared marker under `KERNEL_CACHE_DIR` (default `/srv/tensorfold-27b/.cache`, service-writable; llama-swap runs as root with `ProtectHome=read-only`)
-- Pre-flight: llama-swap installed, CDI GPU spec, Spark detection, ~60 GB free disk, `hf` CLI
+- Pre-flight: llama-swap installed, CDI GPU spec, Spark detection, `hf` CLI — then, in that order, "both checkpoints cached?" (any `snapshots/*/config.json` + weights; checkpoints are not revision-pinned), "engine image present?", and free disk (~60 GB) checked **only for what still has to be downloaded**: a re-run with everything on disk converges even on a full filesystem
 - Catalog merge is additive and idempotent (entry replaced only if the rendered template changed); `sync-models.py` restarts llama-swap only on config change
 - Smoke test through llama-swap (default timeout 600 s — 19 GB load + one-time kernel compile); model loads on demand, `ttl: 0` (never auto-unload)
 - Idempotent, converge-by-default; supports `--force` (stop model + force re-merge) and `--check`
