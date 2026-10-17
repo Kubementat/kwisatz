@@ -81,6 +81,8 @@ declare -a LIBVIRT_PACKAGES=(
   libvirt-clients
   "${QEMU_PACKAGE}"
   bridge-utils
+  # virt-runner's 'create --mount' (virtiofs host directory shares)
+  virtiofsd
 )
 
 # aarch64 guests only boot via UEFI, so the firmware is required there

@@ -230,7 +230,7 @@ Installs Hermes Agent natively inside a dedicated KVM virtual machine created wi
 - Official Hermes installer at a pinned commit (`HERMES_COMMIT`), gateway as a systemd user service
 - Host-enforced egress allowlist (`HERMES_ALLOWED_ENDPOINTS`, e.g. `"host:3000 192.168.1.20:8080-8090"`): internet open, listed LAN/host endpoints allowed, all other private addresses blocked
 - Optional `hermes serve` for Hermes Desktop / the dashboard on the LAN (`HERMES_SERVE=true`, `HERMES_SERVE_ALLOW_FROM`), optionally behind Traefik (`HERMES_TRAEFIK=true`, `HERMES_DOMAIN`)
-- Connects the main model to your own OpenAI-compatible LLM endpoint — llama-swap / vLLM / llama.cpp-server (`HERMES_LLM_BASE_URL`, `HERMES_LLM_MODEL`, optional `HERMES_LLM_API_KEY`): provider `openai-api`, base URL and model converged on every re-run; the endpoint is auto-added to the egress allowlist when it is on this host or another IPv4, and the API key is stored only inside the guest (`~/.hermes/.env`, never rotated)
+- Connects the main model to your own OpenAI-compatible LLM endpoint — llama-swap / vLLM / llama.cpp-server (`HERMES_LLM_BASE_URL`, `HERMES_LLM_MODEL`, optional `HERMES_LLM_API_KEY`): provider `custom` (plain chat-completions wire, key read via `model.key_env=OPENAI_API_KEY`), base URL and model converged on every re-run; the endpoint is auto-added to the egress allowlist when it is on this host or another IPv4, and the API key is stored only inside the guest (`~/.hermes/.env`, never rotated)
 - Host shares: `/srv/hermes/workspace` → `/workspace`, `/srv/hermes/backups` → `/mnt/backups` (daily `hermes backup` zips + a plain-text config mirror in `/srv/hermes/backups/current/`); Hermes state (SQLite) stays on the VM disk
 - Host-backup ready: everything under `/srv/hermes` — live workspace, daily backup archives, and the `current/` config mirror (config.yaml, .env, SOUL.md, memories/, skills/, cron/, hooks/, skins/) — is inside the default scope of `setup-backup-client.sh` (borg). Full restores use the newest archive via `hermes import`; `current/` is for browsing and single-file recovery without extracting an archive
 - The gateway service runs from the first install on; configure it with `virt-runner ssh hermes`, `hermes setup`, `hermes gateway restart`
@@ -474,7 +474,7 @@ VIRT_RUNNER_DIR=~/dev/virt-runner ./tasks/setup-virt-runner.sh
 Installs or updates libvirt (virtualization API) and virt-manager (graphical VM manager) on Debian/Ubuntu-based systems. Configures the libvirt daemon, default networks, and adds the user to the libvirt group.
 
 **Features:**
-- Installs QEMU/KVM, libvirt-daemon, bridge-utils
+- Installs QEMU/KVM, libvirt-daemon, bridge-utils, virtiofsd (for virt-runner `create --mount` host directory shares)
 - Graphical virt-manager VM management
 - Automatic default network configuration
 - User permission setup for libvirt access

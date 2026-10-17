@@ -169,9 +169,11 @@ ${BOLD}Environment variables${RESET} (all optional unless noted):
   HERMES_LLM_BASE_URL       URL of an OpenAI-compatible endpoint (this repo's
                             llama-swap/vLLM/llama.cpp servers) to connect the
                             Hermes main model to. The guest is configured on
-                            every re-run with provider 'openai-api' and that
-                            URL + HERMES_LLM_MODEL — switching away from e.g. a
-                            Portal setup is therefore deliberate. If the
+                            every re-run with provider 'custom' (plain
+                            chat_completions wire, key via model.key_env=
+                            OPENAI_API_KEY) and that URL + HERMES_LLM_MODEL —
+                            switching away from e.g. a Portal setup is
+                            therefore deliberate. If the
                             endpoint runs on this host or another IPv4, the
                             endpoint is added to the egress allowlist
                             automatically (so "host:9292" need not be given).
@@ -351,6 +353,17 @@ if ! command -v virt-runner &>/dev/null; then
   _prereqs_installed=true
 fi
 
+# virt-runner's 'create --mount' (host directory shares) needs the virtiofsd
+# helper. A machine that already has libvirt + virt-runner skips
+# setup-virtualization.sh above, so check this explicitly.
+if command -v virt-runner &>/dev/null \
+  && virt-runner create --help 2>/dev/null | grep -q -- '--mount' \
+  && ! command -v virtiofsd &>/dev/null && [[ ! -x /usr/libexec/virtiofsd ]]; then
+  info "virtiofsd is missing (needed by virt-runner 'create --mount') — running setup-virtualization.sh"
+  bash "${SCRIPT_DIR}/setup-virtualization.sh"
+  _prereqs_installed=true
+fi
+
 # Freshly added group membership (libvirt, kvm) is not active in this shell.
 # 'sudo -u' re-initializes the groups, so continue in a re-executed copy once.
 if [[ "${_prereqs_installed}" == true && -z "${HERMES_SETUP_REEXEC:-}" ]] && ! virsh list &>/dev/null; then
@@ -376,6 +389,8 @@ if ! _list_out="$(virt-runner list --json 2>&1)" \
 fi
 virt-runner create --help | grep -q -- '--mount' \
   || error "The installed virt-runner has no 'create --mount' (host directory shares). Update it: VIRT_RUNNER_BRANCH=<branch with --mount> ${SCRIPT_DIR}/setup-virt-runner.sh, then 'uv tool install --force <virt-runner dir>'"
+command -v virtiofsd &>/dev/null || [[ -x /usr/libexec/virtiofsd ]] \
+  || error "virtiofsd is not installed (needed by virt-runner 'create --mount') — run ${SCRIPT_DIR}/setup-virtualization.sh"
 success "libvirt and virt-runner are usable"
 
 _net_xml="$(virsh net-dumpxml "${LIBVIRT_NETWORK}")" \

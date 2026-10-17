@@ -148,9 +148,11 @@ old stack is only stopped, never deleted, so rollback is `docker compose up -d h
   Traefik reaches the host proxy from its container network.
 - **Local LLM endpoint (`HERMES_LLM_BASE_URL`/`HERMES_LLM_MODEL`/`HERMES_LLM_API_KEY`):** wires
   the main model to any OpenAI-compatible server the private AI stack exposes (llama-swap,
-  vLLM, llama.cpp-server) using Hermes' documented `openai-api` provider: the guest runs
-  `hermes config set model.provider openai-api` plus `model.base_url`/`model.default`/
-  `model.api_mode chat_completions`, and `OPENAI_BASE_URL`/`OPENAI_API_KEY` go into the guest's
+  vLLM, llama.cpp-server) using Hermes' `custom` provider (plain `chat_completions` wire; the
+  `openai-api` overlay hardcodes the Codex/Responses transport and is rejected with HTTP 400 by
+  llama-swap, so it must not be used for local endpoints): the guest runs
+  `hermes config set model.provider custom` plus `model.base_url`/`model.default`/
+  `model.api_mode chat_completions`/`model.key_env OPENAI_API_KEY`, and `OPENAI_BASE_URL`/`OPENAI_API_KEY` go into the guest's
   `~/.hermes/.env` — the key is only appended when the file has none (re-runs never rotate it),
   the base URL is upserted. The endpoint is deduplicated into the egress allowlist automatically
   when its host is the hypervisor (as `host:<port>`) or an IPv4; hostnames require manual
@@ -158,7 +160,9 @@ old stack is only stopped, never deleted, so rollback is `docker compose up -d h
   are then the source of truth for the main model (to go back to e.g. Portal/OAuth, unset them
   and run `hermes model` inside the guest). If `config set` cannot upgrade a never-configured
   `model: ""` sentinel, run `hermes model` once in the guest first (verify during the real-server
-  tests). A gateway already running is restarted to pick the endpoint up.
+  tests). Every written value is read back with `hermes config get` so a silently dropped setting
+  fails provisioning instead of surfacing at chat time. A gateway already running is restarted to
+  pick the endpoint up.
 - **Backup retention:** the backup unit keeps the 7 newest zips in `/mnt/backups`.
 - **Host-backup friendly:** everything the host backup solution
   (`setup-backup-client.sh`, borg; default scope includes `/srv`) needs is under

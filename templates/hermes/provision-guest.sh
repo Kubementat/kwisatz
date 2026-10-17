@@ -174,24 +174,43 @@ if [[ -n "${HERMES_LLM_BASE_URL}" ]]; then
   else
     log "No API key given — the endpoint must accept keyless requests"
   fi
-  # Base URL is a layout value: updated on every run (in .env, where the
-  # openai-api provider reads it, and in config.yaml for visibility).
+  # Base URL is a layout value: updated on every run (in .env and in
+  # config.yaml for visibility).
   if grep -q '^OPENAI_BASE_URL=' "${ENV_FILE}" 2>/dev/null; then
     sed -i "s|^OPENAI_BASE_URL=.*|OPENAI_BASE_URL=${HERMES_LLM_BASE_URL}|" "${ENV_FILE}"
   else
     printf 'OPENAI_BASE_URL=%s\n' "${HERMES_LLM_BASE_URL}" >> "${ENV_FILE}"
   fi
   chmod 600 "${ENV_FILE}"
-  hermes config set model.provider openai-api </dev/null \
+  # Provider 'custom' is Hermes' documented route for local OpenAI-compatible
+  # endpoints (llama-swap/vLLM/llama.cpp-server): it always speaks the plain
+  # chat_completions wire. Do NOT use 'openai-api' here — that overlay hard-
+  # codes the Codex/Responses transport and sends include=["reasoning.
+  # encrypted_content"], which llama-swap rejects with HTTP 400.
+  # 'custom' reads no env var by itself; model.key_env names the variable,
+  # so the key itself stays in ~/.hermes/.env.
+  hermes config set model.provider custom </dev/null \
     || fail "hermes config set model.provider failed"
+  hermes config set model.key_env OPENAI_API_KEY </dev/null \
+    || fail "hermes config set model.key_env failed"
   hermes config set model.base_url "${HERMES_LLM_BASE_URL}" </dev/null \
     || fail "hermes config set model.base_url failed"
   hermes config set model.default "${HERMES_LLM_MODEL}" </dev/null \
     || fail "hermes config set model.default failed"
   hermes config set model.api_mode chat_completions </dev/null \
     || fail "hermes config set model.api_mode failed"
+  # Read-back: a config value that silently does not land surfaces as a
+  # confusing provider error only later, at chat time — fail here instead.
+  for _pair in "model.provider=custom" "model.key_env=OPENAI_API_KEY" \
+               "model.base_url=${HERMES_LLM_BASE_URL}" \
+               "model.default=${HERMES_LLM_MODEL}" \
+               "model.api_mode=chat_completions"; do
+    _got="$(hermes config get "${_pair%%=*}" </dev/null 2>/dev/null || true)"
+    [[ "${_got}" == "${_pair#*=}" ]] \
+      || fail "config verification failed: ${_pair%%=*} reads '${_got}', expected '${_pair#*=}'"
+  done
   llm_configured=true
-  log "Main model wired to ${HERMES_LLM_MODEL} via the openai-api provider"
+  log "Main model wired to ${HERMES_LLM_MODEL} via the custom provider (chat_completions)"
 fi
 
 # ---------------------------------------------------------------------------

@@ -38,8 +38,9 @@ model:
   #   HERMES_LLM_BASE_URL='http://192.168.122.1:9292/v1' \
   #   HERMES_LLM_MODEL='<id from /v1/models>' \
   #   HERMES_LLM_API_KEY='<key>'            # optional
-  # It writes provider/base_url/default below plus OPENAI_API_KEY and
-  # OPENAI_BASE_URL into ~/.hermes/.env (the key is never stored in this file).
+  # It writes provider 'custom' plus base_url/default/key_env/api_mode below
+  # and puts OPENAI_API_KEY and OPENAI_BASE_URL into ~/.hermes/.env (the key
+  # is never stored in this file).
 
 # Provider-specific configurations (optional - most handled via .env file)
 providers:
