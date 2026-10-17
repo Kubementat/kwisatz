@@ -40,6 +40,9 @@ Installs or updates libvirt (virtualization API) and virt-manager
 (graphical VM manager) on Debian/Ubuntu-based systems, and adds the
 configured user to the libvirt group. Uses sudo internally.
 
+The QEMU package is chosen by host architecture: qemu-system-x86 on
+x86_64, qemu-system-arm (plus qemu-efi-aarch64 firmware) on aarch64.
+
 ${BOLD}Options:${RESET}
   -h, --help    Show this help and exit
 
@@ -64,14 +67,28 @@ done
 # Configuration
 : "${VIRT_USERNAME:="${USER}"}"
 
+# QEMU system emulator package matching the host architecture
+ARCH="$(detect_arch)" || exit 1
+case "${ARCH}" in
+  amd64) QEMU_PACKAGE="qemu-system-x86" ;;
+  arm64) QEMU_PACKAGE="qemu-system-arm" ;;
+esac
+
 # Packages for libvirt
 declare -a LIBVIRT_PACKAGES=(
   libvirt-daemon
   libvirt-daemon-system
   libvirt-clients
-  qemu-kvm
+  "${QEMU_PACKAGE}"
   bridge-utils
+  # virt-runner's 'create --mount' (virtiofs host directory shares)
+  virtiofsd
 )
+
+# aarch64 guests only boot via UEFI, so the firmware is required there
+if [[ "${ARCH}" == "arm64" ]]; then
+  LIBVIRT_PACKAGES+=(qemu-efi-aarch64)
+fi
 
 # Packages for virt-manager
 declare -a VIRT_MANAGER_PACKAGES=(
@@ -116,9 +133,9 @@ step "Checking existing installation"
 LIBVIRT_INSTALLED=false
 VIRT_MANAGER_INSTALLED=false
 
-if is_package_installed "qemu-kvm"; then
+if is_package_installed "${QEMU_PACKAGE}"; then
   LIBVIRT_INSTALLED=true
-  info "libvirt is installed (qemu-kvm: $(get_package_version "qemu-kvm"))"
+  info "libvirt is installed (${QEMU_PACKAGE}: $(get_package_version "${QEMU_PACKAGE}"))"
 else
   info "libvirt is not installed"
 fi
@@ -240,7 +257,7 @@ else
   warn "virsh command not found in PATH"
 fi
 
-if is_package_installed "qemu-kvm"; then
+if is_package_installed "${QEMU_PACKAGE}"; then
   success "KVM modules are installed"
   # Check if kvm kernel modules are loaded
   if lsmod | grep -q "^kvm"; then
@@ -257,7 +274,7 @@ echo ""
 success "Virtualization setup completed successfully!"
 echo ""
 info "Summary:"
-info "  - libvirt daemon: $(is_package_installed 'qemu-kvm' && echo 'installed' || echo 'not installed')"
+info "  - libvirt daemon: $(is_package_installed "${QEMU_PACKAGE}" && echo 'installed' || echo 'not installed')"
 info "  - virt-manager: $(is_package_installed 'virt-manager' && echo 'installed' || echo 'not installed')"
 info "  - User '${VIRT_USERNAME}' in libvirt group: $(is_user_in_libvirt_group "${VIRT_USERNAME}" && echo 'yes' || echo 'no')"
 echo ""

@@ -1,0 +1,45 @@
+<!--
+  libvirt network filter for the Hermes VM (rendered by tasks/setup-hermes.sh).
+
+  Enforced on the host side of the guest NIC, so root inside the guest cannot
+  lift it. Direction is seen from the guest: 'out' = traffic leaving the VM.
+  Rules are evaluated in priority order (lower first):
+    100  connections initiated from outside the VM (SSH, serve proxy) + replies
+    200  DHCP/DNS to the libvirt gateway, then the endpoint allowlist
+    300  every other private / link-local / CGNAT destination: drop
+    500  everything else (internet): accept
+-->
+<filter name='${HERMES_NWFILTER_NAME}' chain='root'>
+  <uuid>${HERMES_NWFILTER_UUID}</uuid>
+  <rule action='accept' direction='in' priority='100'>
+    <all/>
+  </rule>
+  <rule action='accept' direction='out' priority='200'>
+    <udp dstipaddr='${HERMES_VM_GATEWAY}' dstportstart='67' dstportend='67'/>
+  </rule>
+  <rule action='accept' direction='out' priority='200'>
+    <udp dstipaddr='${HERMES_VM_GATEWAY}' dstportstart='53' dstportend='53'/>
+  </rule>
+  <rule action='accept' direction='out' priority='200'>
+    <tcp dstipaddr='${HERMES_VM_GATEWAY}' dstportstart='53' dstportend='53'/>
+  </rule>
+${HERMES_EGRESS_RULES}
+  <rule action='drop' direction='out' priority='300'>
+    <all dstipaddr='10.0.0.0' dstipmask='8'/>
+  </rule>
+  <rule action='drop' direction='out' priority='300'>
+    <all dstipaddr='172.16.0.0' dstipmask='12'/>
+  </rule>
+  <rule action='drop' direction='out' priority='300'>
+    <all dstipaddr='192.168.0.0' dstipmask='16'/>
+  </rule>
+  <rule action='drop' direction='out' priority='300'>
+    <all dstipaddr='169.254.0.0' dstipmask='16'/>
+  </rule>
+  <rule action='drop' direction='out' priority='300'>
+    <all dstipaddr='100.64.0.0' dstipmask='10'/>
+  </rule>
+  <rule action='accept' direction='out' priority='500'>
+    <all/>
+  </rule>
+</filter>

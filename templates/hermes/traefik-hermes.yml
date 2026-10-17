@@ -1,0 +1,22 @@
+---
+# Traefik dynamic configuration (file provider), rendered by
+# tasks/setup-hermes.sh into ${TRAEFIK_HOME}/dynamic/hermes.yml.
+# Routes the Hermes remote gateway through the host-side proxy socket
+# (hermes-vm-proxy.socket), following the host-services pattern.
+http:
+  routers:
+    hermes:
+      rule: "Host(`${HERMES_DOMAIN}`)"
+      entrypoints:
+        - websecure
+      service: hermes
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - security-headers@file
+
+  services:
+    hermes:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:${HERMES_SERVE_PORT}"
