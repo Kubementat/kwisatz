@@ -1,0 +1,91 @@
+# Qwen3.8-27B — Gufo on AMD Strix Halo (Ryzen AI MAX+ 395 / gfx1151).
+#
+# Catalog fragment rendered by tasks/setup-gufo-strix-halo-qwen38-27b.sh
+# (PROJECT_DIR, STATE_DIR, HF_CACHE_DIR, GUFO_PORT, LLAMA_SWAP_PORT,
+# GUFO_MODEL_NAME, GUFO_CONTAINER_NAME, GUFO_CONTEXT_WINDOW, GUFO_MAX_TOKENS,
+# GUFO_MODEL_CACHE_NAME)
+# and merged additively into models.yml by tasks/merge-model-entry.py.
+#
+# llama-swap owns the container lifecycle:
+#   serve.cmd   — our wrapper, blocking for the container's lifetime so
+#                 llama-swap can track the process
+#   llamaSwap.cmdStop — stops that container; the blocking `docker run --rm`
+#                 then exits
+#   llamaSwap.proxy — Gufo's fixed-port OpenAI API. The container runs on the
+#                 host network, so llama-swap's ${PORT} macro would not point
+#                 at it.
+#   checkEndpoint — /v1/models, NOT /health: Gufo opens its socket before the
+#                 weights are resident, so a "port answers" check reports ready
+#                 while the engine is still loading its weights.
+providers:
+  - name: local
+    baseUrl: http://localhost:${LLAMA_SWAP_PORT}/v1
+    models:
+      # The llama.cpp entry is "qwen3.8-27b" and the TensorFold one is
+      # "qwen3.8-27b-tf". All three are the same weights, so the ids name the
+      # engine, and the aliases below must not collide with either — that is
+      # the whole point of the -gufo suffix. The llama.cpp entry is expected to
+      # be the unreliable one on gfx1151 (it ships --spec-type draft-mtp with
+      # no -fa/--no-mmap/-ngl), which is why this one exists.
+      - name: ${GUFO_MODEL_NAME}
+        type: local
+        env:
+          # llama-swap runs cmd as root with ProtectHome=read-only, so nothing
+          # the service writes may live under the invoking user's home. The
+          # prepared marker and the runtime logs sit under STATE_DIR; HF_CACHE
+          # stays where the *user* downloaded the checkpoint, which the
+          # container bind-mounts read-only.
+          - name: HF_CACHE
+            value: ${HF_CACHE_DIR}
+          - name: STATE_DIR
+            value: ${STATE_DIR}
+          # The checkpoint *repo* directory, not one file: the shard is
+          # resolved by gufo-serve.sh at load time (gufo-prepare.sh owns the
+          # file list), so the catalog must not carry a filename that could
+          # disagree with it after a --quant change or an upstream rename.
+          - name: GUFO_MODEL_CACHE
+            value: ${HF_CACHE_DIR}/hub/models--${GUFO_MODEL_CACHE_NAME}
+        # One-time prep (engine image + the checkpoint files the serve script
+        # needs). No-op while STATE_DIR/prepared is present — the wrapper's own
+        # first test, so a re-run costs three `test` builtins.
+        download:
+          - >-
+            [[ -f ${STATE_DIR}/prepared ]] ||
+            STATE_DIR=${STATE_DIR} bash ${PROJECT_DIR}/gufo-prepare.sh
+        serve:
+          cmd: "bash ${PROJECT_DIR}/gufo-serve.sh"
+        # Extra llama-swap fields (pass-through, placeholder-expanded).
+        llamaSwap:
+          # Single command — llama-swap execs it without a shell. -t 30 gives
+          # the engine time to flush; unloadTimeout is sized above it.
+          cmdStop: "docker stop -t 30 ${GUFO_CONTAINER_NAME}"
+          # Grace window for cmdStop (docker stop -t 30 + the wrapper's exit).
+          unloadTimeout: 60
+          proxy: "http://127.0.0.1:${GUFO_PORT}"
+          checkEndpoint: "/v1/models"
+          # First-load wait is the GLOBAL llama-swap healthCheckTimeout, which
+          # the setup script raises to GUFO_27B_HEALTH_TIMEOUT (per-model
+          # values are ignored by llama-swap; kwisatz's template renders 500 s,
+          # far below a first load on a cold page cache). Never auto-unload —
+          # see the plan's coexistence note (ttl 0 is decision B).
+          ttl: 0
+          aliases:
+            # The repo's own file-name-derived id, and a "gufo" flavour tag so
+            # a client can name the engine instead of the quantisation. No
+            # case-only alias, and no bare "qwen3.8": that belongs to the
+            # TensorFold entry.
+            # One alias is enough, and it is the file-name form. Everything
+            # deliberately left out, with the reason:
+            #   "qwen3.8-27"   TensorFold 27B's alias
+            #   "qwen3.8"      TensorFold Flash-Next's alias
+            #   "Qwen3.8-27B"  lower-cases straight onto the llama.cpp entry
+            #                  "qwen3.8-27b", so a client that normalises the
+            #                  model name would silently leave this engine
+            #   -gufo itself   an alias equal to the id is a duplicate of the
+            #                  entry, not a second way to reach it
+            - "Qwen3.8-27B-GGUF"
+        agent:
+          contextWindow: ${GUFO_CONTEXT_WINDOW}
+          maxTokens: ${GUFO_MAX_TOKENS}
+          reasoning: true
+          input: [text, image]

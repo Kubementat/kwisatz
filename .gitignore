@@ -18,4 +18,4 @@ models.yml.full
 .pi-subagents/
 .omo/
 .agent-work/
-.playwright_mcp/
+.playwright-mcp/

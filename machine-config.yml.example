@@ -17,6 +17,14 @@ scripts:
   # setup-vllm, setup-vllm-omni, setup-tensorfold-spark-qwen38-flash,
   # setup-tensorfold-spark-qwen38-27b): they request the GPU as the CDI
   # device nvidia.com/gpu=all; pre-flight fails without the spec.
+  #
+  # The GPU recipes are mutually exclusive per machine, in two ways:
+  #   * The TensorFold/Spark pair and the Strix Halo trio detect different
+  #     hardware (DGX Spark GB10 + NVIDIA CDI vs AMD gfx1151 / PCI 1002:15bf),
+  #     so enabling both means one group always fails its gate.
+  #   * Within the Strix Halo trio, setup-strix-halo-tuning.sh must run and
+  #     boot with its GPU reserve ACTIVE before either model task.
+  # A single machine runs either the Spark stack or the Strix Halo stack.
   setup-nvidia-container:
     enabled: false
     description: NVIDIA Container Toolkit + CDI GPU spec
@@ -111,6 +119,56 @@ scripts:
       # TENSORFOLD_27B_HEALTH_TIMEOUT: '600'
     # requires a DGX Spark (GB10) and llama-swap; runs after
     # setup-nvidia-container and setup-llama-swap; ~60 GB free disk
+    args: []
+  # --- AMD Strix Halo (Ryzen AI MAX+ / gfx1151) ---
+  # Tuning first: it writes GRUB + sysctl and is the only script here that
+  # does, so the reboot it requires belongs to it. The two model tasks read the
+  # GPU reserve and refuse to start until it is ACTIVE (not merely written).
+  # Never run these on a DGX Spark — the hardware gate is different on purpose.
+  setup-strix-halo-tuning:
+    enabled: false
+    description: GPU memory reserve + kernel tuning for AMD Strix Halo (prerequisite for the Gufo model tasks)
+    env:
+      GPU_RESERVE_GIB: '120'  # derives amdgpu.gttsize AND ttm.pages_limit
+      # VM_SWAPPINESS: '10'   # in the sysctl drop-in
+      # STRIX_INSTALL_PACKAGES: '0'   # never touch apt
+    # writes /etc/default/grub.d/99-kwisatz-strix-halo.cfg and
+    # /etc/sysctl.d/99-strix-halo-llm.conf, then runs update-grub.
+    # Requires AMD gfx1151 hardware; the reboot is NOT automatic — expect
+    # "written, not active" until the box has rebooted once.
+    args: []
+  setup-gufo-strix-halo-qwen38-flash:
+    enabled: false
+    description: Qwen3.8 Flash Next on AMD Strix Halo (Gufo, via llama-swap)
+    env:
+      GUFO_FLASH_PORT: '8901'
+      # GUFO_FLASH_HEALTH_TIMEOUT: '1800'   # first load reads ~115 GB
+      # GUFO_QUANT: 'UD-Q4_K_XL'             # UD-IQ4_XS (~94 GB) if memory is
+      #                                     # the issue
+      # GUFO_SPEC_ARGS: '--speculative mtp'  # backend only — the wrapper appends
+      #                                     # --mtp-model with the cached path
+      # GUFO_MODEL_REVISION: ''             # empty = current main (recorded, not pinned)
+      # GPU_RESERVE_GIB: '120'              # read-only here: written by the tuning task
+      # STRIX_FLASH_MIN_FREE_GB: '120'
+    # requires AMD Strix Halo, kernel >= 6.18.9, ~125 GiB RAM, setup-docker,
+    # setup-llama-swap and a rebooted setup-strix-halo-tuning; ~120 GB free
+    # disk for a cold install (checked only for what is still missing).
+    # Do not enable together with the TensorFold/Spark entries.
+    args: []
+  setup-gufo-strix-halo-qwen38-27b:
+    enabled: false
+    description: Qwen3.8-27B on AMD Strix Halo (Gufo, via llama-swap)
+    env:
+      GUFO_27B_PORT: '8902'
+      # GUFO_27B_HEALTH_TIMEOUT: '600'
+      # GUFO_QUANT: 'UD-Q4_K_XL'
+      # GUFO_SPEC_ARGS: '--speculative dflash2'  # backend only — the wrapper
+      #                                     # appends --dflash-model; empty off
+      # GUFO_27B_MIN_FREE_GB: '45'
+    # same prerequisites as the Flash-Next task, ~45 GB free disk. Both Strix
+    # stacks fit on one 128 GiB box, but both at UD-Q4_K_XL is 119.9 GiB of
+    # weights against a 120 GiB aperture — install Flash-Next at UD-IQ4_XS to
+    # keep both resident, otherwise load one at a time through llama-swap.
     args: []
   setup-colqwen:
     enabled: false
