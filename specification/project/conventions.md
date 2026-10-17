@@ -12,7 +12,9 @@
 ## Naming Conventions
 
 - No strict naming conventions enforced at this time.
-- Task scripts follow the pattern `setup_<component>.sh` or `configure_<component>.sh` in `tasks/`.
+- Task scripts follow the pattern `setup-<component>.sh` or `configure-<component>.sh` in `tasks/`
+  (hyphen-separated, e.g. `setup-forgejo.sh`, `configure-firewall.sh`). Do not use underscores in
+  script file names; underscores are reserved for bash function names (`setup_logging`).
 - Environment variables use `UPPER_SNAKE_CASE`.
 
 ## Architectural Patterns
@@ -72,10 +74,14 @@
   `env_file:` in the service section. Non-secret layout values (ports, paths,
   host names, network names) may be `envsubst`ed at render time.
 - Every secret is **read back** from the service `.env` before generating a new
-  value, so re-runs never rotate credentials a persisted volume depends on.
-- Full rule with examples: `AGENTS.md` → *bash Script Specifications →
-  Secrets and templating*; shared helpers: `lib/helpers.sh`
-  (`env_file_get`, `env_file_write`).
+  value, so re-runs never rotate credentials a persisted volume depends on
+  (see `setup-monitoring.sh` / `setup-concourse.sh`).
+- `envsubst` reads its **environment**: render as the invoking user into a
+  `mktemp` file and install with `sudo install -m 600` (see `setup-traefik.sh`),
+  never `sudo envsubst`.
+- Shared helpers: `lib/helpers.sh` (`env_file_get`, `env_file_write`).
+  `AGENTS.md` carries the short-form version of this rule; this section is
+  canonical.
 
 ## Stack health verification
 

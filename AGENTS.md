@@ -4,120 +4,78 @@ Automation scripts for installing and configuring a server or developer machine 
 
 ## Getting help
 
-**ALWAYS** read `skills/kwisatz-assistant/SKILL.md` and follow its instructions when the user:
-
-- asks for help, usage instructions, or how to use the repo
-- asks to understand, explain, or describe the repository
-- asks what services are available or which to install
-- asks how to configure or set up a machine
-- asks about the orchestrator, `run-setup.sh`, or `machine-config.yml`
-- says anything like "help me", "what does this do", "show me", "guide me"
-
-Do NOT answer these questions from your own knowledge — always delegate to the skill.
+For any request about using, understanding, explaining, configuring, or setting up this repo — including `run-setup.sh`, `machine-config.yml`, or which services exist — read and follow `skills/kwisatz-assistant/SKILL.md`. Do not answer from your own knowledge.
 
 ## Core Facts
 
-- setup for unix systemd based deployments
-- setup for docker based deployments
-  - setup scripts generate `docker-compose.yml` for each service
-- ufw as used as firewall on the target ubuntu server
-- traefik as reverse proxy
-  - integration examples: [setup-forgejo.sh](tasks/setup-forgejo.sh) and [setup-openwebui.sh](tasks/setup-openwebui.sh)
-- target service data base directory: `/srv` , e.g. for forgejo: `/srv/forgejo`
-- find project terminology in `CONTEXT.md`
-- find project specifications in `./specification` directory
-  - see `./specification/project` for central, project wide specification
-  - see `./specification/features` for feature specification documents
-- write implementation plans to `./docs/plans` directory
-- write research documents to `./docs/research` directory
-- write tickets to `./.tickets` directory
-- use the `codegraph_explore` tool to search the codebase preferably
-- keep the list of automations in `./AUTOMATIONS.md` up to date
+- systemd-based unix deployments and docker-based deployments; setup scripts generate `docker-compose.yml` for each service
+- `ufw` is the firewall on the target ubuntu server; `traefik` is the reverse proxy — integration examples: [setup-forgejo.sh](tasks/setup-forgejo.sh) and [setup-openwebui.sh](tasks/setup-openwebui.sh)
+- service data directory: `/srv/<service-name>` (e.g. `/srv/forgejo`)
+- terminology: `CONTEXT.md`; specifications: `specification/project` (project-wide) and `specification/features` (per feature)
+- write implementation plans to `./docs/plans`, research to `./docs/research`, tickets to `./.tickets`
+- prefer the `codegraph_explore` tool for searching the codebase
+- keep `./AUTOMATIONS.md` up to date
 
 ## Implementation Instructions
 
 ### Development Workflow
 
 - features/bugfixes are developed in feature branches using `git worktree`
-- features branches are merged to `develop` once the feature development finishes
-- the `develop` branch is merged to `main` branch manually by the user when cutting a new release
+- finished branches are merged to `develop`; `develop` -> `main` is merged manually by the user when cutting a release
 
 ### Important skills
 
-- Always load the `karpathy-guidelines` skill when planning or implementing changes
+- always load the `karpathy-guidelines` skill when planning or implementing changes
 
 ### Linting
 
-ALWAYS lint created or modified files with the following tools:
-
-- bash files (`.sh`) -&gt; use `shellcheck`
-- `.yml` -&gt; use `yamllint`
-- json (`.js`, `.json`) -&gt; use `jq`
-- `Dockerfile` -&gt; use hadolint via executing: docker run --rm -i hadolint/hadolint &lt; Dockerfile
-- python (`.py`) -&gt; use `ruff check` (fallback: `python3 -m py_compile` on every new/changed file)
+Lint every created or modified file: `.sh` -> `shellcheck`, `.yml` -> `yamllint`, `.json`/`.js` -> `jq`, `Dockerfile` -> `docker run --rm -i hadolint/hadolint < Dockerfile`, `.py` -> `ruff check` (fallback `python3 -m py_compile`).
 
 ### Testing
 
-- For running automation tests use the virtual machine based testing approach as described in ./tests/README.md
+- automation tests run via the VM-based approach in ./tests/README.md
 
 ### Common logic
 
-Always check the `lib/` directory for existing functionality when implementing setup scripts in the `tasks/` directory. Try reusing existing functionality.
-When implementing a script in `tasks/` -&gt; ALWAYS inspect the library scripts in `lib/` first.
+- before writing or changing a script in `tasks/`, inspect `lib/` first and reuse what is already there
 
 ### bash Script Specifications
 
+The detailed version of every rule below lives in `specification/project/conventions.md` — read it when touching that area.
+
 #### Script Execution User
 
-We expect that a non root user is executing the scripts. The scripts themselves should use sudo commands for all operations that need root privileges.
+Non-root users run the scripts; the scripts use `sudo` for privileged operations.
 
 #### Idempotency
 
-All scripts require to be executable multiple times without destroying existing component data or configuration.
+Scripts must be re-runnable without destroying existing component data or configuration.
 
 #### Configuration
 
-Scripts use environment variables for their main configuration options and provide reasonable defaults.
+Main options are environment variables with sensible defaults.
 
 #### Help / Usage parameter
 
-When modifying scripts: always ensure to keep the `--help` parameter output up to date with the implementation logic and configuration options (parameters and environment variables)
+Keep the `--help` output of a modified script current with its implementation, parameters, and environment variables.
 
 #### Re-run policy (converge by default)
 
-Re-running any task script against an existing stack must converge it (render templates, reuse secrets, `docker compose up -d`, verify health) — see *Re-run policy: converge by default* in `specification/project/conventions.md`.
+Re-running a task script against an existing stack must converge it (re-render templates, reuse secrets, `docker compose up -d`, verify health) — see *Re-run policy: converge by default* in `specification/project/conventions.md`.
 
 #### Configuration Paths
 
-- For scripts that setup services/software that is run as daemon/server or within docker containers: use the `/srv/<service-name>` directory for configuration files
-- For scripts that setup tools for the user on the host directly: use the appropriate default directory for the tool in the user's `$HOME`
+- services run as daemon/server or in docker containers: `/srv/<service-name>`
+- host-side tools for the user: the tool's default directory under `$HOME`
 
 #### Stack health verification
 
-- A task script that starts a docker stack must prove the stack is up before
-reporting success: `wait_for_healthy` (from `lib/helpers.sh`, or an HTTP
-readiness poll where one already exists) after every `docker compose up -d`,
-with a bounded timeout and a non-zero exit on failure. See
-`specification/project/conventions.md` → *Stack health verification*.
+A script that starts a docker stack must prove it is up before reporting success: `wait_for_healthy` (from `lib/helpers.sh`) or an existing HTTP readiness poll after every `docker compose up -d`, bounded timeout, non-zero exit on failure — see *Stack health verification* in `specification/project/conventions.md`.
 
 #### Templating
 
-If you need to use templating (e.g. for creating configuration files) you require to put template files in the according `templates/<component-name>` directory. DO NOT put inline templates into the bash scripts except this is explicitly required.
+Put template files in the `templates/<component-name>` directory. Do NOT put inline templates into bash scripts unless explicitly required.
 
 #### Secrets and templating
 
-- Secrets (passwords, keys, tokens, URLs containing credentials) are **never**
-substituted into a generated file. Keep `${VAR}` literal in
-`templates/<component>/*` and resolve at runtime from
-`/srv/<service>/.env` (mode 600) via `docker compose --env-file` or
-`env_file:` in the service section.
-- Non-secret layout values (ports, paths, host names, network names) may be
-`envsubst`ed at render time.
-- Every secret must be **read back** from the service `.env` before generating
-a new value, so re-runs never rotate credentials a persisted volume depends
-on (see `setup-monitoring.sh` / `setup-concourse.sh`).
-- `envsubst` reads its **environment**; render as the invoking user into a
-`mktemp` file and install with `sudo install -m 600` (see
-`setup-traefik.sh`), never `sudo envsubst`.
-- Shared env-file primitives: `lib/helpers.sh` (`env_file_get`,
-`env_file_write`).
+Secrets are never substituted into generated files: keep `${VAR}` literal in `templates/<component>/*` and resolve it at runtime from `/srv/<service>/.env` (mode 600) via `docker compose --env-file` or `env_file:`. Read every secret back from that `.env` before generating a new value, so re-runs never rotate credentials a persisted volume depends on. Non-secret layout values (ports, paths, host names, network names) may be `envsubst`ed. Render as the invoking user into a `mktemp` file and install with `sudo install -m 600`, never `sudo envsubst`. Full rule with examples: *Secrets and templating* in `specification/project/conventions.md`; shared helpers `env_file_get` / `env_file_write` in `lib/helpers.sh`.
