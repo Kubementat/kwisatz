@@ -68,6 +68,9 @@ REPO_ROOT="${SCRIPT_DIR}/.."
 
 # shellcheck source=../lib/helpers.sh
 source "${SCRIPT_DIR}/../lib/helpers.sh"
+# Same reason as in setup-strix-halo-tuning.sh: assign the floor before the
+# helper publishes its own 125 default, or the override is inert.
+STRIX_MIN_RAM_GIB="${STRIX_MIN_RAM_GIB:-120}"
 # shellcheck source=../lib/strix-halo-helper.sh
 source "${SCRIPT_DIR}/../lib/strix-halo-helper.sh"
 
@@ -118,7 +121,7 @@ GUFO_MMPROJ_PATTERN="mmproj-BF16.gguf"
 GUFO_DRAFT_PATTERN="Qwen3.8-27B-DFlash2-Q4_K_M*.gguf"
 GUFO_DRAFT_REPO="${GUFO_DRAFT_REPO:-z-lab/Qwen3.8-27B-DFlash2-GGUF}"
 
-# ── Layout ────────────────────────────────────────────────────────────────────
+# ── Layout ───────────────────────────────────────────────────────────────────────
 GUFO_27B_PORT="${GUFO_27B_PORT:-8902}"
 GUFO_27B_HEALTH_TIMEOUT="${GUFO_27B_HEALTH_TIMEOUT:-600}"
 PROJECT_DIR="${PROJECT_DIR:-/srv/gufo-qwen38-27b}"
@@ -132,17 +135,30 @@ LLAMA_SWAP_DIR="${LLAMA_SWAP_DIR:-/srv/llama-swap}"
 STRIX_SIBLING_DIR="${STRIX_SIBLING_DIR:-/srv/gufo-qwen38-flash}"
 STRIX_SIBLING_ENV="${STRIX_SIBLING_ENV:-${STRIX_SIBLING_DIR}/.env}"
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-docker}"
+# The binary the wrappers pass as --entrypoint. The pinned runtime ships
+# without an entrypoint (CMD is /bin/bash), so naming it is the wrapper's
+# job; empty defers to the image's own entrypoint (only for images that
+# have one).
+GUFO_ENTRYPOINT="${GUFO_ENTRYPOINT:-gufo}"
 CONTAINER_EXTRA_ARGS="${CONTAINER_EXTRA_ARGS:-}"
 GUFO_EXTRA_ARGS="${GUFO_EXTRA_ARGS:-}"
 # DFlash2 is the configuration the throughput numbers were measured with, so it
 # is the default here, and both halves of it are verified flags: `--speculative
-# dflash2` from .env and `--dflash-model /draft/<file>` appended by the wrapper
-# against the snapshot it resolved. That pairing is not optional — Gufo exits
+# dflash2` from .env and `--dflash-model <draft path>`, appended by the
+# wrapper against the snapshot it resolved inside the HF cache. That pairing is not optional — Gufo exits
 # with "DFlash2 requires --dflash-model" if only the switch is set — so a
 # wrapper that guessed at the path would have shipped a container that dies on
 # every load. A newer Gufo can still rename the flag: GUFO_SPEC_ARGS= re-runs
 # with no draft and only costs speed.
-GUFO_SPEC_ARGS="${GUFO_SPEC_ARGS----speculative dflash2}"
+# unset means "default recipe", explicitly empty means "no speculation" (the
+# serve.env text advertises exactly that), which is why this is a test and not
+# a ${VAR:-…} substitution. Written as ${GUFO_SPEC_ARGS----speculative …} it
+# silently gained a dash, and a `---speculative` switch matches no backend —
+# speculation then turns off quietly, the exact failure the wrapper's own
+# comments warn about. `! -v` (is-set) keeps both documented cases correct.
+if [[ ! -v GUFO_SPEC_ARGS ]]; then
+  GUFO_SPEC_ARGS="--speculative dflash2"
+fi
 GUFO_CONTEXT_WINDOW="${GUFO_CONTEXT_WINDOW:-262144}"
 GUFO_MAX_TOKENS="${GUFO_MAX_TOKENS:-32768}"
 GUFO_SHM_SIZE="${GUFO_SHM_SIZE:-16g}"
@@ -215,14 +231,15 @@ ENVIRONMENT (every flag above has an env equivalent)
   GUFO_27B_PORT, GUFO_27B_HEALTH_TIMEOUT, PROJECT_DIR, HF_CACHE_DIR,
   STATE_DIR, LLAMA_SWAP_PORT, LLAMA_SWAP_DIR, GUFO_IMAGE, GUFO_IMAGE_TAG,
   GUFO_IMAGE_DIGEST, GUFO_MODEL_REPO, GUFO_MODEL_REVISION, GUFO_QUANT,
-  GUFO_DRAFT_REPO, CONTAINER_RUNTIME, CONTAINER_EXTRA_ARGS, GUFO_EXTRA_ARGS,
-  GUFO_SPEC_ARGS, GUFO_CONTEXT_WINDOW, GUFO_MAX_TOKENS, STRIX_27B_MIN_FREE_GB,
+  GUFO_DRAFT_REPO, CONTAINER_RUNTIME, CONTAINER_EXTRA_ARGS, GUFO_ENTRYPOINT,
+  GUFO_EXTRA_ARGS, GUFO_SPEC_ARGS, GUFO_CONTEXT_WINDOW, GUFO_MAX_TOKENS, STRIX_27B_MIN_FREE_GB,
   GUFO_IMAGE_GB, GPU_RESERVE_GIB (read here, written by setup-strix-halo-tuning),
+  STRIX_MIN_RAM_GIB (the RAM floor, 120 GiB by default),
   STRIX_ALLOW_UNTUNED, STRIX_HW_CHECK, SKIP_SMOKE, FORCE
 
 REQUIREMENTS
-  An AMD Strix Halo (Ryzen AI MAX+ 395, Radeon 8060S, PCI 1002:15bf) with
-  kernel >= 6.18.9 and >= ~125 GiB of RAM, setup-docker.sh, setup-llama-swap.sh,
+  An AMD Strix Halo (Ryzen AI MAX+ 395, Radeon 8060S, gfx1151) with
+  kernel >= 6.18.9 and >= 120 GiB of RAM, setup-docker.sh, setup-llama-swap.sh,
   and setup-strix-halo-tuning.sh already run with its GPU reserve ACTIVE — this
   script checks that and stops within seconds if it is not, rather than loading
   a model that will fail partway. ~${STRIX_27B_MIN_FREE_GB} GB free under
@@ -357,7 +374,8 @@ check_status() {
   strix_sibling_container_warning "$GUFO_MODEL_NAME" "$STRIX_SIBLING_ENV"
   strix_engine_version_drift "${PROJECT_DIR}/.engine-version" "$GUFO_IMAGE"
   echo
-  echo -e "  ${BOLD}Load:${RESET}   curl -s http://localhost:${LLAMA_SWAP_PORT}/v1/chat/completions -d '{\"model\":\"${GUFO_MODEL_NAME}\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":32}'"
+  echo -e "  ${BOLD}Load:${RESET}   curl -s http://localhost:${LLAMA_SWAP_PORT}/v1/chat/completions -H 'Content-Type: application/json' -H \"Authorization: Bearer \$(grep -A1 '^apiKeys:' ${LLAMA_SWAP_DIR}/config/config.yaml | tail -1 | sed 's/^- //')\" -d '{\"model\":\"${GUFO_MODEL_NAME}\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":32}'"
+  echo -e "          ${YELLOW}(llama-swap >= v219 rejects JSON POSTs without Content-Type; if apiKeys are unset, drop the Authorization header)${RESET}"
   echo -e "  ${BOLD}Unload:${RESET} llama-swap unloads by TTL/swap; a stale container dies with: docker rm -f ${GUFO_CONTAINER}"
   echo ""
 }
@@ -424,10 +442,13 @@ strix_pull_engine_image "$GUFO_IMAGE" || die "could not pull ${GUFO_IMAGE} — c
 warn_moving_image "$GUFO_IMAGE" "GUFO_IMAGE"
 
 # ── 6. Directories ───────────────────────────────────────────────────────────
-# /srv/<svc> and its .state, created by sudo install -d, owned by the invoking
-# user. /srv itself is never touched.
+# /srv/<svc> and its .state, created with the same escalation order as the
+# render helpers: plain install first, so a re-run whose directories already
+# exist and belong to the invoking user never needs a sudo ticket; sudo only
+# for the first create (when /srv needs a new directory) or a wrong owner.
 step "Preparing ${PROJECT_DIR}"
-if ! sudo install -d -m 755 -o "$(id -un)" -g "$(id -gn)" "$PROJECT_DIR" "$STATE_DIR" "$STATE_DIR/logs"; then
+if ! { install -d -m 755 -o "$(id -un)" -g "$(id -gn)" "$PROJECT_DIR" "$STATE_DIR" "$STATE_DIR/logs" 2>/dev/null \
+  || sudo install -d -m 755 -o "$(id -un)" -g "$(id -gn)" "$PROJECT_DIR" "$STATE_DIR" "$STATE_DIR/logs"; }; then
   die "could not create ${PROJECT_DIR} / ${STATE_DIR}"
 fi
 if [[ -f "${PROJECT_DIR}/gufo-serve.sh" && ! -r "${PROJECT_DIR}/gufo-serve.sh" ]]; then
@@ -442,10 +463,19 @@ export GUFO_MODEL_NAME GUFO_CONTAINER GUFO_IMAGE GUFO_MODEL_REPO
 export GUFO_SHARD_PATTERN GUFO_MMPROJ_PATTERN GUFO_DRAFT_PATTERN GUFO_DRAFT_REPO
 export GUFO_MODEL_REVISION GUFO_CONTEXT_WINDOW GUFO_MAX_TOKENS
 export GUFO_SHM_SIZE GUFO_SESSIONS GUFO_CACHE_DISK_STAGING_BYTES
-export GUFO_EXTRA_ARGS CONTAINER_EXTRA_ARGS GUFO_SPEC_ARGS
+export GUFO_EXTRA_ARGS CONTAINER_EXTRA_ARGS GUFO_SPEC_ARGS GUFO_ENTRYPOINT
+# serve.env carries GUFO_GPU_MEMORY_UTILIZATION in its owned-key list, so it is
+# rendered from the task's default like every other owned key: unexported, that
+# key would come out blank and a value set in the environment would be silently
+# dropped.
+export GUFO_GPU_MEMORY_UTILIZATION
 export CONTAINER_RUNTIME HSA_OVERRIDE_GFX_VERSION HSA_ENABLE_SDMA
 # Rendered into the wrappers as the one absolute path they start from.
 export STATE_DIR_PATH="$STATE_DIR"
+# Rendered into both wrappers as the absolute path of the env file they source.
+# Both wrappers used to derive it from STATE_DIR (".state/.env"), which is not
+# where it is written: it sits next to the wrappers, in PROJECT_DIR.
+export GUFO_ENV_FILE="$PROJECT_DIR/.env"
 export GUFO_MODEL_CACHE_NAME="${GUFO_MODEL_REPO//\//--}"
 # Names the templates use. Two families, on purpose:
 #   *_DEFAULT   — the fallback a wrapper prints into, so .env stays the lever
@@ -453,6 +483,10 @@ export GUFO_MODEL_CACHE_NAME="${GUFO_MODEL_REPO//\//--}"
 #                 rendered files carry, so envsubst cannot leave a ${...} behind
 export GUFO_PORT_DEFAULT="$GUFO_27B_PORT"
 export GUFO_PORT="$GUFO_27B_PORT"
+# The literal key name serve.env carries. Same reason as GUFO_PORT: it is in the
+# envsubst list, so unexported it renders as PORT= (blank) and the renderer's
+# own "PORT is missing, add it" fallback never fires.
+export PORT="$GUFO_27B_PORT"
 export CONTAINER_NAME="$GUFO_CONTAINER"
 export HF_CACHE="$HF_CACHE_DIR"
 export HF_CACHE_DEFAULT="$HF_CACHE_DIR"
@@ -468,7 +502,7 @@ strix_render_serve_env "${TEMPLATE_DIR}/serve.env" "${PROJECT_DIR}/.env" \
   '${PORT} ${CONTAINER_NAME} ${STATE_DIR} ${HF_CACHE} ${GUFO_MODEL_NAME} ${GUFO_IMAGE}
    ${HSA_OVERRIDE_GFX_VERSION} ${HSA_ENABLE_SDMA} ${GUFO_SHM_SIZE} ${GUFO_SESSIONS}
    ${GUFO_CACHE_DISK_STAGING_BYTES} ${GUFO_EXTRA_ARGS} ${CONTAINER_EXTRA_ARGS}
-   ${GUFO_DRAFT_REPO} ${GUFO_DRAFT_PATTERN} ${GUFO_SPEC_ARGS}
+   ${GUFO_DRAFT_REPO} ${GUFO_DRAFT_PATTERN} ${GUFO_SPEC_ARGS} ${GUFO_ENTRYPOINT}
    ${GUFO_GPU_MEMORY_UTILIZATION}' \
   || die "could not render ${PROJECT_DIR}/.env"
 
@@ -476,15 +510,15 @@ strix_render_serve_env "${TEMPLATE_DIR}/serve.env" "${PROJECT_DIR}/.env" \
 # this one's.
 # shellcheck disable=SC2016  # envsubst expects the literal variable list
 strix_render_wrapper "${TEMPLATE_DIR}/gufo-serve.sh" "${PROJECT_DIR}/gufo-serve.sh" \
-  '${STATE_DIR_PATH} ${GUFO_PORT_DEFAULT} ${GUFO_CONTAINER_NAME} ${HF_CACHE_DEFAULT}
+  '${STATE_DIR_PATH} ${GUFO_ENV_FILE} ${GUFO_PORT_DEFAULT} ${GUFO_CONTAINER_NAME} ${HF_CACHE_DEFAULT}
    ${GUFO_IMAGE_DEFAULT} ${GUFO_MODEL_NAME_DEFAULT} ${GUFO_CONTEXT_DEFAULT}
    ${GUFO_MODEL_CACHE_NAME} ${GUFO_SHARD_PATTERN}' \
   || die "could not render ${PROJECT_DIR}/gufo-serve.sh"
 
 # shellcheck disable=SC2016  # envsubst expects the literal variable list
 strix_render_wrapper "${TEMPLATE_DIR}/gufo-prepare.sh" "${PROJECT_DIR}/gufo-prepare.sh" \
-  '${STATE_DIR_PATH} ${GUFO_MODEL_REPO} ${GUFO_SHARD_PATTERN} ${GUFO_MMPROJ_PATTERN}
-   ${GUFO_DRAFT_PATTERN} ${GUFO_IMAGE_DEFAULT} ${GUFO_REVISION_DEFAULT}' \
+  '${STATE_DIR_PATH} ${GUFO_ENV_FILE} ${GUFO_MODEL_REPO} ${GUFO_SHARD_PATTERN} ${GUFO_MMPROJ_PATTERN}
+   ${GUFO_DRAFT_REPO} ${GUFO_DRAFT_PATTERN} ${GUFO_IMAGE_DEFAULT} ${GUFO_REVISION_DEFAULT}' \
   || die "could not render ${PROJECT_DIR}/gufo-prepare.sh"
 
 # ── 8. Weights ───────────────────────────────────────────────────────────────

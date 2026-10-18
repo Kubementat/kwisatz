@@ -52,7 +52,8 @@
 #
 #     STRIX_GPU_OK          1 when a gfx1151 amdgpu device is bound
 #     STRIX_GPU_NAME        "Radeon 8060S (gfx1151)" or the tool's wording
-#     STRIX_PCI_ID          "1002:15bf" when the PCI probe matched
+#     STRIX_PCI_ID          "1002:<device>" for the AMD device amdgpu claimed,
+#                           reported only — it is never matched against
 #     STRIX_KERNEL_OK       1 when uname -r >= STRIX_MIN_KERNEL
 #     STRIX_KERNEL_HAVE     running kernel version triple
 #     STRIX_KERNEL_WANT     required kernel version triple
@@ -195,14 +196,20 @@ strix_require_tooling() {
 # toolkit, so that probe always fails with "could not select device driver"
 # whatever ROCm is installed.
 strix_require_llama_swap() {
-  local state="/run/kwisatz/llama-swap-service.sh"
-  if [[ ! -x "$state" ]]; then
+  # What proves llama-swap is installed is the unit it runs from, not a marker
+  # file. Two reasons, and both bit here: /run is tmpfs, so any state parked
+  # under it is gone at the first reboot and the verdict silently flips to
+  # "not installed" on a healthy box; and nothing in this repo ever wrote this
+  # particular path in the first place, so the probe was false even before a
+  # reboot touched it.
+  if [[ ! -f /etc/systemd/system/llama-swap.service ]] \
+    && ! systemctl cat llama-swap.service >/dev/null 2>&1; then
     err_msg "llama-swap service not installed. Run: ${SCRIPT_DIR:-.}/setup-llama-swap.sh"
     return 1
   fi
   if ! systemctl is-active --quiet llama-swap 2>/dev/null; then
     if ss -tlnp 2>/dev/null | grep -q "llama-swap"; then
-      warn "llama-swap is running but not managed by systemd (state file $state is missing)"
+      warn "llama-swap is running but not managed by systemd — install the unit so it starts after a reboot"
     else
       err_msg "llama-swap service not running. Start with: sudo systemctl start llama-swap"
       return 1
@@ -240,16 +247,28 @@ strix_require_llama_swap() {
 # HARDWARE GATES
 # =============================================================================
 
-# Detect a gfx1151 Strix Halo device.
+# Detect the gfx1151 Strix Halo compute engine.
 #
-# Primary path: the PCI table. An AMD iGPU is bound to amdgpu only when the
-# driver actually claimed it, which is what matters — a device present in the
-# table but driven by something else is not a usable engine.
+# No PCI device id is part of this test, deliberately. AMD ships the same
+# graphics IP under different ids across pci.ids releases — Strix Halo reads
+# 1002:1586 on a current pci.ids, and 1002:15bf is a Phoenix1 part — so an id
+# in the gate is a machine-specific constant rather than an architecture test.
+# It would reject exactly the hardware this tuning is sized for while passing a
+# Phoenix APU.
 #
-#   vendor 0x1002 (AMD) + device 0x15bf (Radeon 8060S) + driver amdgpu
+# What identifies the machine instead, in order:
 #
-# Secondary paths, for boxes where sysfs is unreadable to the invoking user:
-# rocm-smi --showid and rocminfo output mentioning gfx1151.
+#   1. the gfx target the amdgpu driver publishes itself, in the KFD topology:
+#      /sys/class/kfd/kfd/topology/nodes/*/properties -> gfx_target_version,
+#      encoded MMMNNRR, so GC 11.5.1 is 110501 -> gfx1151. This is the primary
+#      path because it needs no ROCm userspace, and the userspace is what
+#      breaks first: a distro rocminfo older than the GPU (5.7 here) prints
+#      "Agent creation failed / unrecognized id" and only lists the CPU.
+#   2. rocm-smi --showid / rocminfo output mentioning gfx1151, for boxes whose
+#      sysfs is unreadable to the invoking user.
+#
+# The PCI scan still runs, but only to report the bus id in the status line and
+# to show whether an AMD device is claimed by amdgpu at all.
 #
 # Sets STRIX_GPU_OK / STRIX_GPU_NAME / STRIX_PCI_ID and returns 0 on a match.
 # Never fails the process; the caller decides what a miss means.
@@ -257,29 +276,36 @@ strix_hal_gpu() {
   STRIX_GPU_OK=0
   STRIX_GPU_NAME=""
   STRIX_PCI_ID=""
-  local dev vendor device driver
+  local dev vendor device driver node target
   for dev in /sys/bus/pci/devices/*/; do
     [[ -r "${dev}vendor" ]] || continue
     vendor="$(tr -d '[:space:]' <"${dev}vendor" 2>/dev/null || true)"
     device="$(tr -d '[:space:]' <"${dev}device" 2>/dev/null || true)"
     driver="$(basename "$(readlink -f "${dev}driver" 2>/dev/null || true)" 2>/dev/null || true)"
-    if [[ "$vendor" == "0x1002" && "${device,,}" == "0x15bf" && "$driver" == "amdgpu" ]]; then
+    if [[ "$vendor" == "0x1002" && "$driver" == "amdgpu" ]]; then
+      STRIX_PCI_ID="${vendor#0x}:${device#0x}"
+      break
+    fi
+  done
+  # GC 11.5.1 is what ROCm compiles as gfx1151; the CPU node reports 0.
+  for node in /sys/class/kfd/kfd/topology/nodes/*/properties; do
+    target="$(awk '/^gfx_target_version/ {print $2; exit}' "$node" 2>/dev/null || true)"
+    if [[ "$target" == "110501" ]]; then
       STRIX_GPU_OK=1
-      STRIX_PCI_ID="1002:15bf"
-      STRIX_GPU_NAME="${STRIX_GPU_NAME:-Radeon 8060S (gfx1151)}"
+      STRIX_GPU_NAME="gfx1151 (kfd topology)"
       return 0
     fi
   done
   if command -v rocm-smi &>/dev/null \
     && rocm-smi --showid 2>/dev/null | grep -qi "gfx1151"; then
     STRIX_GPU_OK=1
-    STRIX_GPU_NAME="${STRIX_GPU_NAME:-gfx1151 (rocm-smi)}"
+    STRIX_GPU_NAME="gfx1151 (rocm-smi)"
     return 0
   fi
   if command -v rocminfo &>/dev/null \
     && rocminfo 2>/dev/null | grep -qi "gfx1151"; then
     STRIX_GPU_OK=1
-    STRIX_GPU_NAME="${STRIX_GPU_NAME:-gfx1151 (rocminfo)}"
+    STRIX_GPU_NAME="gfx1151 (rocminfo)"
     return 0
   fi
   return 1
@@ -339,7 +365,7 @@ strix_require_strix_hal() {
   step "Checking the target machine is an AMD Strix Halo"
   local failed=0
   if ! strix_hal_gpu; then
-    warn "no AMD Strix Halo device detected (expected PCI 1002:15bf, driver amdgpu, gfx1151)"
+    warn "no AMD Strix Halo (gfx1151) device detected — neither the driver's KFD topology (GC 11.5.1) nor rocm-smi/rocminfo reported gfx1151"
     warn "the detected GPU (if any) is not supported by this task"
     failed=1
   fi
@@ -423,14 +449,38 @@ strix_gtt_state() {
   have_pages="$(grep -oE 'ttm\.pages_limit=[0-9]+' <<<"$cmdline" | tail -1 | cut -d= -f2)"
 
   # Is the intended state written down, regardless of whether it is running?
+  #
+  # Only the assignment is the setting. This file also carries the
+  # "do NOT use gttsize=131072 pages_limit=31457280" example inside a comment,
+  # and grepping the whole file reads that comment as if it were the value — so a
+  # drop-in whose values are empty gets reported as "drop-in written
+  # (131072 / 31457280)", which is exactly how a boot line that stops amdgpu from
+  # loading passed for "written" for as long as this file has had that comment.
   local written_mib="" written_pages=""
+  local -a dropin_effective
+  dropin_effective=()
   if [[ -r "$dropin" ]]; then
-    written_mib="$(grep -oE 'amdgpu\.gttsize=[0-9]+' "$dropin" | tail -1 | cut -d= -f2)"
-    written_pages="$(grep -oE 'ttm\.pages_limit=[0-9]+' "$dropin" | tail -1 | cut -d= -f2)"
+    mapfile -t dropin_effective < <(grep -v '^[[:space:]]*#' "$dropin" 2>/dev/null || true)
+    written_mib="$(printf '%s\n' "${dropin_effective[@]}" \
+      | grep -oE 'amdgpu\.gttsize=[0-9]+' | tail -1 | cut -d= -f2)"
+    written_pages="$(printf '%s\n' "${dropin_effective[@]}" \
+      | grep -oE 'ttm\.pages_limit=[0-9]+' | tail -1 | cut -d= -f2)"
   fi
   STRIX_DROPIN_WRITTEN=0
   if [[ -n "$written_mib" || -n "$written_pages" ]]; then
     STRIX_DROPIN_WRITTEN=1
+  fi
+
+  # Present and malformed is worse than absent: a knob written with no value is
+  # rejected by the kernel, amdgpu does not load, and there is no /dev/kfd.
+  if [[ -z "$written_mib" && -z "$written_pages" && ${#dropin_effective[@]} -gt 0 ]] \
+    && printf '%s\n' "${dropin_effective[@]}" \
+      | grep -qE '(amdgpu\.gttsize|ttm\.pages_limit)=[[:space:]]'; then
+    STRIX_GTT="mismatched"
+    STRIX_REBOOT_REQUIRED=0
+    STRIX_RESERVE_GIB=""
+    STRIX_GTT_DETAIL="the drop-in writes amdgpu.gttsize= / ttm.pages_limit= with no value — the kernel rejects the parameter, amdgpu will not load and /dev/kfd will be missing. Re-run tasks/setup-strix-halo-tuning.sh (or set the pair by hand) and update-grub"
+    return 0
   fi
 
   if [[ -z "$have_mib" && -z "$have_pages" ]]; then
@@ -1024,6 +1074,33 @@ strix_pull_engine_image() {
 # worse, could pick up the user's environment where the caller did not intend
 # it. Permissions are what llama-swap needs — prepare must be executable
 # because the catalog entry's download command invokes it.
+# Both renderers share one assertion, because both fail in the same silent way.
+#
+# envsubst substitutes only what it can see: a name in the list that is not set
+# in the environment renders as an empty value, and a name the list omits is left
+# alone as a literal. Neither one is an error, so the wrapper still installs and
+# the failure surfaces hours later, when llama-swap execs it. The *_DEFAULT
+# family matters most: those names exist only to be substituted into a fallback
+# (see the task's render block), so one that survives rendering is a template
+# that renamed the key and a task that never noticed.
+_strix_assert_rendered() {
+  local rendered="$1" varlist="${2:-}"
+  local name leftover
+  for name in $varlist; do
+    name="${name#\$\{}"
+    name="${name%\}}"
+    [[ -v "$name" ]] || warn "render: ${name} is in the envsubst list but not set — it renders empty"
+  done
+  leftover="$(grep -oE '\$\{[A-Z_][A-Z0-9_]*_DEFAULT\}' "$rendered" 2>/dev/null | sort -u || true)"
+  if [[ -n "$leftover" ]]; then
+    err_msg "render: $(tr -d '${}\n' <<<"$leftover") survived rendering — the template uses a key"
+    err_msg "  the render list does not name. The wrapper would hand the engine that literal"
+    err_msg "  instead of the number. Reconcile the template name with the task's export."
+    return 1
+  fi
+  return 0
+}
+
 strix_render_wrapper() {
   local template="$1"
   local target="$2"
@@ -1046,6 +1123,10 @@ strix_render_wrapper() {
     rm -f "$tmp"
     return 1
   }
+  if ! _strix_assert_rendered "$tmp" "$varlist"; then
+    rm -f "$tmp"
+    return 1
+  fi
   if [[ -f "$target" ]] && cmp -s "$tmp" "$target"; then
     rm -f "$tmp"
     info "Unchanged: $target"
@@ -1109,6 +1190,7 @@ if ! declare -F strix_render_serve_env > /dev/null 2>&1; then
     if ! grep -qE '^[[:space:]]*PORT[[:space:]]*=' "$ours"; then
       printf 'PORT=%s\n' "$port" >>"$ours"
     fi
+    _strix_assert_rendered "$ours" "$varlist" || { rm -f -- "$ours"; return 1; }
 
     local merged
     merged="$(mktempfile serve.env)"
@@ -1132,6 +1214,12 @@ if ! declare -F strix_render_serve_env > /dev/null 2>&1; then
           if [[ -n "${owned[$key]+x}" ]]; then
             continue
           fi
+        elif [[ "$line" =~ ^[[:space:]]*(#|$) ]]; then
+          # Comments are not operator-owned: our block rewrites its own
+          # comments wholesale, so also keeping the old file's comments
+          # stacked a fresh copy of every block in .env on each re-render.
+          # Only operator KEY= lines survive.
+          continue
         fi
         printf '%s\n' "$line" >>"$extra"
       done <"$target"
@@ -1704,11 +1792,55 @@ fi
 # Inference latency is minutes; a container that is up is not a container that
 # answers, and if the helper is opaque the operator cannot tell whether the
 # engine or the proxy failed.
+# llama-swap can be configured with `apiKeys:` in its config.yaml. It then
+# rejects every request that carries no key — except /health, which answers
+# unauthenticated. That combination is what makes this a silent failure: "the
+# proxy is reachable" stays green, /running, /v1/models and
+# /v1/chat/completions all answer 401, and a smoke test polls a deadline it can
+# never satisfy while reading it as a slow load.
+#
+# Resolved once per run, used in a header only: the key is never printed and
+# never substituted into a generated file, per the secrets rule. LLAMA_SWAP_API_KEY
+# wins; otherwise the first apiKeys entry of the live llama-swap config.
+_strix_llama_swap_auth() {
+  local key="${LLAMA_SWAP_API_KEY:-}"
+  if [[ -z "$key" ]]; then
+    local cfg="${LLAMA_SWAP_CONFIG:-${LLAMA_SWAP_DIR:-/srv/llama-swap}/config/config.yaml}"
+    if [[ -r "$cfg" ]] && command -v python3 >/dev/null 2>&1; then
+      key="$(python3 - "$cfg" 2>/dev/null <<'PY' || true
+import sys
+import yaml
+
+try:
+    with open(sys.argv[1]) as f:
+        cfg = yaml.safe_load(f) or {}
+except Exception:
+    sys.exit(0)
+keys = cfg.get("apiKeys") or []
+print(keys[0] if keys else "")
+PY
+)"
+    fi
+  fi
+  _STRIX_AUTH_ARGS=()
+  [[ -n "$key" ]] && _STRIX_AUTH_ARGS=(-H "Authorization: Bearer ${key}")
+  _STRIX_AUTH_DONE=1
+  return 0
+}
+
+# curl with the proxy's key attached when it has one. The header arguments go
+# first so the caller's own flags stay readable; a box without apiKeys gets the
+# plain curl it used to get.
+_strix_curl() {
+  [[ -n "${_STRIX_AUTH_DONE:-}" ]] || _strix_llama_swap_auth
+  curl ${_STRIX_AUTH_ARGS[@]+"${_STRIX_AUTH_ARGS[@]}"} "$@"
+}
+
 _strix_chat_completion() {
   local url="$1"
   local body="$2"
   local timeout="${3:-120}"
-  curl -sf --max-time "$timeout" \
+  _strix_curl -sf --max-time "$timeout" \
     -H 'Content-Type: application/json' \
     -d "$body" \
     "${url}/v1/chat/completions" 2>/dev/null
@@ -1803,13 +1935,29 @@ strix_smoke_test() {
   local timeout="${4:-600}"
 
   step "Smoke test"
+
+  # Ask the proxy once, authenticated, before anything else. /health is exempt
+  # from apiKeys, so this is the only cheap probe that distinguishes "the model
+  # is slow to load" from "no request has been accepted at all" — and that
+  # difference is ten minutes of waiting for nothing.
+  local code
+  code="$(_strix_curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    "${proxy_url}/v1/models" 2>/dev/null || true)"
+  if [[ "$code" == "401" || "$code" == "403" ]]; then
+    err_msg "llama-swap answered HTTP ${code} on ${proxy_url}/v1/models: it is configured"
+    err_msg "with apiKeys and this run has no key to send, so no request — including the"
+    err_msg "one that would load the model — has been accepted. Run the task once with:"
+    err_msg "  LLAMA_SWAP_API_KEY=<the key in ${LLAMA_SWAP_DIR:-/srv/llama-swap}/config/config.yaml> $0"
+    return 1
+  fi
+
   local body
   body="$(_strix_smoke_body "$model_name")"
   local deadline=$(( $(date +%s) + timeout ))
 
   local trigger
   trigger="$(mktempfile smoke-trigger.json)"
-  curl -s --max-time $((timeout + 120)) \
+  _strix_curl -s --max-time $((timeout + 120)) \
     -H 'Content-Type: application/json' -d "$body" \
     "${proxy_url}/v1/chat/completions" >"$trigger" 2>/dev/null &
   local trigger_pid=$!
@@ -1819,7 +1967,7 @@ strix_smoke_test() {
   # are resident, and it must list THIS id: "a model is up" is not the question.
   local loaded=0 body_resp=""
   while (($(date +%s) < deadline)); do
-    if curl -sf --max-time 10 "http://127.0.0.1:${LLAMA_SWAP_PORT:-8080}/running" 2>/dev/null |
+    if _strix_curl -sf --max-time 10 "http://127.0.0.1:${LLAMA_SWAP_PORT:-8080}/running" 2>/dev/null |
       grep -qi "$model_name"; then
       loaded=1
       break
@@ -1911,7 +2059,7 @@ strix_require_llama_swap_up() {
   # the exact state that makes --skip-smoke useless as a gate.
   if [[ -n "$model" ]]; then
     local body
-    if body="$(curl -sf --max-time 5 "$models_url" 2>/dev/null)" \
+    if body="$(_strix_curl -sf --max-time 5 "$models_url" 2>/dev/null)" \
       && jq -e --arg m "$model" '[.data[]?.id] | index($m)' <<<"$body" >/dev/null 2>&1; then
       info "llama-swap lists ${model}"
     else
@@ -1999,7 +2147,7 @@ if ! declare -F strix_status_gpu > /dev/null 2>&1; then
     if [[ "${STRIX_GPU_OK:-0}" == "1" ]]; then
       echo -e "  ${BOLD}GPU:${RESET}         ${GREEN}${STRIX_GPU_NAME:-gfx1151}${RESET} (${STRIX_PCI_ID:-PCI})"
     else
-      echo -e "  ${BOLD}GPU:${RESET}         ${RED}no gfx1151 device${RESET} (expected 1002:15bf bound to amdgpu)"
+      echo -e "  ${BOLD}GPU:${RESET}         ${RED}no gfx1151 device${RESET} (expected a device whose KFD node reports GC 11.5.1, bound to amdgpu)"
     fi
     echo -e "  ${BOLD}Kernel:${RESET}      ${STRIX_KERNEL_HAVE:-?} ${BOLD}/${RESET} ${STRIX_KERNEL_WANT:-?} required   $(
       [[ "${STRIX_KERNEL_OK:-0}" == "1" ]] && echo "${GREEN}ok${RESET}" || echo "${RED}too old${RESET}")"
@@ -2126,7 +2274,11 @@ if ! declare -F strix_status_llama_swap_entry > /dev/null 2>&1; then
       echo -e "  ${BOLD}llama-swap:${RESET}  ${YELLOW}${config} not readable${RESET}"
       return 0
     fi
-    if grep -qE "name:[[:space:]]*${name}[[:space:]]*$" "$config" 2>/dev/null; then
+    # sync-models.py writes the model as a MAP KEY (`qwen3.8-27b-gufo:`), not
+    # as a `name:` field; checking only for `name:` reports a live entry as
+    # missing, which sends operators on a pointless re-run. Accept both.
+    if grep -qE "name:[[:space:]]*${name}[[:space:]]*$" "$config" 2>/dev/null ||
+      grep -qE "^[[:space:]]*${name}:[[:space:]]*(\{|$)" "$config" 2>/dev/null; then
       echo -e "  ${BOLD}llama-swap:${RESET}  ${GREEN}entry in config.yaml${RESET}"
     else
       echo -e "  ${BOLD}llama-swap:${RESET}  ${YELLOW}no entry in config.yaml${RESET} (re-run the setup task)"

@@ -8,7 +8,7 @@
 # block for the container's lifetime so llama-swap can track (and stop) the
 # model. Hence `docker run --rm` without -d, and hence `exec`.
 #
-# Every setting lives in ${STATE_DIR}/.env — see serve.env in the template
+# Every setting lives in ${GUFO_ENV_FILE} — see serve.env in the template
 # directory for what each key means. Absolute paths everywhere, because
 # llama-swap execs this from an unpredictable working directory.
 #
@@ -23,12 +23,15 @@ set -eu
 # edit).
 STATE_DIR="${STATE_DIR_PATH}"
 
-if [[ ! -r "${STATE_DIR}/.env" ]]; then
-  echo "gufo-serve.sh: cannot read ${STATE_DIR}/.env — re-run tasks/setup-gufo-strix-halo-qwen38-27b.sh" >&2
+# The env file is a sibling of this wrapper, not of STATE_DIR: the service dir
+# holds the rendered files, STATE_DIR only the marker and the logs. The path is
+# rendered, so a missing file names a path instead of a half-resolved one.
+if [[ ! -r "${GUFO_ENV_FILE}" ]]; then
+  echo "gufo-serve.sh: cannot read ${GUFO_ENV_FILE} — re-run tasks/setup-gufo-strix-halo-qwen38-27b.sh" >&2
   exit 1
 fi
 # shellcheck source=/dev/null
-source "${STATE_DIR}/.env"
+source "${GUFO_ENV_FILE}"
 
 # ── Defaults that only exist so a hand-edited .env cannot crash this ──────────
 PORT="${PORT:-${GUFO_PORT_DEFAULT}}"
@@ -37,10 +40,16 @@ HF_CACHE="${HF_CACHE:-${HF_CACHE_DEFAULT}}"
 GUFO_IMAGE="${GUFO_IMAGE:-${GUFO_IMAGE_DEFAULT}}"
 GUFO_MODEL_NAME="${GUFO_MODEL_NAME:-${GUFO_MODEL_NAME_DEFAULT}}"
 CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-docker}"
+# The binary the wrapper passes as --entrypoint. The pinned runtime ships
+# WITHOUT an entrypoint (docker image inspect: Entrypoint=null, CMD is
+# /bin/bash), so the wrapper must name it — otherwise `serve llm ...` is
+# exec'd directly and runc answers `exec: "serve": executable file not found
+# in $PATH`. An empty GUFO_ENTRYPOINT defers to an image that has its own.
+GUFO_ENTRYPOINT="${GUFO_ENTRYPOINT:-gufo}"
 HSA_OVERRIDE_GFX_VERSION="${HSA_OVERRIDE_GFX_VERSION:-11.5.1}"
 HSA_ENABLE_SDMA="${HSA_ENABLE_SDMA:-0}"
 GUFO_SHM_SIZE="${GUFO_SHM_SIZE:-16g}"
-GUFO_CONTEXT_LENGTH="${GUFO_CONTEXT_LENGTH:-${GUFO_CONTEXT_LENGTH_DEFAULT}}"
+GUFO_CONTEXT_LENGTH="${GUFO_CONTEXT_LENGTH:-${GUFO_CONTEXT_DEFAULT}}"
 
 # ── Snapshot ordering ───────────────────────────────────────────────────────
 # Newest-first, by mtime. `ls -dt` would do it too, but ls output is not meant
@@ -167,7 +176,11 @@ gufo_args=(
   llm
   --host 127.0.0.1
   --port "${PORT}"
-  --model "/models/${shard}"
+  # Host path, not /models/…: the cache is bind-mounted at its own path
+  # below, so host and container path agree and HF's snapshot -> blobs
+  # symlinks resolve inside the container. A snapshot-only mount at /models
+  # would hand the engine nothing but dangling links.
+  --model "${snapshot}/${shard}"
   # --served-model-name must equal the catalog id, or the model field Gufo
   # echoes back will disagree with what llama-swap was asked for.
   --served-model-name "${GUFO_MODEL_NAME}"
@@ -199,6 +212,18 @@ if [[ -n "${GUFO_EXTRA_ARGS:-}" ]]; then
 fi
 
 # ── Container arguments ──────────────────────────────────────────────────────
+# The container's user is not in any supplementary group, and the host's
+# /dev/kfd is crw-rw---- root:render — without a group the runtime's HIP init
+# cannot open it and reports the one misleading error that looks like missing
+# hardware: "no ROCm-capable device is detected". The group is passed by
+# NUMERIC gid (the group of the device itself), so nothing is hard-coded that
+# could differ between host and image names. Set GUFO_GPU_GROUP in the .env to
+# override it on a box whose KFD node belongs to a differently named group.
+GUFO_GPU_GROUP="${GUFO_GPU_GROUP:-$(stat -c '%g' /dev/kfd 2>/dev/null || true)}"
+if [[ -z "${GUFO_GPU_GROUP}" ]]; then
+  printf 'gufo-serve.sh: cannot read the group of /dev/kfd — set GUFO_GPU_GROUP in %s\n' "${GUFO_ENV_FILE}" >&2
+  exit 1
+fi
 run_args=(
   run
   --rm
@@ -209,6 +234,7 @@ run_args=(
   --network host
   --device /dev/kfd
   --device /dev/dri
+  --group-add "${GUFO_GPU_GROUP}"
   # The model is paged into the GPU aperture, not copied; without unlimited
   # memlock the load fails partway with a "Resource temporarily unavailable".
   --ulimit memlock=-1
@@ -216,17 +242,33 @@ run_args=(
   -e "HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION}"
   -e "HSA_ENABLE_SDMA=${HSA_ENABLE_SDMA}"
   # Read-only by design. The engine gets no write access to the weights.
-  -v "${snapshot}:/models:ro"
-  -w /models
+  #
+  # Mount the whole cache, not just the snapshot: every weight file inside a
+  # snapshot is a relative symlink into ../../blobs/, so mounting only the
+  # snapshot directory would leave all of them dangling in the container and
+  # the engine would report a missing model file for perfectly good weights.
+  # Mounting the cache at its own host path makes the link resolve to itself.
+  -v "${HF_CACHE}:${HF_CACHE}:ro"
+  -w /
 )
 if [[ -d "${STATE_DIR}/logs" ]]; then
   run_args+=(-v "${STATE_DIR}/logs:/var/log/gufo")
 fi
+# The pinned runtime image has no ENTRYPOINT (CMD is /bin/bash), so the
+# container would exec the gufo ARGS as a command — `serve llm …` — and die in
+# runc with `exec: "serve": executable file not found in $PATH`. Naming the
+# binary is not optional here; the lever exists only so a differently built
+# image can be used. Empty defers to the image's own entrypoint.
+if [[ -n "${GUFO_ENTRYPOINT}" ]]; then
+  run_args+=(--entrypoint "${GUFO_ENTRYPOINT}")
+fi
 # ── Sidecar / speculation ────────────────────────────────────────────────────
 # A draft model lives in another repo (or another subdirectory of the same
-# one), so it gets its own read-only mount rather than being copied into
-# /models — copying would put a second ~2 GB under the service's state dir and
-# break the "weights live in the user's cache" rule.
+# one), so it is mounted rather than copied — copying would put a second
+# ~2 GB under the service's state dir and break the "weights live in the
+# user's cache" rule. The cache mount above already covers it: the draft's
+# snapshot sits under the same HF_CACHE, so the wrapper resolves the path and
+# hands the engine one that is valid on both sides of the mount.
 #
 # Upstream's validated recipes name BOTH the backend and the draft path:
 #
@@ -267,8 +309,8 @@ fi
 
 if [[ -z "${GUFO_SPEC_ARGS:-}" ]]; then
   if [[ -n "$draft_rel" ]]; then
-    printf 'gufo-serve.sh: draft /draft/%s cached — speculation is off, set GUFO_SPEC_ARGS to use it\n' \
-      "$draft_rel"
+    printf 'gufo-serve.sh: draft %s cached — speculation is off, set GUFO_SPEC_ARGS to use it\n' \
+      "${draft_snapshot}/${draft_rel}"
   fi
 else
   # Word splitting is the point: this key is a flag list, not one flag.
@@ -314,6 +356,9 @@ else
     if [[ "$hand_named" == "1" ]]; then
       printf 'gufo-serve.sh: %s is already in GUFO_SPEC_ARGS — not appending ours\n' "$path_flag"
       if [[ -n "$draft_rel" ]]; then
+        # The operator's own flag names some path inside this container; the
+        # draft snapshot gets mounted so a /draft/...-style hand-written flag
+        # still resolves. (A path from the cache mount works without it too.)
         run_args+=(-v "${draft_snapshot}:/draft:ro")
       fi
     elif [[ -z "$draft_rel" ]]; then
@@ -322,12 +367,13 @@ else
       printf 'gufo-serve.sh: %s needs a draft and nothing matched %s :: %s — serving WITHOUT speculation\n' \
         "$path_flag" "${GUFO_DRAFT_REPO:-the draft repo}" "${GUFO_DRAFT_PATTERN:-}" >&2
     else
-      run_args+=(-v "${draft_snapshot}:/draft:ro")
-      # The switch AND the file it switches on: `--speculative mtp` and
-      # `--mtp-model /draft/...` are one recipe, not two options, and passing
-      # only the path flag is the quietest failure this script could have —
-      # Gufo accepts it, serves, and speculates about nothing.
-      gufo_args+=("${spec[@]}" "$path_flag" "/draft/${draft_rel}")
+      # The switch AND the file it switches on: `--speculative <backend>`
+      # plus the path flag are one recipe, not two options, and passing only
+      # the path flag is the quietest failure this script could have — Gufo
+      # accepts it, serves, and speculates about nothing. No second mount is
+      # needed: the draft snapshot lives inside the cache mount above, so
+      # this path resolves inside the container exactly where it does here.
+      gufo_args+=("${spec[@]}" "$path_flag" "${draft_snapshot}/${draft_rel}")
       printf 'gufo-serve.sh: speculation on — %s\n' "${spec[*]}"
     fi
   fi
@@ -347,7 +393,7 @@ fi
 # wall of text here buries the engine.
 printf 'gufo-serve.sh: %s @ %s (port %s, context %s, container %s)\n' \
   "${GUFO_MODEL_NAME}" \
-  "$(du -h -- "${snapshot}/${shard}" 2>/dev/null | cut -f1)" \
+  "$(du -hL -- "${snapshot}/${shard}" 2>/dev/null | cut -f1)" \
   "${PORT}" \
   "${GUFO_CONTEXT_LENGTH}" \
   "${CONTAINER_NAME}"

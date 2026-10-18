@@ -26,9 +26,16 @@
 set -eu
 
 STATE_DIR="${STATE_DIR_PATH}"
-if [[ -r "${STATE_DIR}/.env" ]]; then
+# The env file sits next to this wrapper, not in STATE_DIR. Sourcing it is what
+# makes HF_CACHE and GUFO_IMAGE in .env the lever they are documented to be;
+# without it this script silently falls back to the invoking user's cache, which
+# for llama-swap's download step means root's.
+if [[ -r "${GUFO_ENV_FILE}" ]]; then
   # shellcheck source=/dev/null
-  source "${STATE_DIR}/.env"
+  source "${GUFO_ENV_FILE}"
+else
+  printf 'gufo-prepare.sh: cannot read %s — falling back to %s/.cache/huggingface; run tasks/setup-gufo-strix-halo-qwen38-flash.sh\n' \
+    "${GUFO_ENV_FILE}" "${HOME:-/root}" >&2
 fi
 
 # ── The list ─────────────────────────────────────────────────────────────────
