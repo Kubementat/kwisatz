@@ -26,9 +26,13 @@ For any request about using, understanding, explaining, configuring, or setting 
 ### Releases (tag-based)
 
 A release is an **annotated tag `vX.Y.Z` on the tip of `main`**, pushed to both remotes
-(`forgejo`, `github`). kwisatz carries no version string anywhere (`run-setup.sh` has no
-`--version`; `VERSION` inside `tasks/*.sh` pins *upstream* component versions, not this repo),
-so **the tag is the version record** — there is no file to bump.
+(`forgejo`, `github`). Two things record it and they must move together: the tag, and the
+`VERSION` file at the repo root (`X.Y.Z`, no `v`, trailing newline — the same value the tag
+carries). The tag is what the release *means*; `VERSION` is the human-readable copy that
+survives a tarball, so the release commit writes both. Nothing at runtime reads it
+(`run-setup.sh` has no `--version`), and `VERSION` inside `tasks/*.sh` still pins *upstream*
+component versions, not this repo — do not confuse the two. If the two ever disagree, the
+tag wins and the `VERSION` line is the bug.
 
 Semver for this repo: **MAJOR** = breaking `machine-config.yml` keys, removed/renamed
 `tasks/` scripts, or changed `run-setup.sh` CLI; **MINOR** = new `tasks/` script or new config
@@ -55,15 +59,15 @@ Release checklist:
 2. Release notes into `docs/releases/vX.Y.Z.md` (there is no `CHANGELOG.md`; these files *are*
    the changelog): `git log --no-merges --pretty='- %s (%ad)' --date=short <prev-tag>..develop > docs/releases/vX.Y.Z.md`,
    then hand-edit: lead with user-visible changes and config-key changes, drop noise.
-   Commit this on `develop` before tagging.
+   Write `X.Y.Z` to `VERSION` in the same commit, so the tagged tree carries both.
 3. Move `main` to the release commit — `git branch -f main develop` (avoids churning the
    checked-out worktree) — then push: `git push forgejo main && git push github main`.
 4. Tag and push it: `git tag -a vX.Y.Z -m "release vX.Y.Z"`, then
    `git push forgejo vX.Y.Z && git push github vX.Y.Z`. Annotated only, and never move a tag
    that is already on a remote — cut a new tag instead.
 
-kwisatz currently has **zero tags**, so the next release is the first; for everything before
-it, `git log` on `main` is the only record.
+kwisatz has released **v1.0.0**; `docs/releases/` starts there, and for the history before it
+`git log` on `main` is the only record.
 
 ### Important skills
 
