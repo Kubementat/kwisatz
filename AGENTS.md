@@ -21,7 +21,49 @@ For any request about using, understanding, explaining, configuring, or setting 
 ### Development Workflow
 
 - features/bugfixes are developed in feature branches using `git worktree`
-- finished branches are merged to `develop`; `develop` -> `main` is merged manually by the user when cutting a release
+- finished branches are merged to `develop`; `develop` -> `main` is merged manually by the user when cutting a release (tag mechanics below)
+
+### Releases (tag-based)
+
+A release is an **annotated tag `vX.Y.Z` on the tip of `main`**, pushed to both remotes
+(`forgejo`, `github`). kwisatz carries no version string anywhere (`run-setup.sh` has no
+`--version`; `VERSION` inside `tasks/*.sh` pins *upstream* component versions, not this repo),
+so **the tag is the version record** — there is no file to bump.
+
+Semver for this repo: **MAJOR** = breaking `machine-config.yml` keys, removed/renamed
+`tasks/` scripts, or changed `run-setup.sh` CLI; **MINOR** = new `tasks/` script or new config
+option (backwards compatible); **PATCH** = fixes to existing scripts.
+
+Semantics of the tag are the contract, not the number: `main` always points at what is
+deployable, the tag names it.
+
+Before releasing, `git fetch --all` and confirm `develop` contains what both remotes call
+`main`:
+
+```bash
+git merge-base --is-ancestor forgejo/main develop && git merge-base --is-ancestor github/main develop
+```
+
+If that fails, `main` has commits `develop` does not — merge or rebase first instead of
+pushing. A stale local `main` ref is the usual reason a release push is rejected; never use
+`--force` to get around it.
+
+Release checklist:
+
+1. Green tree: lint everything touched (`shellcheck`, `yamllint`, `jq`, `hadolint`, `ruff`)
+   and run the VM-based automation tests from `./tests/README.md` for the tasks you changed.
+2. Release notes into `docs/releases/vX.Y.Z.md` (there is no `CHANGELOG.md`; these files *are*
+   the changelog): `git log --no-merges --pretty='- %s (%ad)' --date=short <prev-tag>..develop > docs/releases/vX.Y.Z.md`,
+   then hand-edit: lead with user-visible changes and config-key changes, drop noise.
+   Commit this on `develop` before tagging.
+3. Move `main` to the release commit — `git branch -f main develop` (avoids churning the
+   checked-out worktree) — then push: `git push forgejo main && git push github main`.
+4. Tag and push it: `git tag -a vX.Y.Z -m "release vX.Y.Z"`, then
+   `git push forgejo vX.Y.Z && git push github vX.Y.Z`. Annotated only, and never move a tag
+   that is already on a remote — cut a new tag instead.
+
+kwisatz currently has **zero tags**, so the next release is the first; for everything before
+it, `git log` on `main` is the only record.
 
 ### Important skills
 
