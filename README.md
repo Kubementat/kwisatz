@@ -37,7 +37,7 @@ graph LR
 
 - **Modular & idempotent** — every `tasks/setup-*.sh` is self-contained; safe to re-run, safe to run alone
 - **Your config is the runbook** — enable/disable services and set env vars & args in one YAML file
-- **Order guaranteed** — scripts run in the order you listed them; one failure doesn't stop the rest
+- **Order guaranteed** — scripts run in the order you listed them; a failing script stops the run (fix the cause and re-run)
 - **Agent-friendly** — ships an [Agent Skill](https://agentskills.io) so Claude Code, pi, or any compatible agent can set the machine up for you
 - **Backup-solution** - ships with the repository (see [Backups](README.md#backups))
 - **Not just inference** — 30+ services: Forgejo, Nextcloud, n8n, Postiz, Neovim, monitoring, remote desktop, Text-to-speech, dev tools, and more
@@ -147,6 +147,14 @@ scripts:
 
 All scripts are **disabled by default** — enable only the ones you need.
 
+**`enabled` is a YAML boolean, and only these spellings mean anything:** `true`/`True`/`TRUE` run
+the script, `false`/`False`/`FALSE` (or no `enabled` key at all) skip it. Anything else — `yes`,
+`on`, `1`, an empty value — is *not* a boolean in YAML and skips the script, and the orchestrator
+prints `--> WARNING: <script>: ...` so you can see why. Prefer the lowercase spellings; the
+others only exist so configs written for the old yq-based orchestrator keep working, and each one
+is reported with a warning asking you to fix it. An entry that is not a mapping at all (say
+`setup-foo: enabled`) is a hard error naming the script, not a traceback.
+
 **SSH / firewall ordering (lockout avoidance):** `setup-sshd` must run
 **before** `configure-firewall`. sshd moves to the new port first, and the
 firewall then allows that port. With the order reversed, UFW goes to
@@ -172,10 +180,12 @@ uv run pyinfra @local deploy.py -y -vvv    # = ./run-setup.sh apply
 - `--data config=<file>` — Path to a YAML configuration file (default: `machine-config.yml` in the repository root)
 - `apply` runs the enabled scripts in config order and **stops at the first failing script** (exit code 1); the scripts after it do not run. Fix the cause and re-run — scripts are idempotent.
 - `status` is read-only and lists only the enabled scripts; read the YAML for disabled ones and for env/args.
-- No log file is written — append `2>&1 | tee apply.log` when you want one. Note that `apply` echoes each command including its configured `env:` values.
+- No log file is written — append `2>&1 | tee apply.log` when you want one.
+- **`apply` echoes every command line** (it runs pyinfra at `-vvv`, the only level that streams task output). Configured `env:` values are printed as `export KEY=*MASKED*` — pyinfra masks them and executes the real value — but script names, `args:` and all task output are echoed verbatim. Treat `machine-config.yml` as a public file anyway: it is read as plain text by anything on the box, so keep credentials in the `/srv/<service>/.env` files the task scripts manage, not in an `env:` block.
 - Every task runs with `INTERACTIVE=false` and `stdin=/dev/null`, so a stray prompt fails fast instead of hanging. There is no interactive mode: for prompts run the task script directly, e.g. `INTERACTIVE=true tasks/setup-forgejo.sh`. A per-script `env:` entry `INTERACTIVE: "true"` in the config still overrides the default for that script, but stdin stays `/dev/null`.
+- **What the task script sees in its environment**: pyinfra exports *only* `INTERACTIVE=false` plus that script's `env:` block (`export KEY=value && bash tasks/<name>.sh`), and it does not merge `os.environ` into that list — but the command still runs as a child of the shell that started the run, so the script also inherits the ambient environment (`PATH`, `HOME`, anything you export yourself). `deploy.py` drops `VIRTUAL_ENV` and the venv's `bin` from `PATH` before handing off, so tasks use the system `python3`/`pip` instead of the orchestrator's venv. A per-script `env:` therefore adds and overrides variables; it never hides the ambient ones, and it always wins over `INTERACTIVE=false`.
 
-When run without any arguments, `run-setup.sh` prints usage instructions.
+Called without a subcommand (or with an unknown one), `run-setup.sh` prints its usage to stderr and exits `2`; `-h`/`--help` prints it and exits `0`.
 
 ---
 

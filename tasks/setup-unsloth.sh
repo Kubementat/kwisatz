@@ -251,8 +251,9 @@ fi
 info "Installer env overrides: ${INSTALLER_ENV_ARGS[*]}"
 
 # Run the installer — use `set +e` around it because the installer may prompt
-# for confirmation; in non-interactive mode we pass --yes implicitly via the
-# non-interactive run-setup.sh context (no tty), so it should proceed.
+# for confirmation; under the orchestrator (run-setup.sh -> deploy.py) stdin is
+# /dev/null and INTERACTIVE=false, so a prompt hits EOF and fails fast instead of
+# hanging the run — and a missing tty is what makes the installer take its default.
 set +e
 env "${INSTALLER_ENV_ARGS[@]}" bash "${INSTALLER_SCRIPT}"
 INSTALLER_RC=$?

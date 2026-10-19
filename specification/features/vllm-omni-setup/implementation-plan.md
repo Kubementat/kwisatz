@@ -711,9 +711,9 @@ Expected: no errors (warnings pre-existing in the file are acceptable; introduce
 Run:
 ```bash
 cp machine-config.yml.example /tmp/mc-omni.yml
-./run-setup.sh --config /tmp/mc-omni.yml status
+./run-setup.sh status --data config=/tmp/mc-omni.yml
 ```
-Expected: the status table includes a `setup-vllm-omni.sh` row (requires `yq`; if absent, run `setup-basics` first or skip this step and rely on Step 2).
+Expected: exit 0 and no `--> WARNING:` lines (requires `uv`; the orchestrator is a pyinfra deploy and no longer reads the config with `yq`). `status` lists **enabled** scripts only, so the `setup-vllm-omni` row shows up only after flipping `enabled: true` in the copy — the shipped example keeps it disabled.
 
 - [ ] **Step 4: Commit**
 
