@@ -265,8 +265,11 @@ scp "${SSH_OPTS[@]}" "$CONFIG" "${VM_USER}@${VM_IP}:${TEST_CONFIG_REMOTE}" \
 # Step 3 — run the tests on the VM
 # ---------------------------------------------------------------------------
 
-log "Bootstrapping test prerequisites on the VM (yq, jq)"
-if ! remote_ssh "sudo apt-get update -qq && sudo apt-get install -y -qq yq jq" \
+# uv goes to /usr/local/bin: the precheck (run-setup.sh status) runs in a
+# non-login ssh session whose PATH does not include ~/.local/bin.
+log "Bootstrapping test prerequisites on the VM (yq, jq, uv)"
+if ! remote_ssh "sudo apt-get update -qq && sudo apt-get install -y -qq yq jq curl \
+      && curl -LsSf https://astral.sh/uv/install.sh | sudo env UV_UNMANAGED_INSTALL=/usr/local/bin sh" \
       > "$REPORT_DIR/bootstrap.log" 2>&1; then
   tail -n 10 "$REPORT_DIR/bootstrap.log" >&2
   fail "VM bootstrap failed — see ${REPORT_DIR/bootstrap.log}"

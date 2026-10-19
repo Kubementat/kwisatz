@@ -26,7 +26,7 @@ For **every enabled script** in the test config
 
 | Phase | Meaning | Pass condition |
 |---|---|---|
-| **precheck** | `run-setup.sh -c <test-config> status` — the orchestrator must be able to parse the config on the VM | exit 0 |
+| **precheck** | `run-setup.sh status --data config=<test-config>` — the orchestrator must be able to parse the config on the VM | exit 0 |
 | **integration** | First run of the script on a **clean** VM (with its configured env vars and args, in config order) | exit 0 |
 | **idempotency** | Second run of the same script on the **same** (now provisioned) VM | exit 0 |
 
@@ -195,9 +195,9 @@ flowchart TD
     D4 --> X1["exit 1 + create.json kept in report dir"]
     D -- "IP acquired + SSH verified" --> E["2 · scp: repo → VM:<br/>/home/&lt;user&gt;/kwisatz<br/>+ test config → /tmp/test-config.yml"]
     E -- "scp/ssh failed" --> XC["trap: virt-runner destroy · exit 1"]
-    E --> F["3 · Bootstrap on VM:<br/>sudo apt install yq jq"]
+    E --> F["3 · Bootstrap on VM:<br/>sudo apt install yq jq<br/>+ install uv"]
     F --> G["4 · Remote runner (single SSH session):<br/>tests/remote/run-tests.sh"]
-    G --> G1["Precheck:<br/>run-setup.sh -c config status"]
+    G --> G1["Precheck:<br/>run-setup.sh status --data config=..."]
     G1 --> G2["Phase 1 — integration:<br/>each script once, clean VM,<br/>with configured env + args,<br/>config order, per-script timeout"]
     G2 --> G3["Phase 2 — idempotency:<br/>each script a second time<br/>(must not error)"]
     G3 --> G4["results.jsonl + per-script logs + meta.json<br/>(failures do NOT stop the run)"]
@@ -233,15 +233,17 @@ Step by step:
    before giving up.
 3. **Copy.** The whole repository is copied with `scp -r` to
    `/home/<user>/kwisatz` on the VM (including `tasks/`,
-   `lib/`, `templates/`, `run-setup.sh`), plus the active test config to
+   `lib/`, `templates/`, `run-setup.sh`, `deploy.py`), plus the active test config to
    `/tmp/test-config.yml` (also covers generated/custom configs outside the
    repo).
-4. **Bootstrap.** `sudo apt-get install -y yq jq` on the VM (idempotent, a
-   few seconds) — the remote runner needs `yq`/`jq` to read the config.
+4. **Bootstrap.** `sudo apt-get install -y yq jq curl` on the VM (idempotent, a
+   few seconds) — the remote runner needs `yq`/`jq` to read the config — and
+   `uv` installed to `/usr/local/bin` (the precheck's `run-setup.sh` needs it
+   on the `PATH` of a non-login ssh session).
 5. **Remote test run.** The in-VM runner
    ([`remote/run-tests.sh`](remote/run-tests.sh)) executes, in **config
    order**:
-   1. the **precheck** (`run-setup.sh -c <config> status`),
+   1. the **precheck** (`run-setup.sh status --data config=<config>`),
    2. **phase `integration`** — every enabled script once,
    3. **phase `idempotency`** — every enabled script a second time.
 
@@ -391,7 +393,7 @@ itself.
 ## Relationship to the Rest of the Repo
 
 - The test config is a regular `machine-config.yml`-schema file, so
-  `run-setup.sh -c tests/machine-config.test.yml status|apply` also works on
+  `run-setup.sh status|apply --data config=tests/machine-config.test.yml` also works on
   the VM (the precheck exercises `status`).
 - Static analysis (ShellCheck) remains the first quality gate and is
   independent of this suite — see

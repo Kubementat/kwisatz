@@ -30,7 +30,7 @@
 #                [--timeout MIN]
 #
 # REQUIREMENTS:
-#   yq, jq (installed by the host orchestrator before this script runs)
+#   yq, jq, uv (installed by the host orchestrator before this script runs)
 #
 # EXIT CODES:
 #   0 all test cases passed
@@ -125,7 +125,7 @@ echo "run-tests.sh: testing ${#SCRIPTS[@]} script(s) x 2 phases (timeout ${TIMEO
 # ---------------------------------------------------------------------------
 
 PRE_LOG="$OUT/logs/precheck-run-setup-status.log"
-( cd "$WORKDIR" && ./run-setup.sh -c "$CONFIG" status ) > "$PRE_LOG" 2>&1
+( cd "$WORKDIR" && ./run-setup.sh status --data config="$CONFIG" ) > "$PRE_LOG" 2>&1
 PRE_RC=$?
 record "run-setup.sh status" "precheck" "$PRE_RC" 0 "$PRE_LOG"
 echo "run-tests.sh: [PRECHECK] run-setup.sh status rc=$PRE_RC"

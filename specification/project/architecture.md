@@ -2,7 +2,7 @@
 
 ## Tech Stack
 
-- **Language:** Bash (primary)
+- **Language:** Bash (primary); the orchestrator is a small Python [pyinfra](https://docs.pyinfra.com/en/3.x/) deploy, run via `uv`
 - **Configuration formats:** Environment variables (primary), with YAML, JSON, or `.env` files where individual components require them
 - **Target OS:** Ubuntu
 
@@ -10,7 +10,9 @@
 
 ```text
 repository root
-├── run-setup.sh          # Entrypoint: Run automation on the machine as configured in machine-config.yml
+├── run-setup.sh          # Entrypoint: thin wrapper around `uv run pyinfra @local deploy.py` (apply | status)
+├── deploy.py             # pyinfra deploy: runs the task scripts enabled in machine-config.yml, in config order
+├── pyproject.toml        # Python dependencies of the orchestrator (pyinfra, pyyaml), resolved by uv
 ├── tasks/                   # Task scripts (one per component)
 │   ├── setup-basics.sh
 │   ├── setup-sshd.sh
@@ -22,18 +24,17 @@ repository root
     └── ssh-port-forward.sh
 ```
 
-The architecture follows a simple **linear sourcing model**:
+The architecture follows a simple **linear model**:
 
-1. The user runs an **entrypoint** script.
-2. The entrypoint `source`s **task scripts** sequentially in a defined order.
-3. All task scripts execute within a single Bash process, sharing the environment.
+1. The user runs the **entrypoint** (`./run-setup.sh apply`, or pyinfra directly: `uv run pyinfra @local deploy.py -y -vvv`).
+2. `deploy.py` emits one pyinfra `server.shell` operation per enabled script in `machine-config.yml`, in config order.
+3. Each task script runs as its own `bash` process with `INTERACTIVE=false` plus its configured `env`/`args` and stdin from `/dev/null`; the run stops at the first failing script.
 4. **Utility scripts** are independent and run separately by the user after provisioning.
 
 ## Components
 
 ### Entrypoints
-- Thin orchestration layers that define which task scripts to source and in what order.
-- Two variants: server (headless) and dev machine (desktop).
+- One thin orchestration layer (`deploy.py`, wrapped by `run-setup.sh`); which task scripts run, and in what order, is defined by `machine-config.yml`.
 
 ### Task Scripts
 - Each script is responsible for exactly one component.

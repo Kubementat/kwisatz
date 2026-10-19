@@ -11,6 +11,7 @@ git clone https://github.com/Kubementat/kwisatz.git
 cd kwisatz
 cp machine-config-inference.yml.example machine-config.yml
 cp models.yml.example models.yml
+curl -LsSf https://astral.sh/uv/install.sh | sh   # one-time: the orchestrator needs uv
 ./run-setup.sh apply
 ```
 
@@ -65,13 +66,13 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    git clone https://github.com/Kubementat/kwisatz.git
    cd kwisatz
    ```
-2. **Make sure you have sudo rights** - all scripts call `sudo` where required.
+2. **Make sure you have sudo rights** - all scripts call `sudo` where required. Install [uv](https://docs.astral.sh/uv/) (the only prerequisite of the orchestrator): `curl -LsSf https://astral.sh/uv/install.sh | sh`
 3. **Copy the example configurations** and edit it to enable the services and models you want:
    ```bash
    cp machine-config.yml.example machine-config.yml
    cp models.yml.example models.yml
    ```
-   The orchestrator reads `machine-config.yml` by default (or pass `--config <file>` to use a different one).
+   The orchestrator reads `machine-config.yml` by default (or pass `--data config=<file>` to use a different one).
    Open `machine-config.yml` and set `enabled: true` for the scripts you'd like to install. See the [Configuration](#configuration) section below for the YAML format.
 4. **Run the orchestrator**:
    ```bash
@@ -79,7 +80,7 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    ./run-setup.sh apply    # install all enabled services
    ```
    Run without arguments to see usage instructions.
-5. **Follow the on-screen prompts** - most scripts are non-interactive; they print progress and final status messages.
+5. **Watch the output** - scripts run non-interactively; they print progress and final status messages. The run stops at the first failing script.
 6. After the script finishes you should have:
    - Docker ready (run `docker run hello-world` to double-check).
    - SSH listening on the custom port (`sshd` service is enabled).
@@ -88,7 +89,7 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
 ---
 
 ## How It Works
-- **Orchestrator** - `run-setup.sh` reads a YAML configuration file to determine which services to install, then runs them in order. Use `./run-setup.sh status` to preview and `./run-setup.sh apply` to execute. The default config file is `machine-config.yml` in the repository root, or pass a different file with `--config` (before or after the subcommand). Every `apply`/`status` run additionally tees all output (including child task output) to a plain-text log file `logs/run-setup-<timestamp>-<pid>.log` in the repository (directory overridable via `LOG_DIR`).
+- **Orchestrator** - a [pyinfra](https://docs.pyinfra.com/en/3.x/) deploy (`deploy.py`, wrapped by `run-setup.sh`) reads a YAML configuration file to determine which services to install, then runs them in config order and stops at the first failure. Use `./run-setup.sh status` to preview and `./run-setup.sh apply` to execute. The default config file is `machine-config.yml` in the repository root, or pass a different file with `--data config=<file>`. No log file is written; append `2>&1 | tee apply.log` when you want one.
 - **Modular task scripts** - Each `tasks/setup-*.sh` script is self-contained and idempotent; it can be run individually or through the orchestrator.
 - **Configuration via YAML** - `machine-config.yml` declares which scripts to run, their environment variables, and command-line arguments. All tunable values have sensible defaults and can be overridden.
 - **Re-run policy: converge by default** - Re-running a task script against an existing stack converges it: config is re-rendered, existing secrets are reused, and `docker compose up -d` reconciles only what changed — no tear-down, no silent skip. Divergence that cannot be applied to a running stack is printed with the exact re-create command (see `specification/project/conventions.md` → *Re-run policy: converge by default*).
@@ -156,17 +157,23 @@ keep it when copying to `machine-config.yml`.)
 ### Running the Orchestrator
 
 ```bash
-./run-setup.sh status   # Show which scripts are enabled/disabled
+./run-setup.sh status   # List the enabled scripts, in run order (runs nothing)
 ./run-setup.sh apply    # Install or update all enabled services
-./run-setup.sh apply --config path/to/other-config.yml  # Use a custom config file
+./run-setup.sh apply --data config=path/to/other-config.yml  # Use a custom config file
 ```
 
-**Options** (may appear before or after the subcommand):
-- `--config <file>` / `-c <file>` — Path to a YAML configuration file (default: `machine-config.yml` in the repository root)
-- `--non-interactive` — Run all tasks with `INTERACTIVE=false` and `stdin=/dev/null` so a stray prompt fails fast instead of hanging an unattended run (this is the default behaviour)
-- `--interactive` — Run all tasks with `INTERACTIVE=true` on an inherited tty (the only opt-in to prompts; mutually exclusive with `--non-interactive`)
+`run-setup.sh` is a thin wrapper around pyinfra and requires [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`); the first run downloads pyinfra into `.venv/`. Everything after the subcommand is passed to pyinfra, which can also be called directly:
 
-`status` is read-only: it never installs anything and exits with a hint if `yq`/`jq` are missing. `apply` auto-installs missing `yq`/`jq` by running `tasks/setup-basics.sh`, except under `--non-interactive`, where they must already be installed (unattended runs fail fast and do not provision the machine; set `ASSUME_SETUP_BASICS=true` to allow the auto-install). A per-script `env:` entry `INTERACTIVE: "true"` in the config overrides the global default for that script (config wins).
+```bash
+uv run pyinfra @local deploy.py --dry      # = ./run-setup.sh status
+uv run pyinfra @local deploy.py -y -vvv    # = ./run-setup.sh apply
+```
+
+- `--data config=<file>` — Path to a YAML configuration file (default: `machine-config.yml` in the repository root)
+- `apply` runs the enabled scripts in config order and **stops at the first failing script** (exit code 1); the scripts after it do not run. Fix the cause and re-run — scripts are idempotent.
+- `status` is read-only and lists only the enabled scripts; read the YAML for disabled ones and for env/args.
+- No log file is written — append `2>&1 | tee apply.log` when you want one. Note that `apply` echoes each command including its configured `env:` values.
+- Every task runs with `INTERACTIVE=false` and `stdin=/dev/null`, so a stray prompt fails fast instead of hanging. There is no interactive mode: for prompts run the task script directly, e.g. `INTERACTIVE=true tasks/setup-forgejo.sh`. A per-script `env:` entry `INTERACTIVE: "true"` in the config still overrides the default for that script, but stdin stays `/dev/null`.
 
 When run without any arguments, `run-setup.sh` prints usage instructions.
 

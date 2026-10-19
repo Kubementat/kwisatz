@@ -1,0 +1,5 @@
+[project]
+name = "kwisatz"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["pyinfra>=3.10,<4", "pyyaml"]
