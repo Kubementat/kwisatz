@@ -91,6 +91,8 @@ scripts:
 - `description` is optional and informational
 - `env` values are strings — use quotes for numbers/booleans: `'true'`, `'8080'`
 - `args` are passed as CLI flags to the script
+- `args:` / `env:` with nothing under it (the flags sit in the comment below) means **none**, exactly like `args: []` / `env: {}` — do not "fix" it
+- a malformed `env:`/`args:` in a **disabled** script only warns; a malformed one in a script that will run is a hard error naming it
 - Use `./run-setup.sh status` after editing to verify before applying
 
 ### 4. Preview and Apply

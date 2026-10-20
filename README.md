@@ -147,6 +147,18 @@ scripts:
 
 All scripts are **disabled by default** — enable only the ones you need.
 
+**A key with nothing under it means "none", not "wrong".** `args:` with no list below it —
+usually because the actual flags are left commented out, like the `# - --force` in the
+example configs — is the same as `args: []`, and likewise `env:` is the same as `env: {}`.
+Both entrypoints used to read it that way (`.args // []`, `.env // {}`), so leaving the key
+blank is not a mistake you have to fix.
+
+**Only an enabled script is checked hard.** A wrong type in a script you switched off
+(`args: --force` as a bare string, say) gets a `--> WARNING:` and is otherwise ignored — a
+disabled entry cannot change what this run does, so it does not stop it. The entry's shape
+is always checked: a script entry that is not a mapping at all is an error naming the
+script, never a traceback.
+
 **`enabled` is a YAML boolean, and only these spellings mean anything:** `true`/`True`/`TRUE` run
 the script, `false`/`False`/`FALSE` (or no `enabled` key at all) skip it. Anything else — `yes`,
 `on`, `1`, an empty value — is *not* a boolean in YAML and skips the script, and the orchestrator

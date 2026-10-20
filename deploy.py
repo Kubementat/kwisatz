@@ -7,6 +7,10 @@ Config contract — `.scripts.<name>` is a mapping of `enabled` / `env` / `args`
 (`description` is informational). An entry that is not a mapping is a hard error
 naming the script; an empty entry (`setup-foo:`) means disabled. The key resolves to
 `tasks/<name>.sh`, or `tasks/<name>.py` when there is no `.sh` — see `task_command()`.
+A null `args:`/`env:` (the key with nothing under it — how the examples spell "no
+arguments", with the flags in the comment below) means *none*, as `.args // []` and
+`.env // {}` did under yq+jq. Only an enabled script's `env:`/`args:` are checked hard;
+a disabled one is reported and left alone, since it cannot change this run.
 
 `enabled` is a YAML 1.2 boolean: `true` runs the script, `false` or a missing key
 skips it. `yes`/`on`/`1` are *not* booleans in YAML 1.2, so they skip — and every
@@ -67,6 +71,12 @@ FALSE_SPELLINGS = ("false", "False", "FALSE")
 # BaseLoader does not resolve scalars, so a null arrives as one of these strings
 NULL_SPELLINGS = ("", "~", "null", "Null", "NULL")
 
+
+def is_null(value) -> bool:
+    """True when a BaseLoader scalar means 'no value' (`key:` with nothing under it)."""
+    return value is None or value in NULL_SPELLINGS
+
+
 config = Path(host.data.get("config") or ROOT / "machine-config.yml")
 
 
@@ -86,7 +96,7 @@ def is_enabled(name: str, entry: dict) -> bool:
         return False
 
     value = entry["enabled"]
-    if value is None or value in NULL_SPELLINGS:
+    if is_null(value):
         warn(f"{name}: `enabled:` has no value; the script is skipped")
         return False
     if value in TRUE_SPELLINGS:
@@ -130,8 +140,14 @@ def task_command(name: str) -> list:
 
 
 def check_shape(name: str, entry) -> dict:
-    """Validate one `.scripts.<name>` entry; raise DeployError naming the script."""
-    if entry is None or entry in NULL_SPELLINGS:
+    """Validate the *shape* of one `.scripts.<name>` entry; raise DeployError naming it.
+
+    This half is always fatal, because it is about the entry itself: `setup-foo:` with
+    nothing under it is a disabled script, and anything that is neither a mapping nor a
+    null (`setup-foo: enabled`) is a typo the operator must see. `env:`/`args:` are
+    checked by `check_values()`, which a disabled script only reports.
+    """
+    if is_null(entry):
         # `setup-foo:` with nothing under it — an empty entry, i.e. disabled, exactly
         # like a key with no `.enabled`
         return {}
@@ -140,21 +156,40 @@ def check_shape(name: str, entry) -> dict:
             f"{config}: script {name}: expected a mapping of enabled/env/args, "
             f"got {type(entry).__name__}: {entry!r}"
         )
+    return entry
 
+
+def check_values(name: str, entry: dict, strict: bool) -> None:
+    """Validate `env:`/`args:` of a checked entry.
+
+    `strict` means *this entry will run*, so a wrong type is a hard error. For a disabled
+    entry the same problem is only reported: the entry cannot change anything this run
+    does, so blocking `status`/`apply` on it — as it did when `check_shape()` validated
+    every entry regardless of `enabled` — punishes a config for a script it does not run.
+
+    A null `args:` / `env:` (the key present with nothing under it, which is how the
+    example configs spell "no arguments": the real flags sit in the comment below it) is
+    **not** an error, it is *none* — matching `.args // []`/`.env // {}` from the old
+    yq+jq orchestrator. The shipped `machine-config*.yml.example` files depend on that.
+    """
     args = entry.get("args")
-    if args is not None and (
+    if not is_null(args) and (
         not isinstance(args, list) or any(not isinstance(a, str) for a in args)
     ):
-        raise DeployError(f"{config}: script {name}: `args` must be a list of strings, got {args!r}")
+        message = f"`args` must be a list of strings, got {args!r}"
+        if strict:
+            raise DeployError(f"{config}: script {name}: {message}")
+        warn(f"{name}: {message} (disabled, not run)")
 
     env = entry.get("env")
-    if env is not None and (
+    if not is_null(env) and (
         not isinstance(env, dict)
         or any(not isinstance(k, str) or not isinstance(v, str) for k, v in env.items())
     ):
-        raise DeployError(f"{config}: script {name}: `env` must be a mapping of strings, got {env!r}")
-
-    return entry
+        message = f"`env` must be a mapping of strings, got {env!r}"
+        if strict:
+            raise DeployError(f"{config}: script {name}: {message}")
+        warn(f"{name}: {message} (disabled, not run)")
 
 
 try:
@@ -189,14 +224,17 @@ if problem:
 scripts = doc["scripts"].items()
 
 for name, s in scripts:
-    if not is_enabled(name, check_shape(name, s)):
+    entry = check_shape(name, s)
+    enabled = is_enabled(name, entry)
+    check_values(name, entry, strict=enabled)
+    if not enabled:
         continue
-    cmd = shlex.join([*task_command(name), *(s.get("args") or [])])
+    cmd = shlex.join([*task_command(name), *(entry.get("args") or [])])
     # Config env comes after INTERACTIVE so a per-script entry still wins. Values are
     # wrapped in HiddenValue: `apply` runs at -vvv, which echoes the generated command
     # (`export KEY=*MASKED* && bash tasks/x.sh`), while the connector executes the raw
     # value — pyinfra/api/command.py get_raw_value(), same trick as docker.login.
-    env = {key: HiddenValue(value) for key, value in (s.get("env") or {}).items()}
+    env = {key: HiddenValue(value) for key, value in (entry.get("env") or {}).items()}
     server.shell(
         name=name,
         commands=[cmd + " </dev/null"],
