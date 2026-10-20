@@ -403,7 +403,7 @@ scripts:
     enabled: false
     description: >-
       Sync model catalog (models.yml) into llama-swap + pi/opencode configs
-      (Python)
+      (Python entrypoint: tasks/sync-models.py)
     env: {}
     args: []
   setup-deepseek-harness:

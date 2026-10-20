@@ -155,6 +155,15 @@ others only exist so configs written for the old yq-based orchestrator keep work
 is reported with a warning asking you to fix it. An entry that is not a mapping at all (say
 `setup-foo: enabled`) is a hard error naming the script, not a traceback.
 
+**Entrypoint resolution (`.sh` and `.py`):** the key resolves to `tasks/<name>.sh`, or to
+`tasks/<name>.py` when that `.sh` is absent — so a Python task such as `sync-models` is
+enabled exactly like a shell task. The `.sh` wins when both files exist, and you get a
+`--> WARNING:` saying which one ran. A key with neither file is a hard error naming the
+script, caught by `status`; a `.py` task runs under the orchestrator's own interpreter,
+so it imports the project's dependencies (`pyyaml`) instead of depending on the host's
+system python. Every other rule below — `INTERACTIVE=false`, `stdin=/dev/null`, `env:`,
+`args:`, config order, stop-at-first-failure — applies to both kinds.
+
 **SSH / firewall ordering (lockout avoidance):** `setup-sshd` must run
 **before** `configure-firewall`. sshd moves to the new port first, and the
 firewall then allows that port. With the order reversed, UFW goes to
@@ -183,7 +192,7 @@ uv run pyinfra @local deploy.py -y -vvv    # = ./run-setup.sh apply
 - No log file is written — append `2>&1 | tee apply.log` when you want one.
 - **`apply` echoes every command line** (it runs pyinfra at `-vvv`, the only level that streams task output). Configured `env:` values are printed as `export KEY=*MASKED*` — pyinfra masks them and executes the real value — but script names, `args:` and all task output are echoed verbatim. Treat `machine-config.yml` as a public file anyway: it is read as plain text by anything on the box, so keep credentials in the `/srv/<service>/.env` files the task scripts manage, not in an `env:` block.
 - Every task runs with `INTERACTIVE=false` and `stdin=/dev/null`, so a stray prompt fails fast instead of hanging. There is no interactive mode: for prompts run the task script directly, e.g. `INTERACTIVE=true tasks/setup-forgejo.sh`. A per-script `env:` entry `INTERACTIVE: "true"` in the config still overrides the default for that script, but stdin stays `/dev/null`.
-- **What the task script sees in its environment**: pyinfra exports *only* `INTERACTIVE=false` plus that script's `env:` block (`export KEY=value && bash tasks/<name>.sh`), and it does not merge `os.environ` into that list — but the command still runs as a child of the shell that started the run, so the script also inherits the ambient environment (`PATH`, `HOME`, anything you export yourself). `deploy.py` drops `VIRTUAL_ENV` and the venv's `bin` from `PATH` before handing off, so tasks use the system `python3`/`pip` instead of the orchestrator's venv. A per-script `env:` therefore adds and overrides variables; it never hides the ambient ones, and it always wins over `INTERACTIVE=false`.
+- **What the task script sees in its environment**: pyinfra exports *only* `INTERACTIVE=false` plus that script's `env:` block (`export KEY=value && bash tasks/<name>.sh` — `python tasks/<name>.py` for a Python task), and it does not merge `os.environ` into that list — but the command still runs as a child of the shell that started the run, so the script also inherits the ambient environment (`PATH`, `HOME`, anything you export yourself). `deploy.py` drops `VIRTUAL_ENV` and the venv's `bin` from `PATH` before handing off, so tasks use the system `python3`/`pip` instead of the orchestrator's venv. A per-script `env:` therefore adds and overrides variables; it never hides the ambient ones, and it always wins over `INTERACTIVE=false`.
 
 Called without a subcommand (or with an unknown one), `run-setup.sh` prints its usage to stderr and exits `2`; `-h`/`--help` prints it and exits `0`.
 
@@ -191,7 +200,12 @@ Called without a subcommand (or with an unknown one), `run-setup.sh` prints its 
 
 ## Service Setup Scripts (`tasks/`)
 
-All service setup scripts are located in the `tasks/` directory. 
+All service setup scripts are located in the `tasks/` directory. A config key names one of
+them by its basename: `tasks/setup-docker` runs `setup-docker.sh`, `sync-models` runs
+`sync-models.py`. Most are `.sh`; the model-catalog sync is the one Python task, and it is
+enabled exactly like a shell task (`INTERACTIVE=false`, its `env:` and `args:`, config
+order, stop-at-first-failure).
+
 For a complete list of automations see [AUTOMATIONS.md](AUTOMATIONS.md)
 
 ---

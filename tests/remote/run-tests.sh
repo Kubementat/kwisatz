@@ -130,6 +130,15 @@ PRE_RC=$?
 record "run-setup.sh status" "precheck" "$PRE_RC" 0 "$PRE_LOG"
 echo "run-tests.sh: [PRECHECK] run-setup.sh status rc=$PRE_RC"
 
+# Interpreter for `tasks/*.py` entrypoints: the project venv the precheck's `uv run`
+# just created, so a .py task imports the repo's dependencies exactly as deploy.py's
+# sys.executable does. Falls back to the system python3.
+if [[ -x "$WORKDIR/.venv/bin/python" ]]; then
+  PY_BIN="$WORKDIR/.venv/bin/python"
+else
+  PY_BIN="python3"
+fi
+
 # ---------------------------------------------------------------------------
 # Test phases
 # ---------------------------------------------------------------------------
@@ -141,11 +150,23 @@ for phase in integration idempotency; do
 
   for script in "${SCRIPTS[@]}"; do
     name="${script%.sh}"
-    script_path="$WORKDIR/tasks/${script}.sh"   # config keys carry no .sh suffix
     log="$OUT/logs/${phase}-${script}.log"
 
-    if [[ ! -f "$script_path" ]]; then
-      echo "script not found: $script_path" > "$log"
+    # Same resolution rule as deploy.py: tasks/<name>.sh (run by its exec bit) wins
+    # over tasks/<name>.py, which runs under the orchestrator's own interpreter so its
+    # imports resolve against the venv uv built during the precheck.
+    runner=()
+    if [[ -f "$WORKDIR/tasks/${name}.sh" ]]; then
+      script_path="$WORKDIR/tasks/${name}.sh"
+    elif [[ -f "$WORKDIR/tasks/${name}.py" ]]; then
+      script_path="$WORKDIR/tasks/${name}.py"
+      runner=("${PY_BIN}")
+    else
+      script_path=""
+    fi
+
+    if [[ -z "$script_path" ]]; then
+      echo "script not found: $WORKDIR/tasks/${name}.sh or .py" > "$log"
       record "$script" "$phase" 125 0 "$log"
       echo "run-tests.sh: [FAIL] $phase $script (missing on disk)"
       OVERALL_RC=1
@@ -170,7 +191,8 @@ for phase in integration idempotency; do
 
     start=$(date +%s)
     timeout --kill-after=60 "${TIMEOUT_MIN}m" \
-      sudo -u "${VM_USER}" env "${envp[@]}" "$script_path" "${args[@]}" > "$log" 2>&1
+      sudo -u "${VM_USER}" env "${envp[@]}" ${runner[@]+"${runner[@]}"} \
+        "$script_path" "${args[@]}" > "$log" 2>&1
     rc=$?
     dur=$(( $(date +%s) - start ))
 

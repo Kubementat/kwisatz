@@ -5,7 +5,8 @@ Usage: uv run pyinfra @local deploy.py [--dry | -y -vvv] [--data config=<file>]
 
 Config contract — `.scripts.<name>` is a mapping of `enabled` / `env` / `args`
 (`description` is informational). An entry that is not a mapping is a hard error
-naming the script; an empty entry (`setup-foo:`) means disabled.
+naming the script; an empty entry (`setup-foo:`) means disabled. The key resolves to
+`tasks/<name>.sh`, or `tasks/<name>.py` when there is no `.sh` — see `task_command()`.
 
 `enabled` is a YAML 1.2 boolean: `true` runs the script, `false` or a missing key
 skips it. `yes`/`on`/`1` are *not* booleans in YAML 1.2, so they skip — and every
@@ -102,6 +103,32 @@ def is_enabled(name: str, entry: dict) -> bool:
     return False
 
 
+def task_command(name: str) -> list:
+    """Resolve the config key `name` to the command that runs it.
+
+    `tasks/<name>.sh` is the entry point for every shell task and takes precedence when
+    both spellings exist (a `.py` of the same name is that script's helper, not a second
+    entry point) — the operator is told which one wins. A `.py` entry point runs under
+    *this* deploy's interpreter, `sys.executable`, so its imports resolve against the
+    project venv that `uv run` created (`pyyaml` is a project dependency) instead of the
+    host's system python: a fresh VM has no `python3-yaml`, and `apply` must work there.
+    Neither spelling existing is a hard error naming the script, so `status` catches the
+    typo instead of `apply` failing after ten installed services.
+    """
+    sh = ROOT / "tasks" / f"{name}.sh"
+    py = ROOT / "tasks" / f"{name}.py"
+    if sh.is_file():
+        if py.is_file():
+            warn(f"{name}: tasks/{name}.sh and tasks/{name}.py both exist; running the .sh")
+        return ["bash", str(sh)]
+    if py.is_file():
+        return [sys.executable, str(py)]
+    raise DeployError(
+        f"{config}: script {name}: no tasks/{name}.sh or tasks/{name}.py — the config key "
+        f"must match a file in {ROOT / 'tasks'}/"
+    )
+
+
 def check_shape(name: str, entry) -> dict:
     """Validate one `.scripts.<name>` entry; raise DeployError naming the script."""
     if entry is None or entry in NULL_SPELLINGS:
@@ -164,7 +191,7 @@ scripts = doc["scripts"].items()
 for name, s in scripts:
     if not is_enabled(name, check_shape(name, s)):
         continue
-    cmd = shlex.join(["bash", f"{ROOT}/tasks/{name}.sh", *(s.get("args") or [])])
+    cmd = shlex.join([*task_command(name), *(s.get("args") or [])])
     # Config env comes after INTERACTIVE so a per-script entry still wins. Values are
     # wrapped in HiddenValue: `apply` runs at -vvv, which echoes the generated command
     # (`export KEY=*MASKED* && bash tasks/x.sh`), while the connector executes the raw

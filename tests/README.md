@@ -14,7 +14,7 @@ and a Markdown test report is produced.
 $ tests/run-vm-tests.sh
 ...
 ==============================================
-VM TEST SUITE: PASS (17/17 test cases)
+VM TEST SUITE: PASS (21/21 test cases)
 Report:  tests/reports/vmtest-20260827-143219/report.md
 ==============================================
 ```
@@ -43,12 +43,14 @@ The default test config enables a fast, safe, non-interactive subset:
 | Script | Why it is in the default set |
 |---|---|
 | `setup-basics` | Needed first (git, yq, jq, nvm/node, …); fast enough |
+| `setup-agent-sandbox` | bwrap prerequisites, fast |
 | `configure-firewall` | UFW on a fresh VM (with `SSHD_PORT: "22"`, see below) |
 | `setup-docker` | Core dependency for docker-based services |
 | `setup-sshd` | sshd hardening (with `SSHD_PORT: "22"`) |
 | `setup-fail2ban` | systemd service, fast (with `SSHD_PORT: "22"`) |
 | `setup-neovim` | tarball install + plugins |
 | `setup-pi` | npm-based (needs node from `setup-basics`) |
+| `setup-ai-agent-skills` | skills + agent profiles clone, fast |
 | `setup-traefik` | docker-based, needs `setup-docker`; skips cleanly on re-run |
 
 Heavy build/GPU/container-farm scripts (`setup-llama-cpp`, `setup-vllm`,
@@ -120,7 +122,7 @@ virt-runner list
 ### Quick start
 
 ```console
-# Full default suite (8 scripts × 2 phases + precheck, ~15-30 min):
+# Full default suite (10 scripts × 2 phases + precheck, ~15-30 min):
 tests/run-vm-tests.sh
 
 # Only a subset of scripts (comma-separated list):
@@ -267,6 +269,11 @@ Step by step:
    shows the full matrix. `meta.json` records the guest hostname/OS/kernel.
    Result codes: `0` = pass, `124` = per-script timeout, `125` = script
    missing on disk, anything else = the script's own exit code.
+
+   Each enabled key resolves the way `deploy.py` does: `tasks/<name>.sh` first, then
+   `tasks/<name>.py` (run with the project venv's python, the one the precheck's
+   `uv run` created). So a Python task such as `sync-models` is covered by this suite
+   exactly like a shell task — same two phases, same env/args, same timeout.
 6. **Fetch + report.** `/tmp/vmtest` is fetched back and rendered into
    `report.md` (see below).
 7. **Teardown.** `virt-runner destroy` destroys the domain, undefines it
@@ -383,7 +390,7 @@ itself.
 | `virt-runner create failed` + `no DHCP lease after 120s` | libvirt network or disk problem — check `virsh net-info default`, `virsh pool-info vm-pool`, and the report's `create.json` (`error.code`/`error.message`). |
 | `virt-runner create timed out waiting for SSH` followed by failure | The guest needs more than 90 s + 5 min (very small VM / slow image). Increase `--ram`/`--vcpu`; inspect the console with `virsh console <name>` **before** the run tears down — use `--keep-vm` if you need the VM afterwards. |
 | `could not parse VM IP` | virt-runner JSON contract changed — check `create.json` in the report dir. |
-| Script `FAIL (rc=125)` | Script not present in `tasks/` (typo in the config or `--scripts` list). |
+| Script `FAIL (rc=125)` | Neither `tasks/<name>.sh` nor `tasks/<name>.py` exists (typo in the config or `--scripts` list). |
 | Script `TIMEOUT` | Raise `--timeout` for heavy scripts (e.g. `setup-llama-cpp` builds can take a long time). |
 | `scp to VM failed` | VM crashed during copy — the trap destroyed it; re-run. |
 | Harness seems to lose the VM mid-run | The guest OOM'd or a script crashed the box. Re-run with `--keep-vm` and a bigger `--ram`, then `ssh` in; check `dmesg`/`/var/log/syslog` on the VM. |

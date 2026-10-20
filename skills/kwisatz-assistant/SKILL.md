@@ -103,7 +103,7 @@ scripts:
 ./run-setup.sh apply
 ```
 
-The orchestrator is a pyinfra deploy (`deploy.py`); `run-setup.sh` wraps `uv run pyinfra @local deploy.py --dry` (status) and `... -y -vvv` (apply), and passes extra arguments on to pyinfra. Scripts run in the order they appear in the config. The run **stops at the first failing script** (exit code 1); scripts after it do not run. No log file is written (append `2>&1 | tee apply.log`). Tasks run non-interactively (`INTERACTIVE=false`, stdin `/dev/null`); for prompts run the task script directly with `INTERACTIVE=true tasks/<name>.sh`.
+The orchestrator is a pyinfra deploy (`deploy.py`); `run-setup.sh` wraps `uv run pyinfra @local deploy.py --dry` (status) and `... -y -vvv` (apply), and passes extra arguments on to pyinfra. A config key runs `tasks/<name>.sh`, or `tasks/<name>.py` when there is no such `.sh` (`sync-models` is dispatched this way); the `.sh` wins if both exist, and a key with neither file is an error naming the script. Scripts run in the order they appear in the config. The run **stops at the first failing script** (exit code 1); scripts after it do not run. No log file is written (append `2>&1 | tee apply.log`). Tasks run non-interactively (`INTERACTIVE=false`, stdin `/dev/null`); for prompts run the task script directly with `INTERACTIVE=true tasks/<name>.sh`.
 
 `apply` echoes every command line it runs (that is what `-vvv` does). Values from a script's `env:` block are printed as `export KEY=*MASKED*`, but script names, `args:` and all task output appear verbatim. `machine-config.yml` is plain text on a machine that will hold API keys, so keep secrets out of it: task scripts store their own credentials under `/srv/<service>/.env`.
 
