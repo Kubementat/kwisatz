@@ -72,11 +72,8 @@ NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 # Pi extensions to install
 declare -a PI_EXTENSIONS=(
   "npm:pi-subagents"
-  "npm:pi-mcp-adapter"
   "npm:pi-markdown-preview"
   "npm:pi-web-access"
-  "npm:pi-extmgr"
-  "npm:pi-token-speed"
 )
 
 # =============================================================================
