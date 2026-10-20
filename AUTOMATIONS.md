@@ -25,6 +25,20 @@ Makes an existing GPU usable from containers via **CDI** (Container Device Inter
 - The hook regenerates the spec in the same apt transaction that replaced the driver
 - Manual equivalent: `sudo nvidia-cdi-refresh` (`--check` reports staleness without writing, `--force` regenerates unconditionally)
 
+#### `setup-memory-safety.sh`
+Guards against **silent unified-memory freezes** — the failure mode where a GPU box stops responding instead of failing. On unified-memory hardware (NVIDIA DGX Spark / GB10) host RAM and GPU memory are one physical pool, and when it is exhausted the CUDA allocator keeps asking, the system falls back to swap and thrashes, and the kernel is too starved to run its own OOM killer: SSH stops answering, nothing is logged, and the only way out is a power cycle. This script applies the three host-level mitigations that belong to the machine rather than to any one service, so it should run **before** the GPU workloads (`setup-llama-swap.sh`, `setup-vllm.sh`, `setup-gufo-*`, `setup-tensorfold-*`).
+
+**What it does:**
+- Disables swap and removes it from `/etc/fstab` (`MEMSAFETY_DISABLE_SWAP`, default `true`; the swap file itself is only deleted with `MEMSAFETY_REMOVE_SWAPFILE=true`), writing a timestamped `/etc/fstab.bak.<ts>` first
+- Installs and configures **earlyoom** as the userspace OOM guard (`MEMSAFETY_EARLYOOM`, default `true`; triggers `MEMSAFETY_EARLYOOM_MEM_PCT=5`, `MEMSAFETY_EARLYOOM_SWAP_PCT=10`) via `/etc/default/earlyoom` plus an `OOMScoreAdjust` drop-in
+- Optionally caps GPU clocks at boot through `nvidia-clock-cap.service` — **off by default** (`MEMSAFETY_GPU_CLOCK_CAP=false`, `MEMSAFETY_GPU_CLOCK_MIN=300`/`MEMSAFETY_GPU_CLOCK_MAX=2100`), needs `nvidia-smi`
+
+**Why swap off looks backwards and is deliberate:** swap does not add safety here, it removes it — with swap present the machine degrades into thrashing and hangs without diagnostics, while without swap the kernel reaches its OOM condition promptly and kills a single process. You lose one inference job instead of the machine. Corroborated by pytorch#174358, NVIDIA forum threads 360336/362769 and ComfyUI#11106.
+
+**Why no `MemoryMax=` on GPU services:** measured on GB10 / driver 580.142, a 4 GB `cudaMalloc` is charged to the cgroup as 71 MiB — classic device allocations escape memcg accounting entirely, while the same 4 GB shows plainly as a drop in `MemFree`. A `MemoryMax=` on those services would constrain only their host-side heap and give false assurance, so this script deliberately sets none; earlyoom watches `/proc/meminfo` and is the effective guard.
+
+**Platform behaviour:** the swap and GPU measures are specific to unified-memory NVIDIA hardware and are **skipped** on anything else — disabling swap on an ordinary server with discrete VRAM is bad advice, not a safety measure. earlyoom is installed on every platform. `--check` reports the detected platform and the resulting state and changes nothing; `--force` re-applies (`FORCE=1`).
+
 #### `setup-traefik.sh`
 Deploys production-ready Traefik v3 reverse proxy with Docker Compose, TLS via Let's Encrypt, security headers, rate limiting, and optional protected dashboard.
 

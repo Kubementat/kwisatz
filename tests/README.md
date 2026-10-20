@@ -405,6 +405,11 @@ itself.
 - Static analysis (ShellCheck) remains the first quality gate and is
   independent of this suite — see
   [`specification/project/test-strategy.md`](../specification/project/test-strategy.md).
+  So is [`lint.sh`](lint.sh): its guards cover templates **and** the orchestrator's config
+  contract — both example configs must parse with `deploy.py`, and every example key must
+  name a real `tasks/<name>.sh`/`.py`. Those are the two things this suite structurally
+  cannot see, because the harness feeds the precheck its own test config and reads
+  env/args with jq's null-tolerant `// []`.
 - The VM tooling itself (`virt-runner create/destroy/list`, image caching,
   cloud-init) lives in the separate virt-runner project; this suite is a
   consumer of its `--json` CLI contract.

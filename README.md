@@ -35,12 +35,12 @@ graph LR
 
 **What you get:**
 
-- **Modular & idempotent** — every `tasks/setup-*.sh` is self-contained; safe to re-run, safe to run alone
+- **Modular & idempotent** — every `tasks/*.sh` (and `tasks/*.py`) task is self-contained; safe to re-run, safe to run alone
 - **Your config is the runbook** — enable/disable services and set env vars & args in one YAML file
 - **Order guaranteed** — scripts run in the order you listed them; a failing script stops the run (fix the cause and re-run)
 - **Agent-friendly** — ships an [Agent Skill](https://agentskills.io) so Claude Code, pi, or any compatible agent can set the machine up for you
 - **Backup-solution** - ships with the repository (see [Backups](README.md#backups))
-- **Not just inference** — 30+ services: Forgejo, Nextcloud, n8n, Postiz, Neovim, monitoring, remote desktop, Text-to-speech, dev tools, and more
+- **Not just inference** — 50+ automations: Forgejo, Nextcloud, n8n, Postiz, Neovim, monitoring, remote desktop, Text-to-speech, dev tools, and more
 - Licensed under MIT License (see [MIT-LICENSE](./MIT-LICENSE))
 
 ---
@@ -81,16 +81,18 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    ```
    Run without arguments to see usage instructions.
 5. **Watch the output** - scripts run non-interactively; they print progress and final status messages. The run stops at the first failing script.
-6. After the script finishes you should have:
-   - Docker ready (run `docker run hello-world` to double-check).
-   - SSH listening on the custom port (`sshd` service is enabled).
-   - UFW firewall allowing SSH and other service ports.
+6. **What the run leaves behind** depends on what you enabled — `status` above is the
+   honest answer, so read its list before judging the result. The bare
+   `machine-config.yml.example` enables only `setup-basics`, so a default run gives you
+   tools and nothing else. Docker (`docker run hello-world`), sshd on its custom port,
+   and UFW come from `setup-docker`, `setup-sshd` and `configure-firewall`; the inference
+   stack (`:9292`, `:3333`, `:3100`) comes from `machine-config-inference.yml.example`.
 
 ---
 
 ## How It Works
 - **Orchestrator** - a [pyinfra](https://docs.pyinfra.com/en/3.x/) deploy (`deploy.py`, wrapped by `run-setup.sh`) reads a YAML configuration file to determine which services to install, then runs them in config order and stops at the first failure. Use `./run-setup.sh status` to preview and `./run-setup.sh apply` to execute. The default config file is `machine-config.yml` in the repository root, or pass a different file with `--data config=<file>`. No log file is written; append `2>&1 | tee apply.log` when you want one.
-- **Modular task scripts** - Each `tasks/setup-*.sh` script is self-contained and idempotent; it can be run individually or through the orchestrator.
+- **Modular task scripts** - Each `tasks/*.sh` task is self-contained and idempotent; it can be run individually or through the orchestrator. A Python task (`tasks/*.py`, e.g. `sync-models`) is dispatched the same way.
 - **Configuration via YAML** - `machine-config.yml` declares which scripts to run, their environment variables, and command-line arguments. All tunable values have sensible defaults and can be overridden.
 - **Re-run policy: converge by default** - Re-running a task script against an existing stack converges it: config is re-rendered, existing secrets are reused, and `docker compose up -d` reconciles only what changed — no tear-down, no silent skip. Divergence that cannot be applied to a running stack is printed with the exact re-create command (see `specification/project/conventions.md` → *Re-run policy: converge by default*).
 
