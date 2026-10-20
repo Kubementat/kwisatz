@@ -16,7 +16,7 @@ Setting up a development or server machine for LLM work is tedious, error-prone,
 ## Core Capabilities
 
 - **Modular task scripts** — Each `setup-*.sh` script is self-contained and idempotent; scripts can be run individually or composed via entrypoints.
-- **One entrypoints** — `run-setup.sh`
+- **One entrypoint** — `run-setup.sh` (`apply` / `status`), a thin wrapper around the pyinfra deploy `deploy.py`; requires `uv`
 - **Environment-variable configuration** — All tunable values (ports, versions, feature flags) have sensible defaults and can be overridden without editing scripts.
 - **Core provisioning** — System packages, SSH (custom port, key-only auth), Docker, LM Studio (with optional `lms` CLI), UFW firewall.
 - **Optional components** — Brave browser, VS Code, ROCm (AMD GPU), Samba file sharing, Opencode server, Forgejo (self-hosted Git), AnyDesk, Excalidraw, ...

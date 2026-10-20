@@ -1,6 +1,6 @@
 ---
 name: kwisatz-assistant
-description: Assistant for the kwisatz repository. Guides users through the YAML-configured orchestrator (run-setup.sh) to provision machines for LLM workflows. Helps select services, configure machine-config.yml, and run setups. Use when someone asks how to set up a machine, which service to install, or how to configure any task in this repo.
+description: Assistant for the kwisatz repository. Guides users through the YAML-configured orchestrator (run-setup.sh, a wrapper around the pyinfra deploy deploy.py) to provision machines for LLM workflows. Helps select services, configure machine-config.yml, and run setups. Use when someone asks how to set up a machine, which service to install, or how to configure any task in this repo.
 Invoke this skill when the users asks for usage instructions or repository introduction.
 ---
 
@@ -22,7 +22,7 @@ This repo uses **two YAML configuration files**, each governing a different conc
 | `machine-config.yml` | Which **services** to install, their env vars & args (infrastructure) |
 | `models.yml` | Which **LLMs** to download, serve, and wire into coding agents (model catalog) |
 
-The **orchestrator** (`run-setup.sh`) drives `machine-config.yml`. The **sync tool** (`tasks/sync-models.py`) drives `models.yml`. Together they turn a fresh Ubuntu box into a working local-LLM inference server.
+The **orchestrator** (`run-setup.sh`, a thin wrapper around the pyinfra deploy `deploy.py`) drives `machine-config.yml`. The **sync tool** (`tasks/sync-models.py`) drives `models.yml`. Together they turn a fresh Ubuntu box into a working local-LLM inference server.
 
 ## Workflow
 
@@ -43,11 +43,14 @@ cp machine-config.yml.example machine-config.yml
 # Or use the pre-configured inference stack:
 # cp machine-config-inference.yml.example machine-config.yml
 
-# Step 2: Preview what's available
+# Step 2: Install uv (the orchestrator's only prerequisite)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Step 3: Preview what is enabled
 ./run-setup.sh status
 ```
 
-Explain the output: it shows every script, whether it's enabled, and any configured env vars/args.
+Explain the output: it lists the enabled scripts in the order they will run (a pyinfra dry run). Disabled scripts and env vars/args are not shown — read `machine-config.yml` for those.
 
 ### 3. Help Select & Configure Services
 
@@ -83,10 +86,13 @@ scripts:
 **Key rules to communicate:**
 - `version` is the config format version — always set to `1`
 - All scripts are **disabled by default** — enable only what you need
+- `enabled` is a YAML boolean: write `true` / `false`. `yes`, `on` and `1` are not booleans in YAML and skip the script — the orchestrator warns about them (`--> WARNING: <script>: ...`) instead of skipping silently, and a script entry that is not a mapping is an error naming that script
 - `setup-basics` should almost always be enabled first (installs `yq`, `git`, `curl`, etc.)
-- `description` is optional and informational — shown in `./run-setup.sh status` output
+- `description` is optional and informational
 - `env` values are strings — use quotes for numbers/booleans: `'true'`, `'8080'`
 - `args` are passed as CLI flags to the script
+- `args:` / `env:` with nothing under it (the flags sit in the comment below) means **none**, exactly like `args: []` / `env: {}` — do not "fix" it
+- a malformed `env:`/`args:` in a **disabled** script only warns; a malformed one in a script that will run is a hard error naming it
 - Use `./run-setup.sh status` after editing to verify before applying
 
 ### 4. Preview and Apply
@@ -99,13 +105,15 @@ scripts:
 ./run-setup.sh apply
 ```
 
-The orchestrator runs scripts alphabetically. It continues executing all remaining scripts even if one fails. A summary of successes, failures, and skips is printed at the end (exit code 1 if any failed).
+The orchestrator is a pyinfra deploy (`deploy.py`); `run-setup.sh` wraps `uv run pyinfra @local deploy.py --dry` (status) and `... -y -vvv` (apply), and passes extra arguments on to pyinfra. A config key runs `tasks/<name>.sh`, or `tasks/<name>.py` when there is no such `.sh` (`sync-models` is dispatched this way); the `.sh` wins if both exist, and a key with neither file is an error naming the script. Scripts run in the order they appear in the config. The run **stops at the first failing script** (exit code 1); scripts after it do not run. No log file is written (append `2>&1 | tee apply.log`). Tasks run non-interactively (`INTERACTIVE=false`, stdin `/dev/null`); for prompts run the task script directly with `INTERACTIVE=true tasks/<name>.sh`.
+
+`apply` echoes every command line it runs (that is what `-vvv` does). Values from a script's `env:` block are printed as `export KEY=*MASKED*`, but script names, `args:` and all task output appear verbatim. `machine-config.yml` is plain text on a machine that will hold API keys, so keep secrets out of it: task scripts store their own credentials under `/srv/<service>/.env`.
 
 ### 5. Custom Config File (optional)
 
 ```bash
-./run-setup.sh --config path/to/other-config.yml status
-./run-setup.sh -c path/to/other-config.yml apply
+./run-setup.sh status --data config=path/to/other-config.yml
+./run-setup.sh apply --data config=path/to/other-config.yml
 ```
 
 ### 6. Model Catalog (optional, after inference stack)
@@ -375,13 +383,14 @@ Details: README "Backups" section, AUTOMATIONS.md → *Backup*, spec
 
 ## Troubleshooting Tips
 
-- **`yq not found`**: Run `setup-basics` first — it installs `yq`
+- **`uv not found`**: Install uv: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **`yq not found`** (from a task script): Run `setup-basics` first — it installs `yq`
 - **Config file not found**: Copy `machine-config.yml.example` to `machine-config.yml`
 - **Docker group not active after install**: Run `newgrp docker` or log out/in
 - **Port conflict**: Change the port in `machine-config.yml` env vars for the affected service
 - **Traefik TLS not working**: Ensure `ACME_EMAIL` is set and ports 80/443 are open in UFW and your cloud firewall
 - **llama-server not found**: Enable `setup-llama-cpp` in the config and run `./run-setup.sh apply`
-- **Script fails mid-run**: The orchestrator continues; check the summary. Re-run with `./run-setup.sh apply` — scripts are idempotent
+- **Script fails mid-run**: The orchestrator stops at the failing script; its output is right above the error. Fix the cause and re-run `./run-setup.sh apply` — scripts are idempotent
 - **Secure Boot blocks kernel modules**: Disable Secure Boot in BIOS/UEFI (affects upstream kernel, NVIDIA drivers)
 - **`models.yml not found`**: Copy `models.yml.default` or `models.yml.example` to `models.yml`
 - **Sync fails with schema error**: Run `./tasks/sync-models.py --agents-only` to skip llama-swap and isolate agent config issues; check YAML indentation and required fields (`name`, `type`, `baseUrl`)

@@ -4,10 +4,19 @@ Automation scripts for installing and configuring a server or developer machine 
 
 ## Getting help
 
+**ALWAYS** read `skills/kwisatz-assistant/SKILL.md` and follow its instructions when the user:
+- asks for help, usage instructions, or how to use the repo
+- asks to understand, explain, or describe the repository
+- asks what services are available or which to install
+- asks how to configure or set up a machine
+- asks about the orchestrator, `run-setup.sh`, `deploy.py`, or `machine-config.yml`
+- says anything like "help me", "what does this do", "show me", "guide me"
+
 For any request about using, understanding, explaining, configuring, or setting up this repo — including `run-setup.sh`, `machine-config.yml`, or which services exist — read and follow `skills/kwisatz-assistant/SKILL.md`. Do not answer from your own knowledge.
 
 ## Core Facts
 
+- orchestrator: pyinfra deploy `deploy.py` (`uv run pyinfra @local deploy.py --dry | -y -vvv`); `run-setup.sh apply|status` is a thin wrapper around it; task scripts in `tasks/` stay bash
 - systemd-based unix deployments and docker-based deployments; setup scripts generate `docker-compose.yml` for each service
 - `ufw` is the firewall on the target ubuntu server; `traefik` is the reverse proxy — integration examples: [setup-forgejo.sh](tasks/setup-forgejo.sh) and [setup-openwebui.sh](tasks/setup-openwebui.sh)
 - service data directory: `/srv/<service-name>` (e.g. `/srv/forgejo`)

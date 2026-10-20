@@ -1,4 +1,8 @@
 ---
+# `enabled` is a YAML boolean: `true` runs the script, `false` (or no `enabled` key
+# at all) skips it. `yes`/`on`/`1` are NOT booleans in YAML and skip the script — the
+# orchestrator prints a `--> WARNING:` line naming every script it skips that way, so a
+# truthy-looking value is never ignored silently. Keep the lowercase spellings.
 version: 1
 
 scripts:
@@ -399,7 +403,7 @@ scripts:
     enabled: false
     description: >-
       Sync model catalog (models.yml) into llama-swap + pi/opencode configs
-      (Python)
+      (Python entrypoint: tasks/sync-models.py)
     env: {}
     args: []
   setup-deepseek-harness:

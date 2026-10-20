@@ -14,7 +14,7 @@ and a Markdown test report is produced.
 $ tests/run-vm-tests.sh
 ...
 ==============================================
-VM TEST SUITE: PASS (17/17 test cases)
+VM TEST SUITE: PASS (21/21 test cases)
 Report:  tests/reports/vmtest-20260827-143219/report.md
 ==============================================
 ```
@@ -26,7 +26,7 @@ For **every enabled script** in the test config
 
 | Phase | Meaning | Pass condition |
 |---|---|---|
-| **precheck** | `run-setup.sh -c <test-config> status` — the orchestrator must be able to parse the config on the VM | exit 0 |
+| **precheck** | `run-setup.sh status --data config=<test-config>` — the orchestrator must be able to parse the config on the VM | exit 0 |
 | **integration** | First run of the script on a **clean** VM (with its configured env vars and args, in config order) | exit 0 |
 | **idempotency** | Second run of the same script on the **same** (now provisioned) VM | exit 0 |
 
@@ -43,12 +43,14 @@ The default test config enables a fast, safe, non-interactive subset:
 | Script | Why it is in the default set |
 |---|---|
 | `setup-basics` | Needed first (git, yq, jq, nvm/node, …); fast enough |
+| `setup-agent-sandbox` | bwrap prerequisites, fast |
 | `configure-firewall` | UFW on a fresh VM (with `SSHD_PORT: "22"`, see below) |
 | `setup-docker` | Core dependency for docker-based services |
 | `setup-sshd` | sshd hardening (with `SSHD_PORT: "22"`) |
 | `setup-fail2ban` | systemd service, fast (with `SSHD_PORT: "22"`) |
 | `setup-neovim` | tarball install + plugins |
 | `setup-pi` | npm-based (needs node from `setup-basics`) |
+| `setup-ai-agent-skills` | skills + agent profiles clone, fast |
 | `setup-traefik` | docker-based, needs `setup-docker`; skips cleanly on re-run |
 
 Heavy build/GPU/container-farm scripts (`setup-llama-cpp`, `setup-vllm`,
@@ -120,7 +122,7 @@ virt-runner list
 ### Quick start
 
 ```console
-# Full default suite (8 scripts × 2 phases + precheck, ~15-30 min):
+# Full default suite (10 scripts × 2 phases + precheck, ~15-30 min):
 tests/run-vm-tests.sh
 
 # Only a subset of scripts (comma-separated list):
@@ -195,9 +197,9 @@ flowchart TD
     D4 --> X1["exit 1 + create.json kept in report dir"]
     D -- "IP acquired + SSH verified" --> E["2 · scp: repo → VM:<br/>/home/&lt;user&gt;/kwisatz<br/>+ test config → /tmp/test-config.yml"]
     E -- "scp/ssh failed" --> XC["trap: virt-runner destroy · exit 1"]
-    E --> F["3 · Bootstrap on VM:<br/>sudo apt install yq jq"]
+    E --> F["3 · Bootstrap on VM:<br/>sudo apt install yq jq<br/>+ install uv"]
     F --> G["4 · Remote runner (single SSH session):<br/>tests/remote/run-tests.sh"]
-    G --> G1["Precheck:<br/>run-setup.sh -c config status"]
+    G --> G1["Precheck:<br/>run-setup.sh status --data config=..."]
     G1 --> G2["Phase 1 — integration:<br/>each script once, clean VM,<br/>with configured env + args,<br/>config order, per-script timeout"]
     G2 --> G3["Phase 2 — idempotency:<br/>each script a second time<br/>(must not error)"]
     G3 --> G4["results.jsonl + per-script logs + meta.json<br/>(failures do NOT stop the run)"]
@@ -233,15 +235,17 @@ Step by step:
    before giving up.
 3. **Copy.** The whole repository is copied with `scp -r` to
    `/home/<user>/kwisatz` on the VM (including `tasks/`,
-   `lib/`, `templates/`, `run-setup.sh`), plus the active test config to
+   `lib/`, `templates/`, `run-setup.sh`, `deploy.py`), plus the active test config to
    `/tmp/test-config.yml` (also covers generated/custom configs outside the
    repo).
-4. **Bootstrap.** `sudo apt-get install -y yq jq` on the VM (idempotent, a
-   few seconds) — the remote runner needs `yq`/`jq` to read the config.
+4. **Bootstrap.** `sudo apt-get install -y yq jq curl` on the VM (idempotent, a
+   few seconds) — the remote runner needs `yq`/`jq` to read the config — and
+   `uv` installed to `/usr/local/bin` (the precheck's `run-setup.sh` needs it
+   on the `PATH` of a non-login ssh session).
 5. **Remote test run.** The in-VM runner
    ([`remote/run-tests.sh`](remote/run-tests.sh)) executes, in **config
    order**:
-   1. the **precheck** (`run-setup.sh -c <config> status`),
+   1. the **precheck** (`run-setup.sh status --data config=<config>`),
    2. **phase `integration`** — every enabled script once,
    3. **phase `idempotency`** — every enabled script a second time.
 
@@ -265,6 +269,11 @@ Step by step:
    shows the full matrix. `meta.json` records the guest hostname/OS/kernel.
    Result codes: `0` = pass, `124` = per-script timeout, `125` = script
    missing on disk, anything else = the script's own exit code.
+
+   Each enabled key resolves the way `deploy.py` does: `tasks/<name>.sh` first, then
+   `tasks/<name>.py` (run with the project venv's python, the one the precheck's
+   `uv run` created). So a Python task such as `sync-models` is covered by this suite
+   exactly like a shell task — same two phases, same env/args, same timeout.
 6. **Fetch + report.** `/tmp/vmtest` is fetched back and rendered into
    `report.md` (see below).
 7. **Teardown.** `virt-runner destroy` destroys the domain, undefines it
@@ -381,7 +390,7 @@ itself.
 | `virt-runner create failed` + `no DHCP lease after 120s` | libvirt network or disk problem — check `virsh net-info default`, `virsh pool-info vm-pool`, and the report's `create.json` (`error.code`/`error.message`). |
 | `virt-runner create timed out waiting for SSH` followed by failure | The guest needs more than 90 s + 5 min (very small VM / slow image). Increase `--ram`/`--vcpu`; inspect the console with `virsh console <name>` **before** the run tears down — use `--keep-vm` if you need the VM afterwards. |
 | `could not parse VM IP` | virt-runner JSON contract changed — check `create.json` in the report dir. |
-| Script `FAIL (rc=125)` | Script not present in `tasks/` (typo in the config or `--scripts` list). |
+| Script `FAIL (rc=125)` | Neither `tasks/<name>.sh` nor `tasks/<name>.py` exists (typo in the config or `--scripts` list). |
 | Script `TIMEOUT` | Raise `--timeout` for heavy scripts (e.g. `setup-llama-cpp` builds can take a long time). |
 | `scp to VM failed` | VM crashed during copy — the trap destroyed it; re-run. |
 | Harness seems to lose the VM mid-run | The guest OOM'd or a script crashed the box. Re-run with `--keep-vm` and a bigger `--ram`, then `ssh` in; check `dmesg`/`/var/log/syslog` on the VM. |
@@ -391,11 +400,16 @@ itself.
 ## Relationship to the Rest of the Repo
 
 - The test config is a regular `machine-config.yml`-schema file, so
-  `run-setup.sh -c tests/machine-config.test.yml status|apply` also works on
+  `run-setup.sh status|apply --data config=tests/machine-config.test.yml` also works on
   the VM (the precheck exercises `status`).
 - Static analysis (ShellCheck) remains the first quality gate and is
   independent of this suite — see
   [`specification/project/test-strategy.md`](../specification/project/test-strategy.md).
+  So is [`lint.sh`](lint.sh): its guards cover templates **and** the orchestrator's config
+  contract — both example configs must parse with `deploy.py`, and every example key must
+  name a real `tasks/<name>.sh`/`.py`. Those are the two things this suite structurally
+  cannot see, because the harness feeds the precheck its own test config and reads
+  env/args with jq's null-tolerant `// []`.
 - The VM tooling itself (`virt-runner create/destroy/list`, image caching,
   cloud-init) lives in the separate virt-runner project; this suite is a
   consumer of its `--json` CLI contract.

@@ -11,6 +11,7 @@ git clone https://github.com/Kubementat/kwisatz.git
 cd kwisatz
 cp machine-config-inference.yml.example machine-config.yml
 cp models.yml.example models.yml
+curl -LsSf https://astral.sh/uv/install.sh | sh   # one-time: the orchestrator needs uv
 ./run-setup.sh apply
 ```
 
@@ -34,12 +35,12 @@ graph LR
 
 **What you get:**
 
-- **Modular & idempotent** — every `tasks/setup-*.sh` is self-contained; safe to re-run, safe to run alone
+- **Modular & idempotent** — every `tasks/*.sh` (and `tasks/*.py`) task is self-contained; safe to re-run, safe to run alone
 - **Your config is the runbook** — enable/disable services and set env vars & args in one YAML file
-- **Order guaranteed** — scripts run in the order you listed them; one failure doesn't stop the rest
+- **Order guaranteed** — scripts run in the order you listed them; a failing script stops the run (fix the cause and re-run)
 - **Agent-friendly** — ships an [Agent Skill](https://agentskills.io) so Claude Code, pi, or any compatible agent can set the machine up for you
 - **Backup-solution** - ships with the repository (see [Backups](README.md#backups))
-- **Not just inference** — 30+ services: Forgejo, Nextcloud, n8n, Postiz, Neovim, monitoring, remote desktop, Text-to-speech, dev tools, and more
+- **Not just inference** — 50+ automations: Forgejo, Nextcloud, n8n, Postiz, Neovim, monitoring, remote desktop, Text-to-speech, dev tools, and more
 - Licensed under MIT License (see [MIT-LICENSE](./MIT-LICENSE))
 
 ---
@@ -65,13 +66,13 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    git clone https://github.com/Kubementat/kwisatz.git
    cd kwisatz
    ```
-2. **Make sure you have sudo rights** - all scripts call `sudo` where required.
+2. **Make sure you have sudo rights** - all scripts call `sudo` where required. Install [uv](https://docs.astral.sh/uv/) (the only prerequisite of the orchestrator): `curl -LsSf https://astral.sh/uv/install.sh | sh`
 3. **Copy the example configurations** and edit it to enable the services and models you want:
    ```bash
    cp machine-config.yml.example machine-config.yml
    cp models.yml.example models.yml
    ```
-   The orchestrator reads `machine-config.yml` by default (or pass `--config <file>` to use a different one).
+   The orchestrator reads `machine-config.yml` by default (or pass `--data config=<file>` to use a different one).
    Open `machine-config.yml` and set `enabled: true` for the scripts you'd like to install. See the [Configuration](#configuration) section below for the YAML format.
 4. **Run the orchestrator**:
    ```bash
@@ -79,17 +80,19 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    ./run-setup.sh apply    # install all enabled services
    ```
    Run without arguments to see usage instructions.
-5. **Follow the on-screen prompts** - most scripts are non-interactive; they print progress and final status messages.
-6. After the script finishes you should have:
-   - Docker ready (run `docker run hello-world` to double-check).
-   - SSH listening on the custom port (`sshd` service is enabled).
-   - UFW firewall allowing SSH and other service ports.
+5. **Watch the output** - scripts run non-interactively; they print progress and final status messages. The run stops at the first failing script.
+6. **What the run leaves behind** depends on what you enabled — `status` above is the
+   honest answer, so read its list before judging the result. The bare
+   `machine-config.yml.example` enables only `setup-basics`, so a default run gives you
+   tools and nothing else. Docker (`docker run hello-world`), sshd on its custom port,
+   and UFW come from `setup-docker`, `setup-sshd` and `configure-firewall`; the inference
+   stack (`:9292`, `:3333`, `:3100`) comes from `machine-config-inference.yml.example`.
 
 ---
 
 ## How It Works
-- **Orchestrator** - `run-setup.sh` reads a YAML configuration file to determine which services to install, then runs them in order. Use `./run-setup.sh status` to preview and `./run-setup.sh apply` to execute. The default config file is `machine-config.yml` in the repository root, or pass a different file with `--config` (before or after the subcommand). Every `apply`/`status` run additionally tees all output (including child task output) to a plain-text log file `logs/run-setup-<timestamp>-<pid>.log` in the repository (directory overridable via `LOG_DIR`).
-- **Modular task scripts** - Each `tasks/setup-*.sh` script is self-contained and idempotent; it can be run individually or through the orchestrator.
+- **Orchestrator** - a [pyinfra](https://docs.pyinfra.com/en/3.x/) deploy (`deploy.py`, wrapped by `run-setup.sh`) reads a YAML configuration file to determine which services to install, then runs them in config order and stops at the first failure. Use `./run-setup.sh status` to preview and `./run-setup.sh apply` to execute. The default config file is `machine-config.yml` in the repository root, or pass a different file with `--data config=<file>`. No log file is written; append `2>&1 | tee apply.log` when you want one.
+- **Modular task scripts** - Each `tasks/*.sh` task is self-contained and idempotent; it can be run individually or through the orchestrator. A Python task (`tasks/*.py`, e.g. `sync-models`) is dispatched the same way.
 - **Configuration via YAML** - `machine-config.yml` declares which scripts to run, their environment variables, and command-line arguments. All tunable values have sensible defaults and can be overridden.
 - **Re-run policy: converge by default** - Re-running a task script against an existing stack converges it: config is re-rendered, existing secrets are reused, and `docker compose up -d` reconciles only what changed — no tear-down, no silent skip. Divergence that cannot be applied to a running stack is printed with the exact re-create command (see `specification/project/conventions.md` → *Re-run policy: converge by default*).
 
@@ -146,6 +149,35 @@ scripts:
 
 All scripts are **disabled by default** — enable only the ones you need.
 
+**A key with nothing under it means "none", not "wrong".** `args:` with no list below it —
+usually because the actual flags are left commented out, like the `# - --force` in the
+example configs — is the same as `args: []`, and likewise `env:` is the same as `env: {}`.
+Both entrypoints used to read it that way (`.args // []`, `.env // {}`), so leaving the key
+blank is not a mistake you have to fix.
+
+**Only an enabled script is checked hard.** A wrong type in a script you switched off
+(`args: --force` as a bare string, say) gets a `--> WARNING:` and is otherwise ignored — a
+disabled entry cannot change what this run does, so it does not stop it. The entry's shape
+is always checked: a script entry that is not a mapping at all is an error naming the
+script, never a traceback.
+
+**`enabled` is a YAML boolean, and only these spellings mean anything:** `true`/`True`/`TRUE` run
+the script, `false`/`False`/`FALSE` (or no `enabled` key at all) skip it. Anything else — `yes`,
+`on`, `1`, an empty value — is *not* a boolean in YAML and skips the script, and the orchestrator
+prints `--> WARNING: <script>: ...` so you can see why. Prefer the lowercase spellings; the
+others only exist so configs written for the old yq-based orchestrator keep working, and each one
+is reported with a warning asking you to fix it. An entry that is not a mapping at all (say
+`setup-foo: enabled`) is a hard error naming the script, not a traceback.
+
+**Entrypoint resolution (`.sh` and `.py`):** the key resolves to `tasks/<name>.sh`, or to
+`tasks/<name>.py` when that `.sh` is absent — so a Python task such as `sync-models` is
+enabled exactly like a shell task. The `.sh` wins when both files exist, and you get a
+`--> WARNING:` saying which one ran. A key with neither file is a hard error naming the
+script, caught by `status`; a `.py` task runs under the orchestrator's own interpreter,
+so it imports the project's dependencies (`pyyaml`) instead of depending on the host's
+system python. Every other rule below — `INTERACTIVE=false`, `stdin=/dev/null`, `env:`,
+`args:`, config order, stop-at-first-failure — applies to both kinds.
+
 **SSH / firewall ordering (lockout avoidance):** `setup-sshd` must run
 **before** `configure-firewall`. sshd moves to the new port first, and the
 firewall then allows that port. With the order reversed, UFW goes to
@@ -156,25 +188,38 @@ keep it when copying to `machine-config.yml`.)
 ### Running the Orchestrator
 
 ```bash
-./run-setup.sh status   # Show which scripts are enabled/disabled
+./run-setup.sh status   # List the enabled scripts, in run order (runs nothing)
 ./run-setup.sh apply    # Install or update all enabled services
-./run-setup.sh apply --config path/to/other-config.yml  # Use a custom config file
+./run-setup.sh apply --data config=path/to/other-config.yml  # Use a custom config file
 ```
 
-**Options** (may appear before or after the subcommand):
-- `--config <file>` / `-c <file>` — Path to a YAML configuration file (default: `machine-config.yml` in the repository root)
-- `--non-interactive` — Run all tasks with `INTERACTIVE=false` and `stdin=/dev/null` so a stray prompt fails fast instead of hanging an unattended run (this is the default behaviour)
-- `--interactive` — Run all tasks with `INTERACTIVE=true` on an inherited tty (the only opt-in to prompts; mutually exclusive with `--non-interactive`)
+`run-setup.sh` is a thin wrapper around pyinfra and requires [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`); the first run downloads pyinfra into `.venv/`. Everything after the subcommand is passed to pyinfra, which can also be called directly:
 
-`status` is read-only: it never installs anything and exits with a hint if `yq`/`jq` are missing. `apply` auto-installs missing `yq`/`jq` by running `tasks/setup-basics.sh`, except under `--non-interactive`, where they must already be installed (unattended runs fail fast and do not provision the machine; set `ASSUME_SETUP_BASICS=true` to allow the auto-install). A per-script `env:` entry `INTERACTIVE: "true"` in the config overrides the global default for that script (config wins).
+```bash
+uv run pyinfra @local deploy.py --dry      # = ./run-setup.sh status
+uv run pyinfra @local deploy.py -y -vvv    # = ./run-setup.sh apply
+```
 
-When run without any arguments, `run-setup.sh` prints usage instructions.
+- `--data config=<file>` — Path to a YAML configuration file (default: `machine-config.yml` in the repository root)
+- `apply` runs the enabled scripts in config order and **stops at the first failing script** (exit code 1); the scripts after it do not run. Fix the cause and re-run — scripts are idempotent.
+- `status` is read-only and lists only the enabled scripts; read the YAML for disabled ones and for env/args.
+- No log file is written — append `2>&1 | tee apply.log` when you want one.
+- **`apply` echoes every command line** (it runs pyinfra at `-vvv`, the only level that streams task output). Configured `env:` values are printed as `export KEY=*MASKED*` — pyinfra masks them and executes the real value — but script names, `args:` and all task output are echoed verbatim. Treat `machine-config.yml` as a public file anyway: it is read as plain text by anything on the box, so keep credentials in the `/srv/<service>/.env` files the task scripts manage, not in an `env:` block.
+- Every task runs with `INTERACTIVE=false` and `stdin=/dev/null`, so a stray prompt fails fast instead of hanging. There is no interactive mode: for prompts run the task script directly, e.g. `INTERACTIVE=true tasks/setup-forgejo.sh`. A per-script `env:` entry `INTERACTIVE: "true"` in the config still overrides the default for that script, but stdin stays `/dev/null`.
+- **What the task script sees in its environment**: pyinfra exports *only* `INTERACTIVE=false` plus that script's `env:` block (`export KEY=value && bash tasks/<name>.sh` — `python tasks/<name>.py` for a Python task), and it does not merge `os.environ` into that list — but the command still runs as a child of the shell that started the run, so the script also inherits the ambient environment (`PATH`, `HOME`, anything you export yourself). `deploy.py` drops `VIRTUAL_ENV` and the venv's `bin` from `PATH` before handing off, so tasks use the system `python3`/`pip` instead of the orchestrator's venv. A per-script `env:` therefore adds and overrides variables; it never hides the ambient ones, and it always wins over `INTERACTIVE=false`.
+
+Called without a subcommand (or with an unknown one), `run-setup.sh` prints its usage to stderr and exits `2`; `-h`/`--help` prints it and exits `0`.
 
 ---
 
 ## Service Setup Scripts (`tasks/`)
 
-All service setup scripts are located in the `tasks/` directory. 
+All service setup scripts are located in the `tasks/` directory. A config key names one of
+them by its basename: `tasks/setup-docker` runs `setup-docker.sh`, `sync-models` runs
+`sync-models.py`. Most are `.sh`; the model-catalog sync is the one Python task, and it is
+enabled exactly like a shell task (`INTERACTIVE=false`, its `env:` and `args:`, config
+order, stop-at-first-failure).
+
 For a complete list of automations see [AUTOMATIONS.md](AUTOMATIONS.md)
 
 ---
