@@ -40,7 +40,7 @@ graph LR
 - **Order guaranteed** — scripts run in the order you listed them; a failing script stops the run (fix the cause and re-run)
 - **Agent-friendly** — ships an [Agent Skill](https://agentskills.io) so Claude Code, pi, or any compatible agent can set the machine up for you
 - **Backup-solution** - ships with the repository (see [Backups](README.md#backups))
-- **Not just inference** — 50+ automations: Forgejo, Nextcloud, n8n, Postiz, Neovim, monitoring, remote desktop, Text-to-speech, dev tools, and more
+- **Not just inference** — 50+ automations: Forgejo, Nextcloud, n8n, Postiz, Neovim, monitoring, remote desktop, mesh VPN for remote LAN access ([README_NETBIRD.md](README_NETBIRD.md)), Text-to-speech, dev tools, and more
 - Licensed under MIT License (see [MIT-LICENSE](./MIT-LICENSE))
 
 ---
@@ -221,6 +221,11 @@ enabled exactly like a shell task (`INTERACTIVE=false`, its `env:` and `args:`, 
 order, stop-at-first-failure).
 
 For a complete list of automations see [AUTOMATIONS.md](AUTOMATIONS.md)
+
+**Setting up network access?** [README_TRAEFIK.md](README_TRAEFIK.md) covers the reverse
+proxy; [README_NETBIRD.md](README_NETBIRD.md) is the flow guide for reaching your local
+network from outside the LAN — a phone on mobile data, a roaming laptop — over a
+self-hosted NetBird mesh, and it documents `setup-netbird.sh` and its routing peer.
 
 ---
 
