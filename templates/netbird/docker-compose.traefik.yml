@@ -81,9 +81,37 @@ services:
       - SYS_RESOURCE
     devices:
       - /dev/net/tun
+    # The image entrypoint runs a bare `netbird up`: it passes no setup key and
+    # (for a self-hosted server) no management URL, so an unregistered peer
+    # starts an interactive OAuth device flow and polls the IdP for 5 minutes.
+    # NB_SETUP_KEY is documented but NOT read by the 0.77.x client, so enroll
+    # with CLI flags instead. The identity lives in the netbird-client volume,
+    # so the key is needed for the first enrollment only.
     environment:
-      - NB_SETUP_KEY=${NETBIRD_SETUP_KEY:-}
-      - NB_MGMT_URL=${NETBIRD_MGMT_URL}
+      # NB_MANAGEMENT_URL *is* read by the client (NB_MGMT_URL is not a thing)
+      # and keeps the peer on this server; the :443 matches what the management
+      # advertises so the client does not rewrite its stored URL on every start.
+      - NB_MANAGEMENT_URL=${NETBIRD_MGMT_URL}:443
+      - NETBIRD_SETUP_KEY=${NETBIRD_SETUP_KEY:-}
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        netbird service run &
+        svc=$$!
+        trap "kill $$svc 2>/dev/null || true" TERM INT
+        i=0
+        until netbird status --check live >/dev/null 2>&1; do
+          i=$$((i+1))
+          if [ "$$i" -ge 30 ]; then echo "netbird daemon did not become responsive" >&2; exit 1; fi
+          sleep 1
+        done
+        if [ -n "$${NETBIRD_SETUP_KEY:-}" ]; then
+          netbird up --setup-key "$${NETBIRD_SETUP_KEY}" || exit 1
+        elif ! netbird status --check ready >/dev/null 2>&1; then
+          echo "netbird-client is not enrolled and NETBIRD_SETUP_KEY is empty" >&2
+          exit 1
+        fi
+        wait $$svc
     volumes:
       - netbird-client:/var/lib/netbird
     restart: unless-stopped

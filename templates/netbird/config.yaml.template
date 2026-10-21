@@ -3,7 +3,10 @@
 # manual edits are preserved. Contains secrets; keep chmod 600.
 server:
   listenAddress: ":80"
-  exposedAddress: "${NETBIRD_MGMT_URL}"
+  # :443 is required: peers derive the Signal (and relay) address from this
+  # value, and a port-less URL yields a gRPC dial string without a port, so
+  # every peer logs in once and then never connects to the signal service.
+  exposedAddress: "${NETBIRD_MGMT_URL}:443"
   stunPorts:
     - ${STUN_PORT}
   logLevel: "${NETBIRD_LOG_LEVEL}"

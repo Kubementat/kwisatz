@@ -24,6 +24,41 @@ more widely than it should be.
 
 `shellcheck` and `yamllint` pass on the script and both compose templates.
 
+## 1b. Addendum (2026-10-21, deployed stack) — two enrollment blockers, verified live
+
+L1 turned out to be High, not Low, and a second bug was hiding under it:
+
+**H6. `exposedAddress` without `:443` kills the Signal connection for every
+peer.** Peers derive the Signal (and relay) endpoint from `exposedAddress`. With
+`https://<domain>` the dial string is host-only and gRPC rejects it:
+`dial tcp: address <domain>: missing port in address`, then `create connection:
+dial context: context deadline exceeded`. `netbird status` inside the client shows
+the split that gives it away: `management: …:443 Connected`, `signal: …
+(omitting the port) Disconnected`, `Relays: 0/0`. Symptoms: the peer logins once
+(its record appears in the dashboard), `peer_status_connected` stays `0` forever,
+and a routing peer routes nothing. Fixed by rendering
+`exposedAddress: "${NETBIRD_MGMT_URL}:443"` — after that change `Signal:
+Connected` and `Relays: 2/2` immediately, `peer_status_connected` flipped to `1`.
+
+**H7. The routing-peer client never registers.** `templates/netbird/
+docker-compose.traefik.yml` configured the client with `NB_SETUP_KEY` (ignored —
+verified on 0.77.1 *and* `latest`: the entrypoint runs a bare `netbird up` and the
+client binary has no such env mapping) and a non-existent `NB_MGMT_URL`. The
+consequence is worse than doing nothing: `netbird up` without flags starts an
+interactive OAuth **device flow** and polls the IdP for 5 minutes, so every start
+of an unregistered peer spams the management's device endpoint and the peer never
+joins. `NB_MANAGEMENT_URL` *is* honoured (unlike the `NB_MGMT_URL` the template used before) but a keyless
+`up` still does not enroll. Fixed by overriding entrypoint/command to run
+`netbird service run`, wait for `netbird status --check live`, then
+`netbird up --setup-key "$NETBIRD_SETUP_KEY"`, and by erroring out instead of
+starting a device flow when no key is available. `netbird status --check ready`
+(NonZero on NeedsLogin / LoginFailed / SessionExpired) is the gate the task script
+now uses — `wait_for_healthy` alone only proves "running" (M5).
+
+Also verified: `netbird up --foreground-mode` does **not** start the daemon (no
+`/var/run/netbird.sock`), so `netbird service run &` must stay in the container's
+cmd — the 3-line `entrypoint: [netbird]` + `up -F` shortcut does not work.
+
 ## 2. Findings
 
 ### High

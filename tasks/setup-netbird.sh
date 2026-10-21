@@ -24,6 +24,7 @@
 #   5. Renders ${NETBIRD_HOME}/config.yaml from template (only if missing)
 #   6. Pulls images and starts the stack (docker compose up -d)
 #   7. Optionally starts the netbird-client routing peer (host IP forwarding)
+#      and verifies that it authenticated against this server
 #   8. Adds the UFW rule for STUN
 #   9. Waits for readiness and prints access info / first-time steps
 #
@@ -66,7 +67,9 @@
 #   # First run on a host without Traefik (Traefik is installed first):
 #   ACME_EMAIL=you@example.com NETBIRD_DOMAIN=netbird.example.com ./tasks/setup-netbird.sh
 #
-#   # Start the routing peer after creating a setup key in the dashboard:
+#   # Start the routing peer after creating a *reusable* setup key in the
+#   # dashboard (auto-assign the "Routing Peers" group). The key enrolls the
+#   # peer once; its identity then survives in the netbird-client volume:
 #   NETBIRD_DOMAIN=netbird.example.com NETBIRD_CLIENT_ENABLED=true \
 #     NETBIRD_SETUP_KEY=<KEY> ./tasks/setup-netbird.sh
 #
@@ -149,7 +152,12 @@ ${BOLD}Environment variables${RESET} (all optional except NETBIRD_DOMAIN):
   NETBIRD_ADMIN_PASSWORD   Optional bootstrap owner password (stored as bcrypt
                            hash in config.yaml; needs htpasswd)
   NETBIRD_CLIENT_ENABLED   "true" to start the routing-peer client (default: false)
-  NETBIRD_SETUP_KEY        Required when NETBIRD_CLIENT_ENABLED=true
+  NETBIRD_SETUP_KEY        Required when NETBIRD_CLIENT_ENABLED=true. Use a
+                           reusable key from the dashboard: it enrolls the
+                           routing peer once, after which the peer presents its
+                           own identity from the netbird-client volume, so a
+                           re-run needs it again only for a new peer or after a
+                           session expiry
   NETBIRD_CLIENT_HOSTNAME  Client container hostname (default: netbird-peer)
   NETBIRD_LOG_LEVEL        Server log level (default: info)
   WAIT_TIMEOUT             Max seconds to wait for the stack to come up and
@@ -386,11 +394,55 @@ if [[ "$NETBIRD_CLIENT_ENABLED" == "true" ]]; then
   step "Starting netbird-client routing peer"
   echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-netbird.conf > /dev/null
   sudo sysctl -w net.ipv4.ip_forward=1 > /dev/null
-  docker compose -f "$COMPOSE_FILE" --profile client up -d netbird-client
+
+  # The setup key enrolls the peer once; the identity then lives in the
+  # netbird-client volume, so a re-run needs it only for a brand-new peer or
+  # after a session expiry. Read back the persisted value when the environment
+  # does not carry one, otherwise persist what was passed so the next re-run
+  # converges without asking the operator for the key again.
+  if [[ -z "$NETBIRD_SETUP_KEY" ]]; then
+    NETBIRD_SETUP_KEY="$(env_file_get "$ENV_FILE" NETBIRD_SETUP_KEY || true)"
+  elif [[ "$(env_file_get "$ENV_FILE" NETBIRD_SETUP_KEY || true)" != "$NETBIRD_SETUP_KEY" ]]; then
+    client_env_tmp="$(mktemp)"
+    { grep -v '^NETBIRD_SETUP_KEY=' "$ENV_FILE" 2>/dev/null; printf 'NETBIRD_SETUP_KEY=%s\n' "$NETBIRD_SETUP_KEY"; } > "$client_env_tmp"
+    env_file_write "$ENV_FILE" < "$client_env_tmp"
+    rm -f "$client_env_tmp"
+    info "Setup key persisted in ${ENV_FILE} (mode 600)."
+  fi
+
+  # Passed explicitly: compose interpolates NETBIRD_SETUP_KEY from the process
+  # environment first, so this wins over whatever .env holds.
+  NETBIRD_SETUP_KEY="$NETBIRD_SETUP_KEY" docker compose -f "$COMPOSE_FILE" --profile client up -d netbird-client
+
   # Health gate for the client (the project-wide list now includes it).
   mapfile -t _ids < <(docker compose -f "$COMPOSE_FILE" --profile client ps -q)
   wait_for_healthy "${WAIT_TIMEOUT:-180}" "${_ids[@]}" \
     || error "netbird-client did not come up — see the status output above"
+
+  # Running is not enrolled: a peer that still needs login routes nothing.
+  # 'status --check ready' exits non-zero on NeedsLogin / LoginFailed /
+  # SessionExpired, and zero once the peer is authenticated.
+  step "Waiting for netbird-client to enroll with ${NETBIRD_MGMT_URL}"
+  client_ready=false
+  waited=0
+  while (( waited < ${WAIT_TIMEOUT:-180} )); do
+    if docker exec netbird-client netbird status --check ready >/dev/null 2>&1; then
+      client_ready=true
+      break
+    fi
+    sleep 5
+    waited=$(( waited + 5 ))
+  done
+  if [[ "$client_ready" != "true" ]]; then
+    docker compose -f "$COMPOSE_FILE" --profile client logs --tail 20 netbird-client || true
+    error "netbird-client is not authenticated with ${NETBIRD_MGMT_URL} after ${WAIT_TIMEOUT:-180}s. Create a reusable setup key in the dashboard (Settings → Setup Keys, auto-assign the 'Routing Peers' group) and re-run with NETBIRD_SETUP_KEY=<KEY>."
+  fi
+  peer_ip="$(docker exec netbird-client netbird status --json 2>/dev/null | sed -n 's/.*\"netbirdIp\":\"\([^"]*\)\".*/\1/p')"
+  if [[ -n "$peer_ip" ]]; then
+    success "Routing peer ${NETBIRD_CLIENT_HOSTNAME} enrolled as ${peer_ip}."
+  else
+    warn "Routing peer is enrolled but has no overlay address yet — check: docker compose -f ${COMPOSE_FILE} --profile client logs netbird-client"
+  fi
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -446,8 +498,9 @@ else
 fi
 echo -e "  2. Create a setup key (Settings → Setup Keys)."
 echo -e "  3. Join clients: netbird up --setup-key <KEY>  (or set management URL ${NETBIRD_MGMT_URL} in the app)."
-echo -e "  4. Routing peer: re-run with NETBIRD_DOMAIN=${NETBIRD_DOMAIN} NETBIRD_CLIENT_ENABLED=true NETBIRD_SETUP_KEY=<KEY>"
-echo -e "     and configure the LAN Network/route in the dashboard."
+echo -e "  4. Routing peer: create a reusable setup key (auto-assign the 'Routing Peers' group),"
+echo -e "     re-run with NETBIRD_DOMAIN=${NETBIRD_DOMAIN} NETBIRD_CLIENT_ENABLED=true NETBIRD_SETUP_KEY=<KEY>,"
+echo -e "     then assign that peer as Router of the LAN Network in the dashboard."
 echo ""
 echo -e "${BOLD}Useful commands:${RESET}"
 echo -e "  Follow logs    :  docker compose -f ${COMPOSE_FILE} logs -f"
