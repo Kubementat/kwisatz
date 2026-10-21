@@ -84,9 +84,11 @@ services:
     # The image entrypoint runs a bare `netbird up`: it passes no setup key and
     # (for a self-hosted server) no management URL, so an unregistered peer
     # starts an interactive OAuth device flow and polls the IdP for 5 minutes.
-    # NB_SETUP_KEY is documented but NOT read by the 0.77.x client, so enroll
-    # with CLI flags instead. The identity lives in the netbird-client volume,
-    # so the key is needed for the first enrollment only.
+    # NB_SETUP_KEY *is* read by the client (verified 0.77.1: non-UUID ->
+    # `invalid setup-key`, unknown key -> `setup key is invalid`, empty -> device
+    # flow), but this stack exports its own NETBIRD_SETUP_KEY instead, so
+    # enrollment passes the CLI flag explicitly below. The identity lives in the
+    # netbird-client volume, so the key is needed for the first enrollment only.
     environment:
       # NB_MANAGEMENT_URL *is* read by the client (NB_MGMT_URL is not a thing)
       # and keeps the peer on this server; the :443 matches what the management

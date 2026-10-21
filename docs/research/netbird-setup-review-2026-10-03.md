@@ -43,7 +43,8 @@ Connected` and `Relays: 2/2` immediately, `peer_status_connected` flipped to `1`
 **H7. The routing-peer client never registers.** `templates/netbird/
 docker-compose.traefik.yml` configured the client with `NB_SETUP_KEY` (ignored —
 verified on 0.77.1 *and* `latest`: the entrypoint runs a bare `netbird up` and the
-client binary has no such env mapping) and a non-existent `NB_MGMT_URL`. The
+client binary has no such env mapping — this particular claim is corrected below)
+and a non-existent `NB_MGMT_URL`. The
 consequence is worse than doing nothing: `netbird up` without flags starts an
 interactive OAuth **device flow** and polls the IdP for 5 minutes, so every start
 of an unregistered peer spams the management's device endpoint and the peer never
@@ -54,6 +55,15 @@ joins. `NB_MANAGEMENT_URL` *is* honoured (unlike the `NB_MGMT_URL` the template 
 starting a device flow when no key is available. `netbird status --check ready`
 (NonZero on NeedsLogin / LoginFailed / SessionExpired) is the gate the task script
 now uses — `wait_for_healthy` alone only proves "running" (M5).
+
+**Correction 2026-10-21** (local testing on 0.77.1): the claim that `NB_SETUP_KEY` is
+ignored is wrong. The client does read it — a non-UUID value is rejected with
+`invalid setup-key ... invalid UUID length: 12` and an unknown one with
+`setup key is invalid`, both before any SSO attempt; only an *empty or absent* variable
+leaves `netbird up` in the interactive device flow. The finding's remedy still stands,
+because the stack passes the key as `NETBIRD_SETUP_KEY`, which is not a client variable
+at all — so `netbird up --setup-key "$NETBIRD_SETUP_KEY"` remains required for
+enrollment on this deployment.
 
 Also verified: `netbird up --foreground-mode` does **not** start the daemon (no
 `/var/run/netbird.sock`), so `netbird service run &` must stay in the container's

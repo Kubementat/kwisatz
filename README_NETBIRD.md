@@ -177,9 +177,14 @@ netbird up --setup-key "$NETBIRD_SETUP_KEY"
 ```
 
 The last two lines are why the container overrides the image's `entrypoint`: the
-upstream entrypoint runs a bare `netbird up`, the client does not read the
-documented `NB_SETUP_KEY` variable, and a keyless `netbird up` starts an
-interactive OAuth **device flow** against your IdP instead of joining.
+upstream entrypoint runs `netbird up` with no arguments at all. The client does read
+its own `NB_SETUP_KEY` — verified on 0.77.1, where a non-UUID value fails with
+`invalid setup-key ... invalid UUID length`, an unknown key with
+`setup key is invalid`, and an *empty or absent* value drops into an interactive
+OAuth **device flow** against the IdP that polls for five minutes and then dies with
+`context deadline exceeded` — but this stack hands the container
+`NETBIRD_SETUP_KEY` (the script's variable, not a client variable), so enrollment has
+to pass the flag explicitly, which the command above does.
 
 Then the script gates on `netbird status --check ready` (non-zero on `NeedsLogin`,
 `LoginFailed`, `SessionExpired`) and prints the peer's overlay address:
@@ -317,11 +322,12 @@ docker exec netbird-client netbird networks list        # the peer's view of its
 docker exec netbird-client netbird forwarding list      # active forwarding rules
 ```
 
-Both print `No networks available.` / `No forwarding rules available.` while the
-Network has no Router assigned (that is the state right now). Once step 6 is done
-the router reports its networks, and the phone's `netbird networks list` offers the
-LAN network to select — that is the cleanest signal that the control plane is wired
-up, and it distinguishes it from a transport problem.
+Both print `No networks available.` / `No forwarding rules available.` for a peer that
+has nothing to consume — and note that `netbird networks list` is the **consumer** view:
+it stays empty on the routing peer even after step 6, whose prefixes instead appear in
+`netbird status` under `Networks:`. Ask a different peer (the phone), whose
+`netbird networks list` offers the LAN network to select — that is the cleanest signal
+that the control plane is wired up, and it distinguishes it from a transport problem.
 
 **5. End to end from a peer**
 

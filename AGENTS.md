@@ -81,6 +81,10 @@ kwisatz has released **v1.0.0**; `docs/releases/` starts there, and for the hist
 ### Important skills
 
 - always load the `karpathy-guidelines` skill when planning or implementing changes
+- when the request concerns NetBird (the mesh VPN, the `netbird` CLI, routing peers,
+  setup keys, self-hosting the server, or a peer that is connected but cannot reach a
+  subnet), read `skills/netbird/SKILL.md` first and its `references/` for CLI and API
+  details
 
 ### Linting
 

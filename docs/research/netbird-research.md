@@ -159,7 +159,8 @@ services:
     network_mode: host
     environment:
       - NB_SETUP_KEY=<SETUP KEY>
-      # - NB_MGMT_URL=https://netbird.example.com   # management URL
+      # - NB_MANAGEMENT_URL=https://netbird.example.com   # management URL
+      #   (NB_MGMT_URL does not exist — the client then stays on api.netbird.io)
     volumes:
       - netbird-client:/var/lib/netbird
     image: netbirdio/netbird:latest
@@ -360,7 +361,7 @@ services:
       - /dev/net/tun
     environment:
       - NB_SETUP_KEY=<SETUP-KEY>
-      - NB_MGMT_URL=https://netbird.<domain>
+      - NB_MANAGEMENT_URL=https://netbird.<domain>:443
     volumes:
       - netbird-client:/var/lib/netbird
     restart: unless-stopped
@@ -435,8 +436,8 @@ NGINX_SSL_PORT=443
 - `NB_PPROF_ADDR`: debug pprof — keep unset/loopback.
 - `NB_LOG_LEVEL` / `NB_LOG_FILE`: logging (also in config.yaml).
 - `NETBIRD_MGMT_API_ENDPOINT`, `AUTH_*`, `LETSENCRYPT_DOMAIN=none`: dashboard (see 7.3).
-- Client: `NB_SETUP_KEY`, `NB_MGMT_URL` (env `NB_...` maps to `--...` flags).
-- Precedence: defaults < config.yaml < env vars < CLI flags.
+- Client: `NB_SETUP_KEY` and `NB_MANAGEMENT_URL` (any `--flag` maps to `NB_FLAGNAME`; there is no `NB_MGMT_URL`, and without the URL the client stays on `api.netbird.io`).
+- Precedence (upstream, deliberately unusual): env vars > CLI flags > `<profile>.json` > defaults.
 
 ### 7.5 Bootstrap & verification sequence
 
@@ -515,7 +516,7 @@ Prior work:
 4. **Ensure Traefik**: working `letsencrypt` certresolver for `netbird.<domain>` (A record → evobox), `websecure` entrypoint without aggressive timeouts on long-lived connections (readTimeout 0 semantics as in NetBird's own compose), `exposedByDefault=false` docker provider.
 5. **Set in `config.yaml`**: `listenAddress: ":80"`, `exposedAddress: https://netbird.<domain>:443`, `stunPorts: [3478]`, random `authSecret`, random base64 32-byte `store.encryptionKey`, embedded IdP `auth.issuer` + redirect URIs, `disableAnonymousMetrics: true`.
 6. **Bootstrap unattended**: `NB_SETUP_PAT_ENABLED=true` + `POST /api/setup` (create_pat) to get owner + PAT; then drive the rest through the REST API (users/groups/setup keys/Network + access policy). Remove the env var after bootstrap. Strong admin password + MFA.
-7. **Routing peer = evobox**: run `netbirdio/netbird` client container with `network_mode: host`, `cap_add: NET_ADMIN SYS_ADMIN SYS_RESOURCE`, `/dev/net/tun`, `NB_SETUP_KEY`, and `NB_MGMT_URL`; enable `net.ipv4.ip_forward=1` (and IPv6 forwarding if used) on the host.
+7. **Routing peer = evobox**: run `netbirdio/netbird` client container with `network_mode: host`, `cap_add: NET_ADMIN SYS_ADMIN SYS_RESOURCE`, `/dev/net/tun`, `NB_SETUP_KEY`, and `NB_MANAGEMENT_URL`; enable `net.ipv4.ip_forward=1` (and IPv6 forwarding if used) on the host.
 8. **LAN exposure**: create a **Network** (not legacy Route) with resource `<LAN-CIDR>` (e.g. `192.168.1.0/24`), routing peer evobox, masquerade ON (default), and an access policy from the user's group to that resource. Add the home DNS (Pi-hole/router) as NetBird custom DNS for hostname resolution.
 9. **Post-deploy checks**: `curl https://netbird.<domain>/oauth2/.well-known/openid-configuration`; `netbird status` on the client container (connected, not permanently relayed — if always relayed, check STUN reachability `stun <domain> 3478`); ping a clientless LAN device from an external network; verify Traefik logs show the gRPC routes working.
 10. **Maintenance**: back up `netbird_data` volume + `config.yaml`/`dashboard.env` (and the secret values) regularly; upgrade by pulling new tags and `docker compose up -d --force-recreate`; watch release notes for management/proxy version-coupling notes.

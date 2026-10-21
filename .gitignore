@@ -19,3 +19,4 @@ models.yml.full
 .omo/
 .agent-work/
 .playwright-mcp/
+.agents/
