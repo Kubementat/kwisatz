@@ -9,6 +9,8 @@ import platform
 import shutil
 import subprocess
 import sys
+
+from . import orchestrator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -125,8 +127,8 @@ def fact_advisories(targets, table: dict) -> list[str]:
     return messages
 
 
-def checks(config) -> list[Check]:
-    """The M1 doctor set: OS, sudo, uv, python, docker, GPU, free disk."""
+def host_checks() -> list[Check]:
+    """The doctor's host set: OS, sudo, uv, python, docker, GPU, free disk, free `/srv`."""
     found = [
         os_check(),
         Check("sudo", has_sudo(), "sudo -n true", "grant sudo, or run with a sudo-capable user", True),
@@ -137,7 +139,72 @@ def checks(config) -> list[Check]:
         Check("gpu", has_gpu(), "nvidia-smi", "only needed by GPU targets", False),
     ]
     free = shutil.disk_usage("/").free / 1e9
-    found.append(Check("disk", free > 20, f"{free:.0f} GB free on /", "more than 20 GB for /srv and images", False))
+    found.append(Check("disk", free > 20, f"{free:.0f} GB free on /", "more than 20 GB for images and caches", False))
+    found.append(srv_disk_check())
+    return found
+
+
+def srv_disk_check() -> Check:
+    """Every stack keeps its data in `/srv/<name>`, so that filesystem matters more than `/`."""
+    where = "/srv" if Path("/srv").is_dir() else "/"
+    free = shutil.disk_usage(where).free / 1e9
+    return Check(
+        "srv-disk",
+        free > 20,
+        f"{free:.0f} GB free on {where}",
+        "model weights and container layers land here; free space is the usual cause of a stalled install",
+        False,
+    )
+
+
+def port_conflicts(config, services) -> list[Check]:
+    """The two ways a `*_PORT` fails, caught before 20 minutes of install work (R-OPS-003).
+
+    1. two enabled targets that both want the port — a guaranteed failure for whichever runs
+       second, and invisible in a config review because the values live in different entries;
+    2. a port the config wants that something already running has published. The target's own
+       stack is excluded, because re-applying it is exactly the converge case.
+    """
+    wanted: dict[int, list[str]] = {}
+    for name, raw in config.scripts:
+        try:
+            entry = orchestrator.check_shape(name, raw, config)
+        except orchestrator.ConfigError:
+            continue
+        if not orchestrator.is_enabled(name, entry, warn=lambda _m: None):
+            continue
+        for key, value in (entry.get("env") or {}).items():
+            if key.endswith("_PORT") and str(value).isdigit():
+                wanted.setdefault(int(value), []).append(name)
+
+    published: dict[int, str] = {}
+    for service in services:
+        for port in service.as_dict()["ports"]:
+            published[port] = service.name
+
+    found: list[Check] = []
+    for port, names in sorted(wanted.items()):
+        if len(names) > 1:
+            found.append(
+                Check(
+                    f"port:{port}",
+                    False,
+                    f"{port}/tcp wanted by {', '.join(names)}",
+                    "give one of them another `*_PORT`, or disable the other",
+                    False,
+                )
+            )
+        holder = published.get(port)
+        if holder and holder not in names:
+            found.append(
+                Check(
+                    f"port:{port}",
+                    False,
+                    f"{port}/tcp is already published by {holder}",
+                    f"kwisatz services --json   ·   change *_PORT for {', '.join(names)}",
+                    False,
+                )
+            )
     return found
 
 

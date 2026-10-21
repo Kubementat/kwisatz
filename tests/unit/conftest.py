@@ -88,7 +88,7 @@ def repo(tmp_path, monkeypatch) -> RepoFixture:
 
 def stub(repo: Path, name: str, *, kind: str = "sh", code: int = 0) -> Path:
     """Write a recording task script into tasks/."""
-    body = STUB_SH.format(name=name, code=code, keys=" ".join(RECORD_KEYS)) if kind == "sh" else \
+    body = STUB_SH.format(name=name, code=code, keys="|".join(RECORD_KEYS)) if kind == "sh" else \
         STUB_PY.format(name=name, code=code, keys=list(RECORD_KEYS))
     path = repo / "tasks" / f"{name}.{kind}"
     path.write_text(body)

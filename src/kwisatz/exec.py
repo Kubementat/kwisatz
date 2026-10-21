@@ -68,12 +68,15 @@ def run_task(
     echo_stdout: bool = True,
     heartbeat: float = 3.0,
     on_heartbeat=None,
+    inherit_stdio: bool = False,
 ) -> RunResult:
     started = time.monotonic()
     env = child_env(task, interactive=interactive, extra=extra_env)
     stdin = subprocess.DEVNULL if task.stdin == orchestrator.STDIN_NULL else None
-    if interactive:
-        # R-APP-013: the operator gets the script's own prompts, live, on this terminal
+    if interactive or inherit_stdio:
+        # R-APP-013: the operator gets the script's own prompts, live, on this terminal.
+        # `run` uses the same fd inheritance (R-JSON-001's exception) without forcing
+        # INTERACTIVE=true, which is only what --interactive means.
         stdin, stdout = None, None
     else:
         stdout = subprocess.PIPE

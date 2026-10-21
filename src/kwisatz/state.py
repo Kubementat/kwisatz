@@ -7,6 +7,7 @@ have exited. `kwisatz state` is M2; `apply` already writes the records so the an
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -46,3 +47,31 @@ def read(repo, target: str | None = None, limit: int = 50) -> list[dict]:
         if len(entries) >= limit:
             break
     return entries
+
+
+def config_sha(path: Path) -> str:
+    """A short identity of the config file, so a later run can tell it changed (R-SAFE-005)."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha256(data).hexdigest()[:12]
+
+
+def entries_map(config) -> dict[str, bool]:
+    """`{name: enabled}` — the part of the config an operator would say they changed.
+
+    The same rule the runner uses (`orchestrator.is_enabled`), read silently: this is a
+    history record, not the place for the "write `enabled: true`" warnings.
+    """
+    from . import orchestrator
+
+    out: dict[str, bool] = {}
+    for name, raw in config.scripts:
+        try:
+            entry = orchestrator.check_shape(name, raw, config)
+        except orchestrator.ConfigError:
+            out[name] = False
+            continue
+        out[name] = orchestrator.is_enabled(name, entry, warn=lambda _m: None)
+    return out

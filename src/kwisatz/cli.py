@@ -10,18 +10,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from . import checks
+from . import config as configio
 from . import exec as runner
-from . import jsonio, orchestrator, plan as planner, repo as repoio, state
-from .errors import EXIT_CODES, CliError, Exit, usage
+from . import jsonio, logs as logsio, orchestrator, plan as planner, repo as repoio, state
+from . import services as serviceio
+from .errors import EXIT_CODES, CliError, Exit, config_error, usage
 from .output import Out
 from .repo import Repo
 
@@ -46,11 +50,13 @@ class CommandSpec:
     detail: str = ""
     args: tuple[tuple[str, str], ...] = ()
     flags: tuple[Flag, ...] = ()
+    #: nested verbs (`kwisatz config enable x`); nothing else may dispatch on a second word
+    subcommands: tuple["CommandSpec", ...] = ()
     mutates: bool = False
     milestone: str = "M1"
 
     def as_dict(self) -> dict:
-        return {
+        out = {
             "name": self.name,
             "summary": self.summary,
             "mutates": self.mutates,
@@ -58,6 +64,15 @@ class CommandSpec:
             "args": [{"name": n, "help": h} for n, h in self.args],
             "flags": [{"flags": list(f.flags), "help": f.help, "value": f.metavar} for f in self.flags],
         }
+        if self.subcommands:
+            out["subcommands"] = [c.as_dict() for c in self.subcommands]
+        return out
+
+    def walk(self):
+        """This command and every verb under it, for the dispatcher and `commands --json`."""
+        yield self
+        for sub in self.subcommands:
+            yield from sub.walk()
 
 
 GLOBAL_FLAGS: tuple[Flag, ...] = (
@@ -81,8 +96,12 @@ COMMANDS: tuple[CommandSpec, ...] = (
         "install",
         "make `kwisatz` available on PATH for this user",
         "syncs the project venv, writes ~/.local/bin/kwisatz and the config file that records "
-        "the checkout. uv must already be installed (it prints the command if not). Use -C to "
-        "install a checkout that is not the running one.",
+        "the checkout. uv must already be installed — kwisatz does not download and run an "
+        "installer on its own, but `--with-uv <version>` will (pinned official installer, and "
+        "only with `--yes`, because that command executes upstream code).",
+        flags=(
+            Flag(("--with-uv",), "install this pinned uv version first", "<x.y.z>"),
+        ),
         mutates=True,
     ),
     CommandSpec(
@@ -103,6 +122,11 @@ COMMANDS: tuple[CommandSpec, ...] = (
         "target runs exactly the command a full apply would run for it — same env, same args, "
         "even when it is disabled in the config or has no entry at all.",
         args=(("[TARGET]…", "target names; `traefik` resolves `setup-traefik`"),),
+        flags=(
+            Flag(("--keep-going",), "run every target, not only up to the first failure (exit 8)"),
+            Flag(("--no-sudo-warmup",), "do not refresh the sudo ticket before a multi-target run"),
+            Flag(("--events",), "NDJSON progress lines on stdout before the final document"),
+        ),
         mutates=True,
     ),
     CommandSpec(
@@ -133,6 +157,106 @@ COMMANDS: tuple[CommandSpec, ...] = (
         "the CLI itself, as data",
         "command, flag and exit-code table — the agent's discovery path, no README required",
     ),
+    CommandSpec(
+        "config",
+        "inspect and edit machine-config.yml without an editor",
+        "every mutation is a comment-preserving, order-preserving ruamel round-trip: `enable` on "
+        "a file with 20 comments changes one line and leaves the rest byte-identical. Writes are "
+        "atomic, mode 0600, and the old file goes to .kwisatz/config-backups (5 kept).",
+        subcommands=(
+            CommandSpec("show", "the whole config, or one entry", args=(("[TARGET]", "one target only"),)),
+            CommandSpec("validate", "every config problem at once, before apply has to find them"),
+            CommandSpec(
+                "enable",
+                "flip enabled: true, comments untouched",
+                args=(("TARGET", "the target to enable"),),
+                mutates=True,
+            ),
+            CommandSpec(
+                "disable",
+                "flip enabled: false, comments untouched",
+                args=(("TARGET", "the target to disable"),),
+                mutates=True,
+            ),
+            CommandSpec(
+                "set",
+                "write one env key, quoted so it reads back as a string",
+                args=(("TARGET", "the target"), ("KEY=VALUE", "the value to write")),
+                mutates=True,
+            ),
+            CommandSpec(
+                "unset",
+                "drop one env key",
+                args=(("TARGET", "the target"), ("KEY", "the key to remove")),
+                mutates=True,
+            ),
+            CommandSpec(
+                "args",
+                "replace the args a target runs with",
+                args=(("TARGET", "the target"), ("[FLAG]\u2026", "the new args, verbatim")),
+                mutates=True,
+            ),
+            CommandSpec("path", "the file every config command reads and writes"),
+            CommandSpec(
+                "init",
+                "create machine-config.yml from a shipped example",
+                flags=(Flag(("--from-example",), "base | inference", "<which>"),),
+                mutates=True,
+            ),
+        ),
+        mutates=True,
+        milestone="M2",
+    ),
+    CommandSpec(
+        "services",
+        "what is running on this box right now",
+        "from /srv/*/docker-compose.yml, the com.docker.compose labels on every container, and "
+        "systemd units named after a task; the healthy signal is the one the task scripts use",
+        milestone="M2",
+    ),
+    CommandSpec(
+        "logs",
+        "the logs of a target's stack, unit, or last apply",
+        "compose logs for a docker stack, journalctl for a systemd unit, the newest stored apply "
+        "log otherwise, chosen by what discovery found rather than by a guess",
+        args=(("[TARGET]", "the target whose logs to read"),),
+        flags=(
+            Flag(("--tail",), "lines to print", "<n>", 200),
+            Flag(("--since",), "only logs after this time (journal/compose)", "<10m>"),
+            Flag(("-f", "--follow"), "keep streaming, bounded by --timeout"),
+        ),
+        milestone="M2",
+    ),
+    CommandSpec(
+        "state",
+        "what kwisatz applied last, and with what",
+        "one record per run, written after the scripts exited so a crashed run cannot read as a "
+        "success",
+        args=(("[TARGET]", "only the runs that touched this target"),),
+        milestone="M2",
+    ),
+    CommandSpec(
+        "models",
+        "the model catalog, through the tool that owns it",
+        "a thin, honest wrapper over tasks/sync-models.py, which has no --dry-run: `models sync "
+        "--dry-run` prints the command and changes nothing instead of inventing one",
+        subcommands=(
+            CommandSpec("sync", "run tasks/sync-models.py", mutates=True),
+            CommandSpec("status", "catalog summary and llama-swap, without running anything"),
+            CommandSpec("show", "the resolved catalog file and the models it defines"),
+        ),
+        mutates=True,
+        milestone="M2",
+    ),
+    CommandSpec(
+        "run",
+        "run a task script with arguments the CLI never parses",
+        "everything after `--` goes to the script verbatim, so its own --force/--check/--help stay "
+        "reachable; the script's stdout is the command's stdout (R-JSON-001's one exception)",
+        args=(("TARGET", "the target to run"), ("[ARGS]\u2026", "after `--`, forwarded verbatim")),
+        mutates=True,
+        milestone="M2",
+    ),
 )
 
 BY_NAME = {c.name: c for c in COMMANDS}
@@ -145,6 +269,12 @@ HANDLERS = {
     "commands": "cmd_commands",
     "install": "cmd_install",
     "init": "cmd_init",
+    "config": "cmd_config",
+    "services": "cmd_services",
+    "logs": "cmd_logs",
+    "state": "cmd_state",
+    "models": "cmd_models",
+    "run": "cmd_run",
 }
 
 
@@ -254,7 +384,19 @@ def cmd_apply(app: App) -> int:
 
     interactive = getattr(app.args, "interactive", False)
     if interactive and not sys.stdin.isatty():
-        raise CliError(Exit.PREREQUISITE, "--interactive requires a terminal", hint="run without --interactive")
+        raise CliError(
+            Exit.PREREQUISITE,
+            "--interactive needs a terminal — the script would prompt on a closed stdin",
+            hint="run without --interactive, or run it in a shell",
+        )
+
+    if not getattr(app.args, "dry_run", False):
+        # R-SAFE-005: a full apply is where an unnoticed config edit costs the most
+        if not wanted:
+            for message in _config_changed(repo, config):
+                app.warn(message)
+        if len(targets) > 1 and not getattr(app.args, "no_sudo_warmup", False):
+            _sudo_warmup(app)
 
     for message in app.warnings:
         app.out.warning(message)
@@ -273,6 +415,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
     extra = _env_overrides(app)
     timeout = float(getattr(app.args, "timeout", 3600) or 3600)
     interactive = bool(getattr(app.args, "interactive", False))
+    keep_going = bool(getattr(app.args, "keep_going", False))
     started_at = now_iso()
     started = time.monotonic()
     items: list[dict] = []
@@ -304,6 +447,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
                 f"  … {name} still running {elapsed}s · pid {pid}"
             ),
         )
+        _event(app, {"type": "step", "action": "start", "target": target.name, "index": index})
         item: dict = {
             "target": target.name,
             "index": index,
@@ -338,7 +482,8 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
                 hint=f"kwisatz apply {target.name}  (retry this one target only)",
             )
         items.append(item)
-        if failed:
+        _event(app, {"type": "step", "action": "end", "target": target.name, "status": item["status"]})
+        if failed and not keep_going:
             app.out.warning(f"stopping — the remaining {total - index} script(s) did not run")
             break
 
@@ -362,18 +507,26 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
             "duration_ms": int((time.monotonic() - started) * 1000),
             "repo": repoio.repo_dict(repo),
             "config": str(app.config.path) if app.config else "",
+            "config_sha": state.config_sha(app.config.path) if app.config else "",
+            "entries": state.entries_map(app.config) if app.config else {},
             "exit_code": Exit.TASK_FAILED if failed else Exit.OK,
             "items": [{k: i[k] for k in ("target", "status", "exit_code", "duration_ms")} for i in items],
         },
     )
-    if app.out.json:
-        return Exit.TASK_FAILED if failed else Exit.OK
-    return Exit.TASK_FAILED if failed else Exit.OK
+    if failed:
+        return Exit.PARTIAL if keep_going else Exit.TASK_FAILED
+    return Exit.OK
 
 
 def _summary(app: App, items: list[dict]) -> None:
     """R-OUT-007: target · outcome · duration · next step."""
     if app.out.json:
+        return
+    if app.out.quiet:
+        # R-OUT-003: one line on success, no table, no next-step chatter
+        bad = [i for i in items if i["status"] != "applied"]
+        one = items[0]["target"] if len(items) == 1 else f"{len(items) - len(bad)}/{len(items)} targets"
+        app.out.result(f"{one} {'failed: ' + bad[0]['target'] if bad else 'applied'}")
         return
     app.out.result("")
     app.out.result("Summary")
@@ -395,10 +548,15 @@ def cmd_status(app: App) -> int:
     enabled = [t for t in targets if t.enabled]
     disabled = [t for t in targets if not t.enabled]
 
+    items = planner.plan_items(enabled)
+    running = _running_services(app)
+    for item in items:
+        service = serviceio.find(running, item["target"])
+        item["runtime"] = service.annotation() if service else ""
     app.result = {
         "plan": len(enabled),
         "ran": 0,
-        "items": planner.plan_items(enabled),
+        "items": items,
         "disabled": [{"target": t.name, "description": t.description} for t in disabled],
     }
     if not app.out.json:
@@ -406,15 +564,34 @@ def cmd_status(app: App) -> int:
             app.out.result("nothing is enabled — kwisatz list --all, then kwisatz config enable <target>")
         else:
             planner.print_plan(app.out, enabled)
+            # R-STA-002: "what will run" is only half the question; "what is already up" is the other half
+            live = [(i["target"], i["runtime"]) for i in items if i["runtime"]]
+            if live:
+                app.out.note("running: " + ", ".join(f"{name} {state}" for name, state in live))
             if disabled:
                 app.out.note(f"{len(disabled)} disabled; kwisatz list --all")
     return Exit.OK
+
+
+def _running_services(app: App) -> list:
+    """The stack states for this run, cached on the app (discovery shells out; it is not free)."""
+    cached = getattr(app, "_services", None)
+    if cached is None:
+        names = [item.name for item in _load_plan_or_none(app)]
+        try:
+            names += list(planner.task_files(app.repo_dir().path))
+        except CliError:
+            pass
+        cached = serviceio.discover(names)
+        setattr(app, "_services", cached)
+    return cached
 
 
 def cmd_list(app: App) -> int:
     _, config, pl = app.load_plan()
     known = planner.catalog(config, pl)
     shown = known if getattr(app.args, "all", False) else [t for t in known if t.enabled]
+    running = _running_services(app)
     app.result = {
         "count": len(shown),
         "total": len(known),
@@ -427,6 +604,7 @@ def cmd_list(app: App) -> int:
                 "description": t.description,
                 "script": t.script,
                 "env": jsonio.mask_env(t.env, reveal=_reveal(app)),
+                "runtime": (serviceio.find(running, t.name) or _none()).annotation(),
             }
             for t in shown
         ],
@@ -488,15 +666,39 @@ def cmd_info(app: App) -> int:
 
 
 def cmd_doctor(app: App) -> int:
+    """§6.7 R-OPS-003: prerequisites, the §6.5 table, port sanity, and what is already running.
+
+    Exit codes are the whole point of this command for an agent: `4` means "this box cannot
+    run kwisatz yet", `5` means "it can, but something installed is unhealthy", `0` means go.
+    Nothing else changes, and nothing here mutates the machine.
+    """
     repo = app.repo_dir()
-    table = checks.load_prerequisites()
-    found = checks.checks()
-    missing = [c.name for c in found if c.required and not c.ok]
+    found = checks.host_checks()
+    config = None
+    try:
+        _, config, _ = app.load_plan()
+        names = [item.name for item in app.plan.items]
+    except (CliError, orchestrator.ConfigError) as e:
+        names = []
+        app.warn(f"machine-config.yml is not readable, so the ordering and port checks are skipped: {e}")
+    else:
+        table = checks.load_prerequisites()
+        app.warnings.extend(planner.check_prerequisite_order(list(app.plan.enabled), config, table["requires"]))
+        app.warnings.extend(checks.fact_advisories(list(app.plan.enabled), table))
+
+    running = serviceio.discover(names)
+    conflicts = checks.port_conflicts(config, running) if config is not None else []
+    broken = serviceio.unhealthy(running)
+    missing = [c for c in found if c.required and not c.ok]
+    code = Exit.PREREQUISITE if missing else (Exit.HEALTH if broken or not all(c.ok for c in conflicts) else Exit.OK)
     app.result = {
         "checks": [c.as_dict() for c in found],
-        "prerequisites": table,
-        "ok": not missing,
-        "missing": missing,
+        "ports": [c.as_dict() for c in conflicts],
+        "unhealthy": [s.as_dict() for s in broken],
+        "prerequisites": checks.load_prerequisites(),
+        "ok": code == Exit.OK,
+        "missing": [c.name for c in missing],
+        "doctor_exit_code": code,
     }
     app.out.progress(f"kwisatz {__version__} · repo {repo.path} ({repo.branch or 'no branch'} {repo.git_sha})")
     for check in found:
@@ -507,9 +709,16 @@ def cmd_doctor(app: App) -> int:
             app.out.error(f"{detail} — {check.hint}")
         else:
             app.out.warning(f"{detail} — {check.hint}")
-    if not app.out.json and missing:
-        app.out.note("kwisatz doctor --json lists every check")
-    return Exit.PREREQUISITE if missing else Exit.OK
+    for check in conflicts:
+        app.out.error(f"{check.detail} — {check.hint}")
+    for service in broken:
+        app.out.error(f"{service.name} is {service.state} — kwisatz logs {service.name}")
+    for message in app.warnings:
+        app.out.warning(message)
+    app.warnings_shown = True
+    if code and not app.out.json:
+        app.out.note("kwisatz doctor --json lists every check and the exact fix")
+    return code
 
 
 def cmd_commands(app: App) -> int:
@@ -532,12 +741,33 @@ def cmd_commands(app: App) -> int:
 def cmd_install(app: App) -> int:
     """R-INS-001: put `kwisatz` on PATH for this user, and touch nothing else."""
     repo = app.repo_dir()
+    pin = getattr(app.args, "with_uv", None)
     if shutil.which("uv") is None:
-        raise CliError(
-            Exit.PREREQUISITE,
-            "uv is not installed",
-            hint="curl -LsSf https://astral.sh/uv/install.sh | sh   then kwisatz install",
-        )
+        if not pin:
+            raise CliError(
+                Exit.PREREQUISITE,
+                "uv is not installed, and kwisatz does not install a toolchain behind your back",
+                hint="curl -LsSf https://astral.sh/uv/install.sh | sh   then kwisatz install",
+            )
+        if not getattr(app.args, "yes", False):
+            raise CliError(
+                Exit.USAGE,
+                f"--with-uv {pin} would download and execute upstream install code",
+                hint="kwisatz install --with-uv " + str(pin) + " --yes",
+            )
+        installer = f"https://astral.sh/uv/{pin}/install.sh"
+        app.out.action(f"installing uv {pin} from the pinned official installer")
+        done = subprocess.run(["sh", "-c", f"curl -LsSf {installer} | sh"], timeout=600, check=False)
+        if done.returncode != 0 or shutil.which("uv") is None:
+            raise CliError(
+                Exit.PREREQUISITE,
+                f"the uv {pin} installer exited {done.returncode} and uv is still not on PATH",
+                hint=f"curl -LsSf {installer} | sh",
+            )
+    if getattr(app.args, "dry_run", False):
+        app.result = {"repo": str(repo.path), "dry_run": True}
+        app.out.action(f"dry run — would sync {repo.path} and write ~/.local/bin/kwisatz")
+        return Exit.OK
     app.out.action(f"syncing the project venv in {repo.path}")
     sync = subprocess.run(
         ["uv", "sync", "--project", str(repo.path)], capture_output=True, text=True, timeout=900, check=False
@@ -565,6 +795,8 @@ def cmd_install(app: App) -> int:
     app.result = {"launcher": str(launcher), "repo": str(repo.path), "config": str(repoio.CONFIG_JSON)}
     if not app.out.json:
         app.out.ok(f"kwisatz is on PATH at {launcher}")
+        if str(Path.home() / ".local" / "bin") not in os.environ.get("PATH", "").split(os.pathsep):
+            app.out.warning(f"{launcher.parent} is not on PATH for this shell — add it to your profile")
         app.out.result("next: kwisatz init   then   kwisatz status")
     return Exit.OK
 
@@ -617,6 +849,499 @@ def cmd_version(app: App) -> int:
     return Exit.OK
 
 
+# ── M2: config / services / logs / state / models / run ─────────────────────────────
+
+
+def cmd_config(app: App) -> int:
+    """§6.6: the config file, edited by a command that cannot lose a comment."""
+    repo = app.repo_dir()
+    path = repoio.resolve_config(repo, getattr(app.args, "config", None))
+    verb = getattr(app.args, "subcommand", None)
+    if verb == "path":
+        app.result = {"config": str(path)}
+        if not app.out.json:
+            app.out.result(str(path))
+        return Exit.OK
+    if verb == "init":
+        return cmd_init(app)
+    if verb == "validate":
+        return _config_validate(app, repo, path)
+    if verb == "show":
+        return _config_show(app, repo, path)
+    return _config_mutate(app, repo, path, verb)
+
+
+def _config_validate(app: App, repo: Repo, path: Path) -> int:
+    """R-CFG-007: every problem at once, using the runner's own checks."""
+    found = configio.problems(path, repo.path)
+    entries = enabled = 0
+    try:
+        plan = orchestrator.build_plan(orchestrator.load_config(path, repo.path), warn=lambda _m: None)
+        entries, enabled = len(plan.items), len(plan.enabled)
+    except orchestrator.ConfigError:
+        pass
+    app.result = {
+        "config": str(path),
+        "ok": not found,
+        "entries": entries,
+        "enabled": enabled,
+        "problems": found,
+    }
+    if app.out.json:
+        return Exit.CONFIG if found else Exit.OK
+    for message in found:
+        app.out.error(message)
+    if found:
+        app.out.note("kwisatz config set/enable … or edit the file, then kwisatz config validate")
+        return Exit.CONFIG
+    app.out.ok(f"{path.name} is valid — {entries} entries, {enabled} enabled")
+    return Exit.OK
+
+
+def _config_show(app: App, repo: Repo, path: Path) -> int:
+    _, _, plan = app.load_plan()
+    wanted = getattr(app.args, "target", None)
+    items = []
+    for item in plan.items:
+        if wanted and planner.canonical(item.name) != planner.canonical(wanted):
+            continue
+        items.append(
+            {
+                "target": item.name,
+                "enabled": item.enabled,
+                "description": item.description,
+                "args": list(item.args),
+                "env": jsonio.mask_env(item.env, reveal=_reveal(app)),
+            }
+        )
+    app.result = {"config": str(path), "entries": items}
+    if app.out.json:
+        return Exit.OK
+    if wanted and not items:
+        raise config_error(f"{path}: no entry for {wanted!r}", hint="kwisatz list --all")
+    for item in items:
+        flag = "enabled " if item["enabled"] else "disabled"
+        app.out.result(f"{item['target']:<30} {flag}  {item['description']}")
+        if item["args"]:
+            app.out.result(f"{'':<30}   args: {' '.join(item['args'])}")
+        if item["env"]:
+            app.out.result(f"{'':<30}   env:   {', '.join(sorted(item['env']))}")
+    return Exit.OK
+
+
+def _config_mutate(app: App, repo: Repo, path: Path, verb: str) -> int:
+    """One write, done carefully: lock, mutate in memory, validate, replace, tell the truth.
+
+    The order is the point. Reading the file through `planner.resolve_target` means
+    `config enable docker` writes `setup-docker:` (the key that matches the script), never a
+    second key for the same service; validating *after* the write and rolling back on a
+    problem means a typo can never be left behind for the next `apply` to trip over.
+    """
+    name_arg = getattr(app.args, "target", None)
+    if not name_arg:
+        raise usage("config needs a target", hint="kwisatz config enable <target>")
+    repo.ensure_work()
+    with repoio.held(repo, float(getattr(app.args, "lock_timeout", 0) or 0)):
+        doc = configio.load(path)
+        before = path.read_text() if path.is_file() else ""
+        key = planner.resolve_target(name_arg, *_plan_pair(app)).name
+        if verb == "enable":
+            configio.set_enabled(doc, key, True)
+        elif verb == "disable":
+            configio.set_enabled(doc, key, False)
+        elif verb == "set":
+            raw = getattr(app.args, "key_value", None) or ""
+            if "=" not in raw:
+                raise usage(f"config set expects KEY=VALUE, got {raw!r}", hint="kwisatz config set x K=V")
+            env_key, _, value = raw.partition("=")
+            configio.set_env(doc, key, env_key, value)
+        elif verb == "unset":
+            env_key = getattr(app.args, "key", None) or ""
+            if not configio.unset_env(doc, key, env_key) and not configio.unset_key(doc, key, env_key):
+                app.out.note(f"{key}: no {env_key} to remove — nothing changed")
+                return Exit.OK
+        elif verb == "args":
+            configio.set_args(doc, key, list(getattr(app.args, "flag", None) or []))
+        else:
+            raise usage(f"unknown config verb {verb!r}", hint="kwisatz config show|validate|enable|…")
+
+        intended = configio.dumps(doc)
+        lines = configio.diff(before, intended)
+        app.result = {
+            "config": str(path),
+            "target": key,
+            "verb": verb,
+            "changed": bool(lines),
+            "diff": lines,
+            "dry_run": bool(getattr(app.args, "dry_run", False)),
+        }
+        if getattr(app.args, "dry_run", False):
+            app.out.action("dry run — nothing was written")
+            _print_diff(app, lines)
+            return Exit.OK
+        if not lines:
+            app.out.ok(f"{key}: already configured that way")
+            return Exit.OK
+
+        configio.dump(doc, path, backup=configio.backup_path(repo.work, path))
+        problems = configio.problems(path, repo.path)
+        if problems:
+            configio.restore(path, before)
+            app.result["rolled_back"] = True
+            for message in problems:
+                app.out.error(message)
+            raise CliError(
+                Exit.CONFIG,
+                f"{path}: the edit would have left {len(problems)} problem(s); it was reverted",
+                target=key,
+                hint="kwisatz config validate",
+            )
+        _print_diff(app, lines)
+        app.out.note(f"next: kwisatz apply {key}" if key in [i.name for i in _plan_items(app)] else "next: kwisatz apply")
+    return Exit.OK
+
+
+def _plan_items(app: App):
+    return app.plan.items if app.plan is not None else []
+
+
+def _plan_pair(app: App):
+    """(config, plan) from the run's cached resolution — the planner's single source."""
+    _, config, plan = app.load_plan()
+    return config, plan
+
+
+def _print_diff(app: App, lines: list[str]) -> None:
+    if app.out.json:
+        return
+    for line in lines:
+        if line.startswith("---") or line.startswith("+++"):
+            continue
+        app.out.result(line)
+
+
+def cmd_services(app: App) -> int:
+    """§6.7 R-OPS-001: what is running, as data, with no guessing."""
+    names = [item.name for item in _load_plan_or_none(app)]
+    found = serviceio.discover(names)
+    app.result = {
+        "count": len(found),
+        "docker": serviceio.docker_running(),
+        "systemd": serviceio.systemd_running(),
+        "items": [s.as_dict() for s in found],
+    }
+    if app.out.json:
+        return Exit.OK
+    if not found:
+        app.out.result("nothing kwisatz manages is running here")
+        return Exit.OK
+    app.out.result(f"{'SERVICE':<26} {'MANAGER':<9} {'STATE':<12} {'PORTS':<14} SOURCE")
+    for service in found:
+        ports = ",".join(str(p) for p in service.as_dict()["ports"]) or "—"
+        app.out.result(
+            f"{service.name:<26} {service.manager:<9} {service.state:<12} {ports:<14} {service.source}"
+        )
+    bad = serviceio.unhealthy(found)
+    for service in bad:
+        app.out.warning(f"{service.name} is {service.state} — kwisatz logs {service.name}")
+    return Exit.OK
+
+
+def cmd_logs(app: App) -> int:
+    """R-OPS-005: the logs of a stack, a unit, or the last apply, by what exists."""
+    repo = app.repo_dir()
+    names = [item.name for item in _load_plan_or_none(app)]
+    target = getattr(app.args, "target", None) or ""
+    found = serviceio.discover(names)
+    service = serviceio.find(found, target) if target else None
+    source = logsio.source_for(service, target, repo.logs)
+    if source.argv is None:
+        raise CliError(
+            Exit.CONFIG if target else Exit.USAGE,
+            source.description,
+            target=target or None,
+            hint="kwisatz services   ·   kwisatz logs <target> --tail 200",
+        )
+    argv = logsio.stream_argv(
+        source,
+        tail=getattr(app.args, "tail", None),
+        since=getattr(app.args, "since", None),
+        follow=bool(getattr(app.args, "follow", False)),
+    )
+    timeout = float(getattr(app.args, "timeout", 3600) or 3600)
+    app.result = {"source": source.description, "command": argv}
+    if source.kind == logsio.APPLY_LOG:
+        shown = logsio.tail(Path(source.path), int(getattr(app.args, "tail", 0) or 200))
+        app.result["lines"] = shown
+        for line in shown:
+            app.out.result(line)
+        return Exit.OK
+    if app.out.json:
+        # R-JSON-001: nothing but the document may reach stdout, so capture instead of stream
+        done = logsio.capture(argv, timeout)
+        app.result["stdout_tail"] = done.splitlines()[-200:]
+        return Exit.OK
+    app.out.progress(source.description)
+    done = logsio.stream(argv, timeout)
+    return Exit.OK if done.returncode == 0 else Exit.TASK_FAILED
+
+
+def cmd_state(app: App) -> int:
+    """§6.9: the answer to "did we ever install this, and with what?"."""
+    repo = app.repo_dir()
+    target = getattr(app.args, "target", None)
+    records = state.read(repo, target, 50)
+    app.result = {"path": str(state.path(repo)), "count": len(records), "records": records}
+    if app.out.json:
+        return Exit.OK
+    if not records:
+        app.out.result(f"nothing has been applied yet — {state.path(repo)} does not exist")
+        return Exit.OK
+    for record in records:
+        items = record.get("items") or []
+        outcomes = " ".join(f"{i.get('target')}={i.get('status')}" for i in items) or "(no items)"
+        app.out.result(
+            f"{record.get('started_at', '?')}  exit {record.get('exit_code', '?')}  "
+            f"{record.get('command', 'apply')}  {outcomes}"
+        )
+    return Exit.OK
+
+
+def cmd_models(app: App) -> int:
+    """R-MOD-001: honest about what `tasks/sync-models.py` does and does not do."""
+    verb = getattr(app.args, "subcommand", None)
+    if verb == "status":
+        return _models_status(app, sync=False)
+    if verb == "show":
+        return _models_status(app, sync=True)
+    return _models_sync(app)
+
+
+def _models_sync(app: App) -> int:
+    repo, config, _ = app.load_plan()
+    argv = orchestrator.task_command("sync-models", config, warn=app.out.warning)
+    if getattr(app.args, "dry_run", False):
+        # sync-models.py has no --dry-run, so claiming one would be a lie
+        app.result = {"command": argv, "dry_run": True}
+        if not app.out.json:
+            app.out.action("dry run — tasks/sync-models.py has no --dry-run; nothing was run")
+            app.out.result("    " + " ".join(argv))
+        return Exit.OK
+    task = orchestrator.Task(name="sync-models", argv=argv, env={"INTERACTIVE": "false"}, secrets=frozenset())
+    outcome = runner.run_task(
+        task,
+        root=repo.path,
+        log_path=repo.logs / f"kwisatz-{now_iso().replace(':', '')}-sync-models.log",
+        timeout=float(getattr(app.args, "timeout", 3600) or 3600),
+        echo_stdout=not app.out.json,
+        on_heartbeat=lambda elapsed, pid: app.out.progress(f"  … sync-models still running {elapsed}s · pid {pid}"),
+    )
+    code, script_code = _map_models_exit(outcome.returncode)
+    app.result = {
+        "command": " ".join(argv),
+        "exit_code": outcome.returncode,
+        "script_exit_code": script_code,
+        "log_path": outcome.log_path,
+        "stdout_tail": outcome.stdout_tail,
+    }
+    if outcome.returncode:
+        app.fail(
+            code,
+            f"sync-models.py exited {outcome.returncode}"
+            + (" (pre-flight — nothing was mutated)" if outcome.returncode == 1 else ""),
+            hint="kwisatz models status   ·   cat models.yml",
+        )
+    return code
+
+
+def _map_models_exit(code: int | None) -> tuple[int, int | None]:
+    """sync-models.py's 0/1/2 onto §9, keeping its own code for the caller (R-EXIT-001)."""
+    if code in (None, 0):
+        return Exit.OK, code
+    return (Exit.PREREQUISITE, code) if code == 1 else (Exit.TASK_FAILED, code)
+
+
+def _models_status(app: App, sync: bool) -> int:
+    """The catalog as the machine sees it: the file that wins, the models it names, llama-swap."""
+    repo = app.repo_dir()
+    path = next((p for p in (repo.path / "models.yml", repo.path / "models.yml.example") if p.is_file()), None)
+    catalog = _catalog_summary(path) if path else {"path": "", "providers": 0, "models": 0, "names": []}
+    swap = serviceio.discover(["llama-swap"])
+    swap_state = serviceio.find(swap, "llama-swap")
+    app.result = {
+        "catalog": catalog,
+        "llama_swap": swap_state.as_dict() if swap_state else {"name": "llama-swap", "state": serviceio.UNKNOWN},
+    }
+    if sync:
+        app.result["sync_command"] = "tasks/sync-models.py"
+    if not app.out.json:
+        app.out.result(f"catalog  {catalog['path']}")
+        app.out.result(f"models   {catalog['models']} across {catalog['providers']} provider(s)")
+        if catalog["names"]:
+            app.out.result("         " + ", ".join(catalog["names"]))
+        app.out.result(f"swap     {'running' if swap_state and swap_state.state == serviceio.RUNNING else swap_state.state if swap_state else 'not installed'}")
+        if sync:
+            app.out.note("kwisatz models sync applies it")
+    return Exit.OK
+
+
+def _catalog_summary(path: Path) -> dict:
+    import yaml
+
+    try:
+        doc = yaml.safe_load(path.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return {"path": str(path), "providers": 0, "models": 0, "names": [], "unparsable": True}
+    providers = doc.get("providers") or []
+    names = [str(m.get("name")) for p in providers if isinstance(p, dict) for m in (p.get("models") or []) if isinstance(m, dict)]
+    return {"path": str(path), "providers": len(providers), "models": len(names), "names": names}
+
+
+def cmd_run(app: App) -> int:
+    """R-CMD-004 / R-EXIT-001: the script, with whatever the user typed after `--`."""
+    repo, config, plan = app.load_plan()
+    target = planner.resolve_target(getattr(app.args, "target", None), config, plan)
+    if target.task is None and target.configured:
+        # `run` is the escape hatch, and an escape hatch does not care about the enabled flag
+        target.task = orchestrator.build_task(target.name, config.entry(target.name), config)
+    if target.task is None:
+        raise CliError(
+            Exit.CONFIG,
+            f"{config.path}: {target.name} has nothing to run (enabled: false and no task file)",
+            target=target.name,
+            hint=f"kwisatz apply {target.name}",
+        )
+    rest = [a for a in (getattr(app.args, "rest", None) or []) if a != "--"]
+    task = orchestrator.Task(
+        name=target.name,
+        argv=[*target.task.argv, *rest],
+        env=dict(target.task.env),
+        secrets=frozenset(target.task.env) - {"INTERACTIVE"},
+        stdin=orchestrator.STDIN_INHERIT,
+    )
+    repo.ensure_work()
+    with repoio.held(repo, float(getattr(app.args, "lock_timeout", 0) or 0)):
+        outcome = runner.run_task(
+            task,
+            root=repo.path,
+            extra_env=_env_overrides(app),
+            log_path=None,
+            timeout=float(getattr(app.args, "timeout", 3600) or 3600),
+            inherit_stdio=True,
+        )
+    code, script_code = _map_task_exit(outcome.returncode)
+    app.result = {
+        "target": target.name,
+        "command": task.command.replace(" </dev/null", ""),
+        "script_exit_code": script_code,
+        "duration_ms": outcome.duration_ms,
+    }
+    if code:
+        app.fail(code, f"{target.name} exited {script_code}", target=target.name, hint=f"kwisatz logs {target.name}")
+    return code
+
+
+def _map_task_exit(code: int | None) -> tuple[int, int | None]:
+    """A script's 0/1/2 onto §9, with 2 surfaced as 1 + `script_exit_code` (R-EXIT-001)."""
+    if code in (None, 0):
+        return Exit.OK, code
+    return Exit.TASK_FAILED, code
+
+
+def _none():
+    """A "nothing running" service, so a plain target still prints an empty annotation."""
+    return serviceio.Service(name="")
+
+
+def _load_plan_or_none(app: App) -> list:
+    """Targets for service discovery: a broken config must not hide what is running."""
+    try:
+        _, _, plan = app.load_plan()
+    except (CliError, orchestrator.ConfigError):
+        return []
+    return plan.items
+
+
+def _services_for(app: App, target: str) -> serviceio.Service | None:
+    names = [item.name for item in _load_plan_or_none(app)]
+    for name in _names_from_disk(app):
+        names.append(name)
+    return serviceio.find(serviceio.discover(names), target)
+
+
+def _names_from_disk(app: App) -> list[str]:
+    try:
+        repo = app.repo_dir()
+    except CliError:
+        return []
+    return list(planner.task_files(repo.path))
+
+
+def _config_changed(repo: Repo, config) -> list[str]:
+    """R-SAFE-005: warn when the plan being applied differs from the one last applied.
+
+    The record carries a sha of the file *and* the enabled/disabled map, so the warning can
+    name the keys that moved instead of saying "the config changed".
+    """
+    records = state.read(repo, None, 1)
+    if not records:
+        return []
+    last = records[0]
+    now_sha = state.config_sha(config.path)
+    before = last.get("config_sha") or ""
+    if not before or before == now_sha:
+        return []
+    last_entries = last.get("entries") or {}
+    now_entries = state.entries_map(config)
+    moved = [
+        f"{name} {'enabled' if now_entries.get(name) else 'disabled'}"
+        for name in now_entries
+        if last_entries.get(name) != now_entries.get(name)
+    ]
+    for name in last_entries:
+        if name not in now_entries:
+            moved.append(f"{name} removed from the config")
+    detail = " (" + ", ".join(moved[:6]) + ")" if moved else ""
+    return [
+        f"{config.path.name} changed since the last apply on {last.get('started_at', 'an unknown run')}"
+        f"{detail} — kwisatz status shows what this run will do"
+    ]
+
+
+def _sudo_warmup(app: App) -> None:
+    """R-SAFE-006: refresh the ticket once, then keep it alive for a long apply.
+
+    The CLI asks `sudo` nothing more than this — the task scripts remain the only thing that
+    mutates the machine (R-SAFE-003). A 20-minute apply must not die on an expired credential
+    in script 14, so the keep-alive is a daemon thread that exits with the process.
+    """
+    if not shutil.which("sudo"):
+        return
+    probe = subprocess.run(["sudo", "-n", "true"], capture_output=True, text=True, timeout=15, check=False)
+    if probe.returncode != 0:
+        app.warn(
+            "sudo needs a password — run `sudo -v` in this shell first, "
+            "or scripts that call sudo will fail on a closed stdin"
+        )
+        return
+    threading.Thread(target=_sudo_keepalive, daemon=True).start()
+
+
+def _sudo_keepalive(interval: float = 180.0) -> None:
+    """`sudo -n true` every `interval` seconds while this process lives (no privilege use)."""
+    while True:
+        time.sleep(interval)
+        subprocess.run(["sudo", "-n", "true"], capture_output=True, check=False)
+
+
+def _event(app: App, payload: dict) -> None:
+    """`--events`: NDJSON progress on stdout, terminated by the final document (R-JSON-003)."""
+    if not getattr(app.args, "events", False):
+        return
+    payload.setdefault("at", now_iso())
+    jsonio.emit(payload)
+
+
 # ── helpers ─────────────────────────────────────────────────────────────────────
 
 
@@ -658,37 +1383,78 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog="run `kwisatz` with no command for the command map",
     )
     parser.add_argument("--version", action="store_true", help="print version and repo SHA, exit 0")
+    # globals work in either position (`kwisatz --repo x apply`, `kwisatz apply --repo x`); the
+    # sub-parsers declare them with SUPPRESS defaults, so a sub-command's own default cannot
+    # silently erase what the operator put before the verb
+    for flag in GLOBAL_FLAGS:
+        _add_flag(parser, flag)
     sub = parser.add_subparsers(dest="command", metavar="<command>")
     for spec in COMMANDS:
-        p = sub.add_parser(
-            spec.name,
-            help=spec.summary,
-            description=(spec.detail or spec.summary) + "\n\n" + _flags_help(spec),
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            add_help=False,
-        )
-        p.add_argument("-h", "--help", action="help", help="show this help message and exit")
-        for flag in GLOBAL_FLAGS:
-            names = flag.names()
-            if flag.metavar:
-                p.add_argument(*names, metavar=flag.metavar, default=flag.default, help=flag.help)
-            elif names[0] in ("-v", "--verbose"):
-                p.add_argument(*names, action="count", default=0, help=flag.help)
-            elif isinstance(flag.default, list):
-                p.add_argument(*names, action="append", default=[], help=flag.help)
-            else:
-                p.add_argument(*names, action="store_true", default=False, help=flag.help)
-        for name, help_text in spec.args:
-            if name.startswith("["):
-                p.add_argument("targets", nargs="*", help=help_text)
-            else:
-                p.add_argument("target", help=help_text)
-        for flag in spec.flags:
-            if flag.metavar:
-                p.add_argument(*flag.names(), metavar=flag.metavar, default=flag.default, help=flag.help)
-            else:
-                p.add_argument(*flag.names(), action="store_true", default=False, help=flag.help)
+        _add_command(sub, spec, nested=False)
     return parser
+
+
+def _add_command(sub, spec: CommandSpec, *, nested: bool) -> None:
+    """One sub-parser, built from the spec and nothing else (R-CMD-001)."""
+    p = sub.add_parser(
+        spec.name,
+        help=spec.summary,
+        description=(spec.detail or spec.summary) + "\n\n" + _flags_help(spec),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
+    )
+    p.add_argument("-h", "--help", action="help", help="show this help message and exit")
+    for flag in GLOBAL_FLAGS:
+        _add_flag(p, flag, nested=True)
+    for name, help_text in spec.args:
+        dest, kwargs = _positional(name, help_text)
+        p.add_argument(dest, **kwargs)
+    for flag in spec.flags:
+        _add_flag(p, flag, nested=nested)
+    if spec.subcommands:
+        verbs = p.add_subparsers(dest="subcommand", metavar="<verb>", required=True)
+        for child in spec.subcommands:
+            _add_command(verbs, child, nested=True)
+
+
+def _add_flag(p: argparse.ArgumentParser, flag: Flag, *, nested: bool = False) -> None:
+    """The same flag on a verb's own parser.
+
+    A verb must accept `kwisatz config enable x --json` without the operator repeating the
+    flag before the verb. `default=SUPPRESS` on a nested parser is what makes that safe: an
+    unspecified flag leaves the parent's value alone instead of resetting it to `False`.
+    """
+    names = flag.names()
+    default = argparse.SUPPRESS if nested else flag.default
+    if flag.metavar:
+        p.add_argument(*names, metavar=flag.metavar, default=default, help=flag.help)
+    elif names[0] in ("-v", "--verbose"):
+        p.add_argument(*names, action="count", default=default if nested else 0, help=flag.help)
+    elif isinstance(flag.default, list):
+        p.add_argument(*names, action="append", default=[] if not nested else default, help=flag.help)
+    elif flag.default is not None:
+        p.add_argument(*names, default=default, help=flag.help)
+    else:
+        p.add_argument(*names, action="store_true", default=default if nested else False, help=flag.help)
+
+
+def _positional(name: str, help_text: str) -> tuple:
+    """`[ARGS]…` takes everything after `--`; `[TARGET]` is optional; the rest is required."""
+    dest = _dest_of(name)
+    if name.startswith("[ARGS") or name.startswith("[FLAG"):
+        return dest, {"nargs": argparse.REMAINDER, "help": help_text}
+    if name.endswith("\u2026"):  # a list: `kwisatz apply traefik nextcloud …`
+        return dest, {"nargs": "*", "default": [], "help": help_text}
+    if name.startswith("["):
+        return dest, {"nargs": "?", "default": None, "help": help_text}
+    return dest, {"help": help_text}
+
+
+def _dest_of(name: str) -> str:
+    """`[TARGET]…` → `target`, `KEY=VALUE` → `key_value`: the brackets are decoration."""
+    core = name.replace("[", "").replace("]", "").replace("\u2026", "")
+    core = core.replace("=", "_").replace("-", "_").replace(" ", "_")
+    return core.lower() or "arg"
 
 
 def _flags_help(spec: CommandSpec) -> str:
@@ -719,6 +1485,11 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     started = time.monotonic()
     parser = _build_parser()
+    # argparse rejects an unknown verb before we get a turn, so the `did you mean` of
+    # R-CMD-002 has to be decided from argv first.
+    verb = _first_command_token(argv)
+    if verb is not None and verb not in HANDLERS:
+        return _no_command(argv)
     try:
         args = parser.parse_args(argv)
     except SystemExit as e:  # argparse already wrote usage to stderr
@@ -745,23 +1516,47 @@ def main(argv: list[str] | None = None) -> int:
     except CliError as e:
         app.errors.append({**e.error(), "_shown": False})
         code = e.code
+    except orchestrator.ConfigError as e:
+        # a config problem read by the shared module: one line naming the file, never a traceback
+        app.errors.append({**config_error(str(e)).error(), "_shown": False})
+        code = Exit.CONFIG
     except KeyboardInterrupt:  # pragma: no cover
         app.errors.append({"message": "interrupted", "exit_code": Exit.TASK_FAILED, "_shown": False})
         code = Exit.TASK_FAILED
     return _finish(app, code, started)
 
 
+# options that swallow the next token, so `kwisatz --repo /x --version` is not read as a
+# command called "/x"
+_VALUE_FLAGS = {name for f in GLOBAL_FLAGS if f.metavar for name in f.flags} | {"-c", "-C"}
+
+
+def _first_command_token(argv: list[str]) -> str | None:
+    """The verb the user meant: the first token that is neither a flag nor a flag's value."""
+    skip_next = False
+    for token in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if token.startswith("-"):
+            if "=" not in token and token in _VALUE_FLAGS:
+                skip_next = True
+            continue
+        return token
+    return None
+
+
 def _no_command(argv: list[str]) -> int:
-    first = next((a for a in argv if not a.startswith("-")), None)
+    first = _first_command_token(argv)
     if first is None:  # bare `kwisatz`: the command map, then exit 2 (R-CMD-003)
         app = App(args=argparse.Namespace(), out=Out())
         cmd_commands(app)
         return Exit.USAGE
-    closest = planner.similar(first, list(HANDLERS), 1)
     print(f"kwisatz: unknown command {first!r}", file=sys.stderr)
     print(f"        try: kwisatz <{'|'.join(HANDLERS)}>", file=sys.stderr)
-    if closest and closest[0] != first:
-        print(f"  did you mean: kwisatz {closest[0]} ?", file=sys.stderr)
+    close = [c for c in planner.similar(first, list(HANDLERS), 3) if planner._distance(c, first) <= 2]
+    if close:
+        print(f"  did you mean: kwisatz {close[0]} ?", file=sys.stderr)
     return Exit.USAGE
 
 
@@ -792,6 +1587,14 @@ def _finish(app: App, code: int, started: float) -> int:
     if not app.warnings_shown:
         for message in app.warnings:
             app.out.warning(message)
+    # R-OUT-006: no command may exit non-zero in silence. A raised CliError lands in
+    # app.errors unshown; without this it would be `exit 3` with nothing on stderr.
+    if code != Exit.OK:
+        for entry in app.errors:
+            if not entry.get("_shown"):
+                app.out.error(entry["message"])
+                if entry.get("hint"):
+                    app.out.note(f"next: {entry['hint']}")
     return code
 
 

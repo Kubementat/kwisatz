@@ -1,0 +1,27 @@
+# kwisatz service hints — read by `kwisatz services` (spec §6.7 R-OPS-001).
+#
+# Discovery is by convention (see kwisatz/services.py: /srv/*/docker-compose.yml, the
+# com.docker.compose.* labels, and systemd units named after a task). This file only says
+# what a convention cannot know: that a target's stack is a *systemd* service rather than a
+# container, so `services`/`status` do not report it as "unknown".
+#
+# Add a name here only when discovery gets it wrong; a stale hint is worse than none.
+services:
+  llama-swap:
+    unit: llama-swap.service
+  agentsview:
+    unit: agentsview.service
+  ollaya:
+    unit: ollaya.service
+  omnivoice:
+    unit: omnivoice.service
+  ollama:
+    unit: ollama.service
+  docker:
+    unit: docker.service
+  fail2ban:
+    unit: fail2ban.service
+  samba:
+    unit: samba.service
+  sshd:
+    unit: sshd.service

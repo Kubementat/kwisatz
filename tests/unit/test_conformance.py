@@ -125,8 +125,10 @@ def test_status_and_pyinfra_status_agree(repo):
 
     dry = run_pyinfra(repo.path, config, "--dry")
     assert dry.returncode == 0, dry.stderr
+    # pyinfra writes its operation report to stderr, not stdout, when stdout is not a TTY
+    report = dry.stdout + dry.stderr
     for name in ("stub-a", "stub-p"):
-        assert name in dry.stdout
+        assert name in report
 
 
 def test_the_shared_module_is_the_only_source(repo, monkeypatch):
