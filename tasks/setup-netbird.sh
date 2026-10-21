@@ -398,9 +398,17 @@ if [[ "$NETBIRD_CLIENT_ENABLED" == "true" ]]; then
   # The setup key enrolls the peer once; the identity then lives in the
   # netbird-client volume, so a re-run needs it only for a brand-new peer or
   # after a session expiry. Read back the persisted value when the environment
-  # does not carry one.
-  [[ -n "$NETBIRD_SETUP_KEY" ]] \
-    || NETBIRD_SETUP_KEY="$(env_file_get "$ENV_FILE" NETBIRD_SETUP_KEY || true)"
+  # does not carry one, otherwise persist what was passed so the next re-run
+  # converges without asking the operator for the key again.
+  if [[ -z "$NETBIRD_SETUP_KEY" ]]; then
+    NETBIRD_SETUP_KEY="$(env_file_get "$ENV_FILE" NETBIRD_SETUP_KEY || true)"
+  elif [[ "$(env_file_get "$ENV_FILE" NETBIRD_SETUP_KEY || true)" != "$NETBIRD_SETUP_KEY" ]]; then
+    client_env_tmp="$(mktemp)"
+    { grep -v '^NETBIRD_SETUP_KEY=' "$ENV_FILE" 2>/dev/null; printf 'NETBIRD_SETUP_KEY=%s\n' "$NETBIRD_SETUP_KEY"; } > "$client_env_tmp"
+    env_file_write "$ENV_FILE" < "$client_env_tmp"
+    rm -f "$client_env_tmp"
+    info "Setup key persisted in ${ENV_FILE} (mode 600)."
+  fi
 
   # Passed explicitly: compose interpolates NETBIRD_SETUP_KEY from the process
   # environment first, so this wins over whatever .env holds.

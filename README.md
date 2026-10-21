@@ -430,6 +430,7 @@ There are two ways to customize the setup:
 
 ## Additional Documentation
 - **[README_TRAEFIK.md](README_TRAEFIK.md)** - Complete guide for the Traefik v3 reverse proxy setup script (`setup-traefik.sh`)
+- **[README_NETBIRD.md](README_NETBIRD.md)** - Making a local network reachable from the outside with self-hosted NetBird (routing peer, dashboard objects, verification)
 - **[README_MANAGING_MODELS.md](README_MANAGING_MODELS.md)** - Guide for managing models via huggingface cli
 - **[tests/README.md](tests/README.md)** - Test suite documentation and usage guide
 - As `kubementat` is a term leaning on Frank Herbert's Dune universe this project is also [referencing dune terminology](https://dune.fandom.com/wiki/Kwisatz_Haderach).
