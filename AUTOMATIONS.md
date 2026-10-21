@@ -477,6 +477,12 @@ Deploys self-hosted NetBird (a WireGuard-based mesh VPN) as Docker containers: t
 - `NETBIRD_DOMAIN` must resolve publicly to the router's external IP (use dynamic DNS if that IP changes)
 - No UDP port range is needed and clients need no inbound ports; behind carrier-grade NAT (no public IPv4) port forwarding cannot make the server reachable
 
+**Routing peer (`NETBIRD_CLIENT_ENABLED=true`)** — the container that forwards the LAN into the mesh:
+- Create a **reusable** setup key (Settings → Setup Keys, auto-assign the `Routing Peers` group). The key enrolls the peer once; its identity then lives in the `netbird-client` volume, so a re-run only needs it for a new peer or after a session expiry. `NETBIRD_SETUP_KEY` is not read by the client image, so the stack enrolls via CLI flags — see `docs/research/netbird-setup-review-2026-10-03.md`.
+- The script fails (not warns) if the peer is not authenticated: `netbird status --check ready` must go through before success is reported.
+- `Signal:` must read **Connected** and `Relays: n/n` non-zero in `docker exec netbird-client netbird status`. `Management: Connected` alone is not enough — a `config.yaml` whose `exposedAddress` omits `:443` leaves every peer logged in but never connected.
+- After enrollment, assign the peer as **Router** of the LAN Network in the dashboard (Networks → *your network* → Routers, masquerade on) — without a router the LAN subnet resources are unreachable.
+
 ---
 
 ### Development Tools
