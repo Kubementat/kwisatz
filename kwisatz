@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# kwisatz — zero-install entry point for a checkout (PRD §11.3 R-ARCH-003).
+#
+#   ./kwisatz apply traefik      one service, through the sanctioned code path
+#   ./kwisatz status             the plan, without running it
+#   ./kwisatz commands --json    the whole CLI, as data
+#
+# Fast path: the checkout's own .venv, no uv resolve. Otherwise uv provides the
+# interpreter. Everything after ./kwisatz is forwarded verbatim.
+set -euo pipefail
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -x "$dir/.venv/bin/python" ]]; then
+  exec env PYTHONPATH="$dir/src" "$dir/.venv/bin/python" -m kwisatz "$@"
+fi
+PATH="$PATH:$HOME/.local/bin"  # where the uv installer puts it; not on PATH before the next login
+command -v uv >/dev/null || { echo "kwisatz: uv not found — install it: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2; exit 4; }
+exec uv run --project "$dir" kwisatz "$@"

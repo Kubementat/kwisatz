@@ -1,5 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "kwisatz"
-version = "0.1.0"
+version = "1.0.0"
+description = "One command for a kwisatz-managed machine: apply, status, list, info, doctor."
 requires-python = ">=3.10"
 dependencies = ["pyinfra>=3.10,<4", "pyyaml"]
+
+[project.scripts]
+kwisatz = "kwisatz.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.hatch.build.targets.wheel]
+# the CLI operates on a checkout; the wheel ships the tool, never tasks/, templates/ or lib/
+packages = ["src/kwisatz"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "deploy.py", "pyproject.toml", "README.md", "docs", "specification", "tests"]
+
+[tool.hatch.build]
+exclude = ["/tasks", "/templates", "/lib", "/utilities", "/skills", "/logs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+exclude = [".venv", "logs", ".kwisatz"]

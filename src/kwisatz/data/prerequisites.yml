@@ -1,0 +1,38 @@
+# kwisatz ordering / host-fact advisory (§6.5, R-ORD-001)
+#
+# This is NOT a dependency resolver: kwisatz stays a linear "run what is enabled, in
+# config order" tool (spec §2.3 N3). It is the short list of orderings and host facts
+# that the task scripts cannot guard against themselves, seeded from the comments in
+# machine-config.yml.example — the ones whose failure is a lockout or a 30-minute build.
+#
+# `requires: <target>: [predecessors]` — the predecessors must be enabled, and earlier
+# in machine-config.yml. `host: <target>: {fact: true}` — facts about this machine.
+# Both only ever print `--> WARNING:`; `kwisatz doctor` turns them into checks.
+version: 1
+
+requires:
+  # sshd moves to the new port first, the firewall then allows it. Reversed, UFW goes
+  # to default-deny around a port sshd is not listening on -> remote lockout.
+  configure-firewall: [setup-sshd]
+  # reverse proxy, nextcloud, planka, … all publish through the docker network
+  setup-traefik: [setup-docker]
+  setup-netbird: [setup-docker]
+  # GPU recipes request the CDI device nvidia.com/gpu=all; pre-flight fails without it
+  setup-vllm: [setup-nvidia-container]
+  setup-vllm-omni: [setup-nvidia-container]
+  setup-colqwen: [setup-nvidia-container]
+  setup-tensorfold-spark-qwen38-flash: [setup-nvidia-container]
+  setup-tensorfold-spark-qwen38-27b: [setup-nvidia-container]
+  setup-llama-cpp: [setup-basics]
+  setup-llama-swap: [setup-docker]
+
+host:
+  setup-vllm: {gpu: true, docker: true}
+  setup-vllm-omni: {gpu: true, docker: true}
+  setup-colqwen: {gpu: true, docker: true}
+  setup-tensorfold-spark-qwen38-flash: {gpu: true, docker: true}
+  setup-tensorfold-spark-qwen38-27b: {gpu: true, docker: true}
+  setup-nvidia-container: {gpu: true}
+  setup-traefik: {docker: true}
+  setup-docker: {sudo: true}
+  configure-firewall: {sudo: true}

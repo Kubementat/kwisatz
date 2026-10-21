@@ -20,3 +20,4 @@ models.yml.full
 .agent-work/
 .playwright-mcp/
 .agents/
+.kwisatz/
