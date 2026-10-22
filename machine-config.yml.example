@@ -346,7 +346,7 @@ scripts:
     args: []
   setup-music-gen:
     enabled: false
-    description: Install ACE-Step 1.5 song generation (GPU) or CPU music preview
+    description: Install ACE-Step 1.5 song generation (GPU) or CPU preview
     env:
       MUSIC_GEN_MODE: server
       MUSIC_GEN_PORT: '9294'
