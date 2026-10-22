@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# =============================================================================
+# tests/git-hooks/pre-commit — lint gate for commits
+# =============================================================================
+#
+# Blocks the commit unless the linting required by AGENTS.md and
+# specification/project/test-strategy.md passes for what is about to be committed:
+#
+#   .sh          shellcheck          (also extensionless scripts with a bash/shebang,
+#                                     such as ./kwisatz)
+#   .yml .yaml   yamllint -d relaxed (syntax and duplicate keys, not style)
+#   .json        jq empty
+#   .js          node --check
+#   .py          ruff check          (fallback: python3 -m py_compile)
+#   Dockerfile*  hadolint            (binary, or via docker + ./.hadolint.yaml;
+#                                     skipped with a warning when neither exists)
+#
+# plus the repo guards tests/lint.sh (template hardening + the orchestrator's
+# config contract). Those are repo-wide and cheap, so they run on every commit.
+#
+# THE STAGED CONTENT IS WHAT GETS LINTED. A file whose worktree copy differs from
+# the index is linted from `git show :<path>`; otherwise the worktree file is
+# linted in place so shellcheck can follow its `source lib/...` lines.
+#
+# A required linter that is not installed FAILS the commit — a gate that skipped
+# silently on a machine without shellcheck would be no gate. Hints are printed.
+#
+# Install:  tests/install-git-hooks.sh          (sets core.hooksPath once)
+# Bypass:   KWISATZ_PRECOMMIT_SKIP=1 git commit …   (or git commit --no-verify)
+# =============================================================================
+
+set -uo pipefail
+
+if [[ "${KWISATZ_PRECOMMIT_SKIP:-}" == "1" ]]; then
+  echo "pre-commit: KWISATZ_PRECOMMIT_SKIP=1 — lint gate skipped (say so in review)"
+  exit 0
+fi
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "pre-commit: not inside a git work tree" >&2
+  exit 1
+}
+cd "${root}" || exit 1
+
+# ── what is staged ───────────────────────────────────────────────────────────
+staged=()
+while IFS= read -r -d '' f; do
+  staged+=("${f}")
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+
+if [[ "${#staged[@]}" -eq 0 ]]; then
+  exit 0
+fi
+
+sh_files=() yaml_files=() json_files=() js_files=() py_files=() docker_files=()
+for f in "${staged[@]}"; do
+  base="${f##*/}"
+  ext="${base##*.}"
+  if [[ "${base}" == "Dockerfile" || "${base}" == Dockerfile.* ]]; then
+    docker_files+=("${f}")
+    continue
+  fi
+  case "${ext}" in
+    sh) sh_files+=("${f}") ;;
+    yml|yaml) yaml_files+=("${f}") ;;
+    json) json_files+=("${f}") ;;
+    js|mjs|cjs) js_files+=("${f}") ;;
+    py) py_files+=("${f}") ;;
+    *)
+      # extensionless entry points (./kwisatz) are bash scripts too
+      if [[ "${ext}" == "${base}" && -f "${f}" ]] &&
+        head -c 200 -- "${f}" 2>/dev/null | head -n 1 |
+        grep -qE '^#!.*(bash|/sh|zsh)'; then
+        sh_files+=("${f}")
+      fi
+      ;;
+  esac
+done
+
+# Staged blobs live in one temp tree owned by this process; `lib/` is copied in
+# next to them so shellcheck still resolves `source lib/helpers.sh` in blob mode.
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/kwisatz-lint.XXXXXX")" || exit 1
+trap 'rm -rf "${tmp}"' EXIT
+if [[ "${#sh_files[@]}" -gt 0 && -d lib ]]; then
+  mkdir -p "${tmp}/lib" && cp lib/*.sh "${tmp}/lib/" 2>/dev/null
+fi
+
+# Echoes the path to lint: the worktree file when it equals the index, otherwise
+# the staged blob under ${tmp}. Empty output + non-zero exit = no content read.
+lint_src() {
+  local f="$1" dest
+  if git diff --quiet -- "${f}" 2>/dev/null; then
+    printf '%s' "${f}"
+    return 0
+  fi
+  dest="${tmp}/${f}"
+  mkdir -p "$(dirname "${dest}")" || return 1
+  git show ":${f}" >"${dest}" 2>/dev/null || return 1
+  printf '%s' "${dest}"
+}
+
+fail=0
+problems=()
+missing=()
+checks=0
+
+err() {
+  fail=1
+  problems+=("$1")
+}
+
+# need <tool> <install hint> — a missing linter is a failure, not a skip
+need() {
+  if command -v "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+  missing+=("$1 — $2")
+  return 1
+}
+
+# check <label> <command…>
+check() {
+  local label="$1"
+  shift
+  checks=$((checks + 1))
+  "$@" || err "${label}"
+}
+
+# hadolint with the repo's .hadolint.yaml, failing at warning level and above
+# (AGENTS.md: "no errors or warnings"; info stays informational). The Dockerfile
+# goes in as stdin, which hadolint reports as '-', so the caller prints the path.
+hadolint_check() {
+  local src="$1" cfg=() mount=()
+  if [[ -f .hadolint.yaml ]]; then
+    if command -v hadolint >/dev/null 2>&1; then
+      cfg=(--config "${root}/.hadolint.yaml")
+    else
+      cfg=(--config /hadolint-config/hadolint.yaml)
+      mount=(-v "${root}/.hadolint.yaml:/hadolint-config/hadolint.yaml:ro")
+    fi
+  fi
+  if command -v hadolint >/dev/null 2>&1; then
+    hadolint --failure-threshold warning "${cfg[@]}" "${src}"
+  else
+    # AGENTS.md's Dockerfile lint path: hadolint in Docker
+    docker run --rm -i "${mount[@]}" hadolint/hadolint /bin/hadolint \
+      --failure-threshold warning "${cfg[@]}" - <"${src}"
+  fi
+}
+
+# ── linters ──────────────────────────────────────────────────────────────────
+if [[ "${#sh_files[@]}" -gt 0 ]] && need shellcheck "sudo apt-get install shellcheck"; then
+  for f in "${sh_files[@]}"; do
+    src="$(lint_src "${f}")" || { err "shellcheck ${f} (staged content unreadable)"; continue; }
+    check "shellcheck ${f}" shellcheck "${src}"
+  done
+fi
+
+if [[ "${#yaml_files[@]}" -gt 0 ]] && need yamllint "uv tool install yamllint  (or: sudo apt-get install yamllint)"; then
+  for f in "${yaml_files[@]}"; do
+    src="$(lint_src "${f}")" || { err "yamllint ${f} (staged content unreadable)"; continue; }
+    check "yamllint ${f}" yamllint -d relaxed "${src}"
+  done
+fi
+
+if [[ "${#json_files[@]}" -gt 0 ]] && need jq "sudo apt-get install jq"; then
+  for f in "${json_files[@]}"; do
+    src="$(lint_src "${f}")" || { err "jq ${f} (staged content unreadable)"; continue; }
+    check "jq ${f}" jq empty "${src}"
+  done
+fi
+
+if [[ "${#js_files[@]}" -gt 0 ]] && need node "sudo apt-get install nodejs  (or: ./tasks/setup-basics.sh)"; then
+  for f in "${js_files[@]}"; do
+    src="$(lint_src "${f}")" || { err "node --check ${f} (staged content unreadable)"; continue; }
+    check "node --check ${f}" node --check "${src}"
+  done
+fi
+
+if [[ "${#py_files[@]}" -gt 0 ]]; then
+  py_cmd=()
+  py_label=""
+  if command -v ruff >/dev/null 2>&1; then
+    py_cmd=(ruff check --config "${root}/pyproject.toml")
+    py_label="ruff check"
+  elif command -v uv >/dev/null 2>&1 && uv run ruff --version >/dev/null 2>&1; then
+    py_cmd=(uv run ruff check --config "${root}/pyproject.toml")
+    py_label="uv run ruff check"
+  elif command -v python3 >/dev/null 2>&1; then
+    py_cmd=(python3 -m py_compile)
+    py_label="python3 -m py_compile"
+    echo "pre-commit: ruff not found — using python3 -m py_compile (syntax only; install it with: uv tool install ruff)"
+  else
+    missing+=("ruff — uv tool install ruff  (no python3 fallback either)")
+  fi
+  if [[ "${#py_cmd[@]}" -gt 0 ]]; then
+    for f in "${py_files[@]}"; do
+      src="$(lint_src "${f}")" || { err "${py_label} ${f} (staged content unreadable)"; continue; }
+      check "${py_label} ${f}" "${py_cmd[@]}" "${src}"
+    done
+  fi
+fi
+
+# hadolint is the one tool whose absence only warns: the docker image is a
+# network pull, so failing here would block commits offline. A hit still fails.
+if [[ "${#docker_files[@]}" -gt 0 ]]; then
+  if command -v hadolint >/dev/null 2>&1 || command -v docker >/dev/null 2>&1; then
+    for f in "${docker_files[@]}"; do
+      src="$(lint_src "${f}")" || { err "hadolint ${f} (staged content unreadable)"; continue; }
+      checks=$((checks + 1))
+      if ! out="$(hadolint_check "${src}" 2>&1)"; then
+        echo "hadolint ${f}:"
+        [[ -n "${out}" ]] && printf '%s\n' "${out}"
+        err "hadolint ${f}"
+      fi
+    done
+  else
+    echo "pre-commit: WARNING — neither hadolint nor docker found; Dockerfiles not linted:"
+    printf 'pre-commit:   %s\n' "${docker_files[@]}"
+  fi
+fi
+
+# ── repo guards ──────────────────────────────────────────────────────────────
+if [[ -f tests/lint.sh ]]; then
+  checks=$((checks + 1))
+  if ! guard_out="$(bash tests/lint.sh 2>&1)"; then
+    printf '%s\n' "${guard_out}"
+    err "tests/lint.sh (repo guards)"
+  fi
+fi
+
+# ── verdict ──────────────────────────────────────────────────────────────────
+if [[ "${#missing[@]}" -gt 0 ]]; then
+  echo "pre-commit: missing linter(s):"
+  printf 'pre-commit:   %s\n' "${missing[@]}"
+fi
+
+if [[ "${fail}" -ne 0 ]]; then
+  echo
+  echo "pre-commit: LINT FAILED — commit blocked"
+  printf 'pre-commit:   %s\n' "${problems[@]}"
+  echo "pre-commit: fix the files, 'git add' them, commit again."
+  echo "pre-commit: bypass (discouraged): KWISATZ_PRECOMMIT_SKIP=1 git commit …"
+  exit 1
+fi
+
+echo "pre-commit: lint OK — ${checks} check(s) over ${#staged[@]} staged file(s)"
+exit 0

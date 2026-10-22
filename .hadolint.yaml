@@ -1,0 +1,23 @@
+# hadolint configuration for kwisatz
+#
+# Read by `hadolint --config .hadolint.yaml`. tests/git-hooks/pre-commit mounts
+# this file into the hadolint/hadolint image (the Dockerfile lint path from
+# AGENTS.md).
+#
+# kwisatz pins images differently from what hadolint expects: the `image:` value
+# in every template is a `${...}` placeholder that the task script substitutes
+# from a pinned `<COMPONENT>_IMAGE` default, and some Dockerfiles are layered on
+# locally built images. That contract is enforced by tests/lint.sh guards 2 and
+# 3 (no floating `:latest`/`:main`, no untagged pulls) on the templates as they
+# are really rendered — so the version-pinning rules below are disabled here
+# instead of being duplicated as inline `# hadolint ignore=` pragmas per file.
+ignored:
+  # untagged base image: a ${...} placeholder, or a locally built image
+  # (templates/nanobot/Dockerfile.extend extends the just-built `nanobot` image)
+  - DL3006
+  # apt package pinning: pkg=1.2.3 pins rot on every base-image refresh
+  - DL3008
+  # npm package pinning
+  - DL3016
+  # go install package pinning
+  - DL3062

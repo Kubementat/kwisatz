@@ -1,3 +1,47 @@
+# Tests
+
+| Layer | Command | Cost | What it proves |
+|---|---|---|---|
+| Static analysis | `shellcheck <file>` · `uv run ruff check src tests deploy.py` | seconds | the script parses and has no lint findings |
+| Repo guards | `tests/lint.sh` | ~1 s | template hardening + the orchestrator's config contract |
+| Unit / CLI / conformance | `uv run pytest` | ~12 s | the CLI: planning, `--json`, exit codes, and that `kwisatz apply` and `deploy.py` agree |
+| Integration + idempotency | `tests/run-vm-tests.sh` | 15–30 min | every enabled script really provisions a clean Ubuntu VM, and re-running it converges |
+
+## Run everything, in order
+
+```console
+tests/install-git-hooks.sh                       # once per clone: lint on every commit
+shellcheck tasks/<changed>.sh                     # the file you touched
+uv run ruff check src tests deploy.py             # the python side
+tests/lint.sh                                     # repo guards (~1 s)
+uv run pytest                                     # unit + CLI + conformance (~12 s)
+tests/run-vm-tests.sh                             # the full default suite (15–30 min)
+tests/run-vm-tests.sh --scripts setup-docker,setup-traefik   # just what you changed
+```
+
+## Pre-commit lint gate
+
+Install it once per clone (it is versioned in the repo, not in `.git/hooks`):
+
+```console
+$ tests/install-git-hooks.sh          # sets core.hooksPath = tests/git-hooks
+tests/install-git-hooks.sh --status    # what git currently uses
+tests/install-git-hooks.sh --uninstall
+```
+
+[`git-hooks/pre-commit`](git-hooks/pre-commit) blocks a commit unless the linting
+above passes for the **staged** content — `.sh`/bash-shebang files via shellcheck,
+`.yml`/`.yaml` via `yamllint -d relaxed`, `.json` via `jq`, `.js` via `node --check`,
+`.py` via ruff, `Dockerfile*` via hadolint ([`../.hadolint.yaml`](../.hadolint.yaml),
+docker image when there is no binary) — plus `tests/lint.sh` on every commit.
+A file with further unstaged edits is linted from `git show :<path>`, so fixing a
+file without staging the fix does not get it through. A missing linter fails the
+commit (a gate that skips when `shellcheck` is absent is no gate); hadolint only warns,
+because its image is a network pull. Bypass deliberately and say so in review:
+`KWISATZ_PRECOMMIT_SKIP=1 git commit …`.
+
+---
+
 # VM-Based Integration Test Suite
 
 One-command, VM-based integration and idempotency tests for the setup
