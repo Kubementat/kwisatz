@@ -362,6 +362,9 @@ Installs **DeepSeek Harness** (`dsh`) — an open-source agent harness from Deep
 #### `setup-whispering.sh`
 Downloads the Whispering speech-to-text AppImage, creates a start script (`~/whispering`) and a desktop shortcut. Backs up any existing binary before downloading.
 
+#### `setup-music-gen.sh`
+Installs the music-generation stack in two modes (`MUSIC_GEN_MODE=server|preview`). **server**: ACE-Step 1.5 (MIT code+weights, vocals+lyrics) native on AMD GPU hosts — uv venv with ROCm torch wheels, `acestep-api` async REST API on `MUSIC_GEN_PORT` (default `9294`), systemd unit `ace-step.service`, generated/reused `ACESTEP_API_KEY` (`.env`, mode 600); Docker deliberately not used there (gfx1151 needs the host's verified ROCm 7.x userland). **preview**: CPU-only `musicgen-small` CLI (`~/music-preview`) for non-GPU machines. The instrumental MusicGen FastAPI service (`:9293`, vault plan) is complementary. ROCm pitfalls baked in: never set `HSA_OVERRIDE_GFX_VERSION` on gfx1151, `ACESTEP_LM_BACKEND=pt`, output FLAC/WAV only (MP3 export broken on ROCm). Research: `docs/research/2026-10-22-music-generation-integration.md`.
+
 ---
 
 ### Project Management & Collaboration
