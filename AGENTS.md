@@ -9,14 +9,15 @@ Automation scripts for installing and configuring a server or developer machine 
 - asks to understand, explain, or describe the repository
 - asks what services are available or which to install
 - asks how to configure or set up a machine
-- asks about the orchestrator, `run-setup.sh`, `deploy.py`, or `machine-config.yml`
+- asks about the orchestrator, the `kwisatz` CLI, `run-setup.sh`, `deploy.py`, or `machine-config.yml`
 - says anything like "help me", "what does this do", "show me", "guide me"
 
-For any request about using, understanding, explaining, configuring, or setting up this repo — including `run-setup.sh`, `machine-config.yml`, or which services exist — read and follow `skills/kwisatz-assistant/SKILL.md`. Do not answer from your own knowledge.
+For any request about using, understanding, explaining, configuring, or setting up this repo — including the `kwisatz` CLI, `machine-config.yml`, or which services exist — read and follow `skills/kwisatz-assistant/SKILL.md`. Do not answer from your own knowledge.
 
 ## Core Facts
 
-- orchestrator: pyinfra deploy `deploy.py` (`uv run pyinfra @local deploy.py --dry | -y -vvv`); `run-setup.sh apply|status` is a thin wrapper around it; task scripts in `tasks/` stay bash
+- entry point: the `kwisatz` CLI (`./kwisatz apply [target]`, `status`, `list`, `info`, `doctor`, `config`, `services`, `logs`, `run`, `commands --json`); it executes its targets **through** the pyinfra deploy `deploy.py` (`uv run pyinfra @local deploy.py -y -vvv [--data select=<name>]`), so there is one engine, not two. `run-setup.sh apply|status` is a deprecated shim onto the CLI (one release, then deleted); running `tasks/<name>.sh` by hand stays the manual fallback
+- use `./kwisatz <cmd> --json` rather than scraping human output; the exit codes are a contract (`specification/features/kwisatz-cli/behaviors.md` §7)
 - systemd-based unix deployments and docker-based deployments; setup scripts generate `docker-compose.yml` for each service
 - `ufw` is the firewall on the target ubuntu server; `traefik` is the reverse proxy — integration examples: [setup-forgejo.sh](tasks/setup-forgejo.sh) and [setup-openwebui.sh](tasks/setup-openwebui.sh)
 - service data directory: `/srv/<service-name>` (e.g. `/srv/forgejo`)
@@ -39,12 +40,12 @@ A release is an **annotated tag `vX.Y.Z` on the tip of `main`**, pushed to both 
 `VERSION` file at the repo root (`X.Y.Z`, no `v`, trailing newline — the same value the tag
 carries). The tag is what the release *means*; `VERSION` is the human-readable copy that
 survives a tarball, so the release commit writes both. Nothing at runtime reads it
-(`run-setup.sh` has no `--version`), and `VERSION` inside `tasks/*.sh` still pins *upstream*
+(`kwisatz --version` prints `src/kwisatz/__init__.py`, not this file), and `VERSION` inside `tasks/*.sh` still pins *upstream*
 component versions, not this repo — do not confuse the two. If the two ever disagree, the
 tag wins and the `VERSION` line is the bug.
 
 Semver for this repo: **MAJOR** = breaking `machine-config.yml` keys, removed/renamed
-`tasks/` scripts, or changed `run-setup.sh` CLI; **MINOR** = new `tasks/` script or new config
+`tasks/` scripts, or a breaking change to the `kwisatz` CLI (commands, flags, `--json` envelope, exit codes); **MINOR** = new `tasks/` script or new config
 option (backwards compatible); **PATCH** = fixes to existing scripts.
 
 Semantics of the tag are the contract, not the number: `main` always points at what is

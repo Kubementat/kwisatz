@@ -12,7 +12,7 @@ cd kwisatz
 cp machine-config-inference.yml.example machine-config.yml
 cp models.yml.example models.yml
 curl -LsSf https://astral.sh/uv/install.sh | sh   # one-time: the orchestrator needs uv
-./run-setup.sh apply
+./kwisatz apply
 ```
 
 That's it. You get llama.cpp compiled for your GPU, llama-swap hot-swapping models at `:9292`, a ChatGPT-style web UI at `:3333`, dashboards at `:3100` — with hardened SSH and UFW firewall rules on the way.
@@ -77,10 +77,11 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    Open `machine-config.yml` and set `enabled: true` for the scripts you'd like to install. See the [Configuration](#configuration) section below for the YAML format.
 4. **Run the orchestrator**:
    ```bash
-   ./run-setup.sh status   # preview what's enabled
-   ./run-setup.sh apply    # install all enabled services
+   ./kwisatz status   # preview what's enabled, in run order
+   ./kwisatz apply    # install all enabled services
    ```
-   Run without arguments to see usage instructions.
+   Run `./kwisatz` without arguments to see the command map. `./run-setup.sh` still works and is
+   what an old CI job will call — it is a deprecated shim onto the CLI.
 5. **Install one service only** — this is what the CLI is for, and it is the same code path,
    so you are not editing the config and hoping nothing else moved:
    ```bash
@@ -101,9 +102,10 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
 
 `kwisatz` is one command over the same orchestrator: it discovers what you can install, runs
 exactly one service through the sanctioned code path, and prints every result as JSON when an
-agent is asking. `./run-setup.sh` and pyinfra still work — the CLI is additive, and both
-paths execute the identical command with the identical environment (a conformance test fails
-if they ever differ).
+agent is asking. Nothing here is a second implementation of `apply`: each target is executed by
+`deploy.py`, the very pyinfra deploy `./run-setup.sh` used to drive — the CLI plans the run and
+then starts the deploy, so a single-target apply cannot install something different from a full
+one (a conformance test asserts the `(command, env, stdin)` triple either way).
 
 ```bash
 ./kwisatz init            # first run: create machine-config.yml from the example, then doctor
@@ -145,12 +147,14 @@ always used. When a script needs arguments the CLI cannot know, send them throug
 ---
 
 ## How It Works
-- **Orchestrator** — two entry points, one contract. `kwisatz apply` (or `./kwisatz apply <target>`)
-  runs each enabled script directly as a subprocess; `./run-setup.sh apply` runs the same set
-  through the [pyinfra](https://docs.pyinfra.com/en/3.x/) deploy `deploy.py`. Both read
-  `src/kwisatz/orchestrator.py`, which defines what runs, in what order, and with which
-  environment, so they cannot drift. `kwisatz status` previews; task stdout is streamed live
-  and copied to `logs/kwisatz-<ts>-<target>.log` (mode 0600).
+- **Orchestrator** — one engine. `kwisatz apply` / `./kwisatz apply <target>` plans the run, then
+  executes each target with a pyinfra deploy of the checkout
+  (`deploy.py -y -vvv --data select=<name>`), so the command, the environment and the stdin of
+  every task are the ones `[pyinfra](https://docs.pyinfra.com/en/3.x/) defines — the same deploy
+  `./run-setup.sh apply` drives. Both read `src/kwisatz/orchestrator.py`, which defines what runs,
+  in what order, and with which environment, so nothing can drift. `kwisatz status` previews the
+  plan; task output is streamed live and written whole to `logs/kwisatz-<ts>-<target>.log`
+  (mode 0600).
 - **Modular task scripts** - Each `tasks/*.sh` task is self-contained and idempotent; it can be run individually or through the orchestrator. A Python task (`tasks/*.py`, e.g. `sync-models`) is dispatched the same way.
 - **Configuration via YAML** - `machine-config.yml` declares which scripts to run, their environment variables, and command-line arguments. All tunable values have sensible defaults and can be overridden.
 - **Re-run policy: converge by default** - Re-running a task script against an existing stack converges it: config is re-rendered, existing secrets are reused, and `docker compose up -d` reconciles only what changed — no tear-down, no silent skip. Divergence that cannot be applied to a running stack is printed with the exact re-create command (see `specification/project/conventions.md` → *Re-run policy: converge by default*).
@@ -166,7 +170,7 @@ This project uses **two YAML configuration files**, each governing a different c
 
 ### Infrastructure Config (`machine-config.yml`)
 
-The orchestrator reads `machine-config.yml` to determine which setup scripts to run. A fresh copy is provided as `machine-config.yml.example` — copy it to `machine-config.yml` before running `run-setup.sh apply`:
+The orchestrator reads `machine-config.yml` to determine which setup scripts to run. A fresh copy is provided as `machine-config.yml.example` — copy it to `machine-config.yml` before running `./kwisatz apply`:
 
 ```bash
 cp machine-config.yml.example machine-config.yml
@@ -244,7 +248,11 @@ default-deny around a port sshd is not listening on and the next reconnect
 cuts you off the machine. (`machine-config.yml.example` ships in this order —
 keep it when copying to `machine-config.yml`.)
 
-### Running the Orchestrator
+### Running the orchestrator by hand
+
+Use the CLI (`./kwisatz status` / `./kwisatz apply`). The commands below are what is under the
+hood: `run-setup.sh` is a deprecated shim that translates them into the CLI and will be deleted
+one release after this change; pyinfra itself stays, because it *is* the engine.
 
 ```bash
 ./run-setup.sh status   # List the enabled scripts, in run order (runs nothing)
@@ -252,11 +260,14 @@ keep it when copying to `machine-config.yml`.)
 ./run-setup.sh apply --data config=path/to/other-config.yml  # Use a custom config file
 ```
 
-`run-setup.sh` is a thin wrapper around pyinfra and requires [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`); the first run downloads pyinfra into `.venv/`. Everything after the subcommand is passed to pyinfra, which can also be called directly:
+It needs [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) and,
+on the first run, downloads pyinfra into `.venv/`. Everything after the subcommand goes to
+pyinfra, which can also be called directly:
 
 ```bash
-uv run pyinfra @local deploy.py --dry      # = ./run-setup.sh status
-uv run pyinfra @local deploy.py -y -vvv    # = ./run-setup.sh apply
+uv run pyinfra @local deploy.py --dry                          # the whole plan, nothing executed
+uv run pyinfra @local deploy.py -y -vvv                        # = ./kwisatz apply
+uv run pyinfra @local deploy.py -y -vvv --data select=traefik  # = ./kwisatz apply traefik
 ```
 
 - `--data config=<file>` — Path to a YAML configuration file (default: `machine-config.yml` in the repository root)
@@ -267,7 +278,7 @@ uv run pyinfra @local deploy.py -y -vvv    # = ./run-setup.sh apply
 - Every task runs with `INTERACTIVE=false` and `stdin=/dev/null`, so a stray prompt fails fast instead of hanging. When a script must prompt, ask for it explicitly: `./kwisatz apply forgejo --interactive` hands the script your terminal (it needs a TTY) and keeps the rest of the contract. Running the script by hand — `INTERACTIVE=true tasks/setup-forgejo.sh` — still works, but it skips the config's `env:`/`args:` and the ordering, which is why the CLI exists. A per-script `env:` entry `INTERACTIVE: "true"` also overrides the default, with stdin left as `/dev/null`.
 - **What the task script sees in its environment**: pyinfra exports *only* `INTERACTIVE=false` plus that script's `env:` block (`export KEY=value && bash tasks/<name>.sh` — `python tasks/<name>.py` for a Python task), and it does not merge `os.environ` into that list — but the command still runs as a child of the shell that started the run, so the script also inherits the ambient environment (`PATH`, `HOME`, anything you export yourself). `deploy.py` drops `VIRTUAL_ENV` and the venv's `bin` from `PATH` before handing off, so tasks use the system `python3`/`pip` instead of the orchestrator's venv. A per-script `env:` therefore adds and overrides variables; it never hides the ambient ones, and it always wins over `INTERACTIVE=false`.
 
-Called without a subcommand (or with an unknown one), `run-setup.sh` prints its usage to stderr and exits `2`; `-h`/`--help` prints it and exits `0`.
+Called without a subcommand (or with an unknown one), `run-setup.sh` prints its usage to stderr and exits `2`; `-h`/`--help` prints it and exits `0`. Because it now execs the CLI, its exit codes are the CLI's — `status` on an unparsable config exits `3`, where plain pyinfra exited `1`. The same holds for `kwisatz`: see `specification/features/kwisatz-cli/behaviors.md` § Behavior 7.
 
 ---
 
@@ -337,7 +348,7 @@ research: [docs/research/docker-volume-backup-research.md](docs/research/docker-
 
 Besides installing the stack, this repository supports **configuring LLMs on an already-provisioned inference server** via a declarative **model catalog** (`models.yml`) and the Python sync tool [`tasks/sync-models.py`](tasks/sync-models.py) (the `sync_models/` package).
 
-> **Relationship to `machine-config.yml`:** `machine-config.yml` controls *which services to install* (infrastructure). `models.yml` controls *which models to download and serve* (content). After running `./run-setup.sh apply` with `setup-llama-swap`, `setup-pi`, and `setup-opencode` enabled, you use `models.yml` to populate the inference server with actual models.
+> **Relationship to `machine-config.yml`:** `machine-config.yml` controls *which services to install* (infrastructure). `models.yml` controls *which models to download and serve* (content). After running `./kwisatz apply` with `setup-llama-swap`, `setup-pi`, and `setup-opencode` enabled, you use `models.yml` to populate the inference server with actual models.
 
 ### Two-stage workflow
 

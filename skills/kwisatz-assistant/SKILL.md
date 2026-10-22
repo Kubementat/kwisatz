@@ -22,8 +22,9 @@ This repo uses **two YAML configuration files**, each governing a different conc
 | `machine-config.yml` | Which **services** to install, their env vars & args (infrastructure) |
 | `models.yml` | Which **LLMs** to download, serve, and wire into coding agents (model catalog) |
 
-The **orchestrator** (`src/kwisatz/orchestrator.py`, driven by the `kwisatz` CLI — or by
-`run-setup.sh`, which wraps the pyinfra deploy `deploy.py`) manages `machine-config.yml`. The
+The **orchestrator** — the `kwisatz` CLI planning `src/kwisatz/orchestrator.py`, executing it
+with the pyinfra deploy `deploy.py` — manages `machine-config.yml`. (`run-setup.sh` is a
+deprecated shim that just calls the CLI.) The
 **sync tool** (`tasks/sync-models.py`) manages `models.yml`. Together they turn a fresh Ubuntu
 box into a working local-LLM inference server.
 
@@ -50,10 +51,11 @@ cp machine-config.yml.example machine-config.yml
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Step 3: Preview what is enabled
-./run-setup.sh status
+./kwisatz status
 ```
 
-Explain the output: it lists the enabled scripts in the order they will run (a pyinfra dry run). Disabled scripts and env vars/args are not shown — read `machine-config.yml` for those.
+Explain the output: it lists the enabled scripts in the order they will run, with the exact
+command line each one gets (pyinfra's, since `apply` runs `deploy.py`). Disabled scripts and env vars/args are not shown — read `machine-config.yml` for those.
 
 ### 3. Help Select & Configure Services
 
@@ -107,9 +109,12 @@ kwisatz apply traefik          # …or exactly one service, through the same cod
 kwisatz services               # what is running now, and whether it is healthy
 ```
 
-Prefer the CLI. `./run-setup.sh` (`uv run pyinfra @local deploy.py`) still works and is what CI
-uses — both read the same `src/kwisatz/orchestrator.py`, so a script gets the identical
-command, environment and stdin either way; a conformance test fails if that stops being true.
+Prefer the CLI, and there is nothing to hedge: `apply` runs each target *through* `deploy.py`
+(`-y -vvv --data select=<target>`), which is exactly what `run-setup.sh apply` used to do — that
+shim is deprecated and prints a one-line pointer. The CLI and pyinfra read the same
+`src/kwisatz/orchestrator.py`, and a conformance test fails if the `(command, env, stdin)` triple
+ever diverges, so "run one service" and "provision the box" cannot install different things.
+The manual fallback is still `tasks/<name>.sh` (see `kwisatz run`).
 
 A config key runs `tasks/<name>.sh`, or `tasks/<name>.py` when there is no such `.sh`
 (`sync-models` is dispatched this way); the `.sh` wins if both exist, and a key with neither

@@ -10,9 +10,9 @@
 
 ```text
 repository root
-├── kwisatz               # Zero-install entry point: `./kwisatz apply traefik` from a checkout
-├── run-setup.sh          # Entrypoint: thin wrapper around `uv run pyinfra @local deploy.py` (apply | status)
-├── deploy.py             # pyinfra adapter: one operation per enabled script, in config order
+├── kwisatz               # Entrypoint: `./kwisatz apply traefik`, `./kwisatz apply`, `status`…
+├── run-setup.sh          # DEPRECATED shim for one release: translates apply/status into the CLI
+├── deploy.py             # pyinfra adapter: the engine — one operation per target, in config order
 ├── src/kwisatz/          # The CLI package: command table, plan, exec, checks, config, services
 │   ├── cli.py            # `kwisatz <command>` — dispatch, flags, exit codes, the JSON envelope
 │   ├── orchestrator.py   # THE execution contract: config, enabled, task command, env, plan
@@ -36,26 +36,37 @@ repository root
 
 The architecture follows a simple **linear model**:
 
-1. The user runs an **entry point**: `kwisatz apply` (or `./kwisatz apply traefik` for one
-   target), `./run-setup.sh apply`, or pyinfra directly
-   (`uv run pyinfra @local deploy.py -y -vvv`).
-2. All three read the same `kwisatz.orchestrator` module, which decides *what* runs and
+1. The user runs **the CLI**: `kwisatz apply` (everything enabled, in config order) or
+   `kwisatz apply <target>` (one service). `run-setup.sh apply/status` and
+   `uv run pyinfra @local deploy.py -y -vvv` still work — the first is a deprecated shim, the
+   second is pyinfra itself — but the CLI is the documented way in.
+2. Both halves read the same `kwisatz.orchestrator` module, which decides *what* runs and
    *how*: the `.scripts.<name>` contract, the `enabled` spellings, `tasks/<name>.sh` versus
-   `tasks/<name>.py`, and each task's command, env and stdin. `deploy.py` is the pyinfra
-   adapter of that module; `kwisatz apply` is the direct-subprocess adapter of it.
-3. Each task script runs as its own `bash` process with `INTERACTIVE=false` plus its
-   configured `env`/`args` and stdin from `/dev/null`; the run stops at the first failing
-   script.
-4. **Utility scripts** are independent and run separately by the user after provisioning.
+   `tasks/<name>.py`, and each task's command, env and stdin.
+3. The CLI resolves the targets it will run, prints the plan, and then starts a **pyinfra
+   deploy of the checkout** per target — `deploy.py -y -vvv --data config=<file>
+   --data select=<name>`. So the command line, the environment (`INTERACTIVE=false`, then the
+   config's `env:`, then `--env`), the `/dev/null` stdin and the masking of `env:` values are
+   pyinfra's, in a single-target run and in a full one alike.
+4. The run stops at the first failing target (or continues with `--keep-going`, exit `8`).
+5. **Utility scripts** are independent and run separately by the user after provisioning.
 
-### The two execution paths and why parity is enforced
+### One engine, and how the contract is kept
 
-`kwisatz apply` executes a script directly (fast, TTY-capable, no pyinfra in the run path);
-`run-setup.sh apply` / `deploy.py` run it through pyinfra. Both must hand the *same* argv,
-environment and stdin to the same script, or "install one service" and "provision the box"
-silently install different things. That is why `deploy.py` contains no contract of its own,
-and why `tests/unit/test_conformance.py` asserts the `(command, env, stdin)` triple from both
-paths as a release gate (`docs/features/kwisatz-cli-specification.md` R-ARCH-102).
+`apply` does not execute task scripts itself; it runs `deploy.py`, which runs them. That was
+the decision on the spec's open question (§16.1): staying on pyinfra is worth more than the
+~1 s of deploy startup per target, and it removes the drift this section used to warn about —
+"install one service" and "provision the box" cannot install different things any more,
+because they go through the same operation. The contract itself still lives in exactly one
+place (`kwisatz/orchestrator.py`), `deploy.py` contains none of it, and
+`tests/unit/test_conformance.py` asserts the `(command, env, stdin)` triple plus the task
+script's own ancestor chain, so a change that quietly execs the script without a deploy fails
+the gate (`docs/features/kwisatz-cli-specification.md` R-ARCH-101/102).
+
+Two paths deliberately stay direct script runs, because pyinfra cannot attach a terminal:
+`kwisatz apply <target> --interactive`, and `kwisatz run <target> -- <args>` — the second is
+the sanctioned way to use a script's own flags, exactly as running `tasks/<name>.sh` by hand
+always was.
 
 Two decisions worth knowing before you change something here:
 
@@ -64,9 +75,10 @@ Two decisions worth knowing before you change something here:
   those two names collide, so the checkout keeps the executable at the root and the package
   under `src/`, which is also what lets `./kwisatz` work with `PYTHONPATH=src` before
   anything is installed.
-- **`run-setup.sh` is unchanged and stays the documented batch entry point** (R-ARCH-103).
-  The CLI is additive: it does not replace the pyinfra path, it re-implements the *same*
-  contract on top of the same module.
+- **`run-setup.sh` is a deprecated shim** (R-ARCH-103): it translates `apply`/`status` and
+  `--data config=<file>` into the CLI's calls and execs `./kwisatz`, printing one DEPRECATED
+  line. It is deleted one release after this change, so anything still calling it keeps working
+  until then — and its exit codes become the CLI's, so `status` on a broken config exits `3`.
 
 ## Components
 
@@ -75,10 +87,12 @@ Two decisions worth knowing before you change something here:
   `config`, `services`, `logs`, `state`, `models`, `run`, `commands`, `install`, `init`.
   Specification: `docs/features/kwisatz-cli-specification.md`; behaviors:
   `specification/features/kwisatz-cli/behaviors.md`.
-- **`deploy.py`**, wrapped by **`run-setup.sh`** — the pyinfra path for a whole-machine run
-  from CI or a bare checkout. Which task scripts run, and in what order, is defined by
-  `machine-config.yml`; the contract itself lives in `kwisatz/orchestrator.py`, so both
-  entry points cannot drift.
+- **`deploy.py`** — the pyinfra deploy that actually executes the tasks. `kwisatz apply` starts
+  it per target (`-y -vvv --data select=`); `run-setup.sh` (and CI, or a bare
+  `uv run pyinfra @local deploy.py -y -vvv`) starts it once for the whole config. Which task
+  scripts run, and in what order, is defined by `machine-config.yml`; the contract itself lives
+  in `kwisatz/orchestrator.py`, so the CLI and the deploy cannot drift.
+- **`run-setup.sh`** — DEPRECATED shim, `apply`/`status` → the CLI. Stays one release, then goes.
 
 ### Task Scripts
 - Each script is responsible for exactly one component.

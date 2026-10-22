@@ -26,9 +26,20 @@ For **every enabled script** in the test config
 
 | Phase | Meaning | Pass condition |
 |---|---|---|
-| **precheck** | `run-setup.sh status --data config=<test-config>` — the orchestrator must be able to parse the config on the VM | exit 0 |
-| **integration** | First run of the script on a **clean** VM (with its configured env vars and args, in config order) | exit 0 |
-| **idempotency** | Second run of the same script on the **same** (now provisioned) VM | exit 0 |
+| **precheck** | `./kwisatz status --config <test-config>` — the entry point must be able to read the config on the VM | exit 0 |
+| **integration** | First run of the target on a **clean** VM (with its configured env vars and args, in config order) | exit 0 |
+| **idempotency** | Second run of the same target on the **same** (now provisioned) VM | exit 0 |
+
+### Two ways to run a case (`--mode`)
+
+| Mode | What one test case is | Use it for |
+|---|---|---|
+| `cli` (default) | `./kwisatz apply <target>`, which starts a pyinfra deploy of the copied checkout (`deploy.py -y -vvv --data select=<target>`) | the command an operator or an agent uses — the entry point, the target resolution, the config `env:`/`args:`, `INTERACTIVE=false` and `/dev/null` stdin are all under test |
+| `script` | `sudo -u <vm-user> env … ./tasks/<name>.sh <args>`, i.e. the script directly | bisecting: when a case fails in `cli` mode, re-run it with `--mode script` to tell a script bug from a dispatch bug |
+
+In `script` mode the runner resolves the entry point and the config's env/args itself (yq +
+jq), which is exactly why it is the fallback and not the default: that code path is a
+re-implementation of `deploy.py`'s, not `deploy.py`.
 
 So a suite of N scripts produces 2·N + 1 test cases. Scripts run in the
 order they appear in the test config (order matters: `setup-basics` first,
@@ -128,6 +139,9 @@ tests/run-vm-tests.sh
 # Only a subset of scripts (comma-separated list):
 tests/run-vm-tests.sh --scripts setup-docker,setup-traefik
 
+# The same cases without the CLI in the loop, to tell a script bug from a dispatch bug:
+tests/run-vm-tests.sh --scripts setup-docker,setup-traefik --mode script
+
 # Keep the VM afterwards for debugging:
 tests/run-vm-tests.sh --keep-vm
 
@@ -155,6 +169,8 @@ tests/run-vm-tests.sh [OPTIONS]
   --scripts A,B,C    Test only these scripts (comma-separated; overrides
                      the enabled set in the test config, env/args for each
                      script are still taken from the test config)
+  --mode MODE        cli (default) = ./kwisatz apply <target>; script = run the
+                     task script directly (see "Two ways to run a case")
   --config FILE      Test config file (default: tests/machine-config.test.yml)
   --release REL      Ubuntu release codename (default: resolute)
   --ram GB           VM RAM in GiB (default: 4)
@@ -199,7 +215,7 @@ flowchart TD
     E -- "scp/ssh failed" --> XC["trap: virt-runner destroy · exit 1"]
     E --> F["3 · Bootstrap on VM:<br/>sudo apt install yq jq<br/>+ install uv"]
     F --> G["4 · Remote runner (single SSH session):<br/>tests/remote/run-tests.sh"]
-    G --> G1["Precheck:<br/>run-setup.sh status --data config=..."]
+    G --> G1["Precheck:<br/>./kwisatz status --config ..."]
     G1 --> G2["Phase 1 — integration:<br/>each script once, clean VM,<br/>with configured env + args,<br/>config order, per-script timeout"]
     G2 --> G3["Phase 2 — idempotency:<br/>each script a second time<br/>(must not error)"]
     G3 --> G4["results.jsonl + per-script logs + meta.json<br/>(failures do NOT stop the run)"]
@@ -234,25 +250,27 @@ Step by step:
    (slow first boot), the harness retries SSH for up to 5 more minutes
    before giving up.
 3. **Copy.** The whole repository is copied with `scp -r` to
-   `/home/<user>/kwisatz` on the VM (including `tasks/`,
-   `lib/`, `templates/`, `run-setup.sh`, `deploy.py`), plus the active test config to
+   `/home/<user>/kwisatz` on the VM (including `tasks/`, `lib/`, `templates/`,
+   `src/kwisatz/`, `kwisatz`, `run-setup.sh`, `deploy.py`), plus the active test config to
    `/tmp/test-config.yml` (also covers generated/custom configs outside the
    repo).
 4. **Bootstrap.** `sudo apt-get install -y yq jq curl` on the VM (idempotent, a
-   few seconds) — the remote runner needs `yq`/`jq` to read the config — and
-   `uv` installed to `/usr/local/bin` (the precheck's `run-setup.sh` needs it
-   on the `PATH` of a non-login ssh session).
+   few seconds) — the remote runner needs `yq`/`jq` to read the config in `script` mode — and
+   `uv` installed to `/usr/local/bin` (`./kwisatz` needs it on the `PATH` of a non-login ssh
+   session; the first `uv run` builds the checkout's `.venv` and pulls pyinfra into it).
 5. **Remote test run.** The in-VM runner
    ([`remote/run-tests.sh`](remote/run-tests.sh)) executes, in **config
    order**:
-   1. the **precheck** (`run-setup.sh status --data config=<config>`),
-   2. **phase `integration`** — every enabled script once,
-   3. **phase `idempotency`** — every enabled script a second time.
+   1. the **precheck** (`./kwisatz status --config <config>`; `run-setup.sh status` in
+      `--mode script`),
+   2. **phase `integration`** — every enabled target once,
+   3. **phase `idempotency`** — every enabled target a second time.
 
-   Each script runs as the VM user (which has passwordless sudo; the task
+   Each case runs as the VM user (which has passwordless sudo; the task
    scripts use `sudo` internally) under `sudo -u <vm-user> timeout
-   --kill-after=60 <N>m` with exactly the env vars and args the test config
-   defines for it. The `sudo -u` wrapper re-initializes the user's
+   --kill-after=60 <N>m` — in `cli` mode that is `./kwisatz apply <target> --config <config>
+   --timeout <N*60>`, so the env, the args and the entry point come from the test config and
+   `deploy.py` and are not spelled out again here. The `sudo -u` wrapper re-initializes the user's
    supplementary groups from the group database for every test case: the
    runner is a single long-lived SSH session, so group changes made by
    earlier cases (setup-docker's `usermod -aG docker`) would otherwise stay
@@ -261,7 +279,7 @@ Step by step:
    the session-port guards (configure-firewall, setup-sshd) keep working. Each test
    case produces:
    - a log file: `/tmp/vmtest/logs/<phase>-<script>.log`
-     (plus `precheck-run-setup-status.log`),
+     (plus the precheck's own `precheck-<mode>-status.log`),
    - one JSON line in `/tmp/vmtest/results.jsonl`:
      `{"script": ..., "phase": ..., "rc": ..., "duration_s": ..., "log": ...}`.
 
@@ -302,7 +320,7 @@ tests/reports/vmtest-<ts>/
     ├── results.jsonl       ← machine-readable results (one object per test case)
     ├── meta.json           ← guest hostname, OS, kernel, date
     └── logs/
-        ├── precheck-run-setup-status.log
+        ├── precheck-<mode>-status.log
         ├── integration-<script>.log
         └── idempotency-<script>.log
 ```
@@ -400,14 +418,15 @@ itself.
 ## Relationship to the Rest of the Repo
 
 - The test config is a regular `machine-config.yml`-schema file, so
-  `run-setup.sh status|apply --data config=tests/machine-config.test.yml` also works on
-  the VM (the precheck exercises `status`).
+  `./kwisatz status|apply --config tests/machine-config.test.yml` also works on
+  the VM (the precheck exercises `status`), which is how the suite itself is reproducible by
+  hand inside a kept VM.
 - Static analysis (ShellCheck) remains the first quality gate and is
   independent of this suite — see
   [`specification/project/test-strategy.md`](../specification/project/test-strategy.md).
   So is [`lint.sh`](lint.sh): its guards cover templates **and** the orchestrator's config
-  contract — both example configs must parse with `deploy.py`, and every example key must
-  name a real `tasks/<name>.sh`/`.py`. Those are the two things this suite structurally
+  contract — both example configs must parse through the CLI (`./kwisatz apply --dry-run`), and
+  every example key must name a real `tasks/<name>.sh`/`.py`. Those are the two things this suite structurally
   cannot see, because the harness feeds the precheck its own test config and reads
   env/args with jq's null-tolerant `// []`.
 - The VM tooling itself (`virt-runner create/destroy/list`, image caching,

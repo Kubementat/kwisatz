@@ -4,15 +4,18 @@
 > rules). This file is the *observable* half: what a command prints, returns, and touches,
 > so a bug report can be settled without reading `src/`.
 >
-> Parity note: everything below describes the direct-execution path. `run-setup.sh apply` /
-> `deploy.py` must hand every script the identical `(command, env, stdin)` triple — enforced
-> by `tests/unit/test_conformance.py`.
+> Engine note: `kwisatz apply` runs `deploy.py`, one pyinfra deploy per target
+> (`--data select=<name>`). What the task script then receives is byte-for-byte what
+> `run-setup.sh apply` / `deploy.py` would give it, because it *is* `deploy.py` — enforced by
+> `tests/unit/test_conformance.py` and `tests/unit/test_deploy_engine.py`. The direct script
+> run survives only for `--interactive` and `kwisatz run` (R-ARCH-101).
 
 ## Overview
 
 `kwisatz` is a front end over the orchestrator that already installs the machine. It changes
 the interface, never the implementation: the task scripts under `tasks/` remain the only
-thing that mutates the box (R-SAFE-003).
+thing that mutates the box (R-SAFE-003), and `apply` reaches them through `deploy.py`, the same
+pyinfra deploy `run-setup.sh` used.
 
 Two things make it useful rather than merely convenient:
 
@@ -50,8 +53,12 @@ targets, configured ones in config order, the rest in the order given. Per targe
 ✓ setup-traefik · 41 s
 ```
 
-- stdout is passed through, not reformatted, and copied to
-  `logs/kwisatz-<UTC-ts>-<target>.log` (mode `0600`, directory `0700`).
+- each target is one pyinfra deploy of the checkout, so the command, the `env`, the `args`
+  and the `/dev/null` stdin are `deploy.py`'s. pyinfra reports that deploy on **stderr**
+  (`-vvv`), which is what `run-setup.sh apply` always did: the script's own output is fully
+  preserved in `logs/kwisatz-<UTC-ts>-<target>.log` (mode `0600`, directory `0700`), and
+  `kwisatz logs <target>` reads it. Use `--interactive` (or `kwisatz run`) when you want the
+  script's stdout on your terminal.
 - a script idle for >3 s gets `… setup-traefik still running 132s · pid 4242` on stderr, so
   slow is distinguishable from hung.
 - first failure stops the run and exit is `1`; `--keep-going` runs the rest and exits `8`.
@@ -62,8 +69,8 @@ targets, configured ones in config order, the rest in the order given. Per targe
 
 ## Behavior 3 — the environment of a task
 
-Identical in both paths, and asserted against what a *stub script* records rather than what
-the CLI claims:
+One engine, one contract: `kwisatz.orchestrator` builds it, `deploy.py` applies it. Asserted
+against what a *stub script* records rather than what the CLI claims:
 
 | fact | value |
 |---|---|
@@ -188,6 +195,11 @@ machine it ships on.
    already-gitignored `logs/`.
 6. **Service discovery is inferred, not registered.** No `services.yml` list of stacks; the
    data file carries manager/unit *hints* only, and a stale hint is worse than none.
+7. **`apply` goes through `deploy.py`, not around it** (R-ARCH-101, decided 2026-10-22). The
+   visible trade: pyinfra is a run-time prerequisite (`uv`, or the checkout's venv — otherwise
+   exit `4`), a target costs ~1 s of deploy startup, and the script's output arrives on stderr.
+   The gain: single-target and full-run apply cannot diverge, because they are the same deploy.
+   `run-setup.sh` is a deprecated shim for one release, then it goes.
 
 ## Verification
 
@@ -200,4 +212,6 @@ machine it ships on.
 - `tests/unit/test_checks.py` — what the host facts may and may not stop a run for.
 - `tests/unit/test_state_lock.py` — history ordering, one-writer rule, the lock nobody owns.
 - `tests/unit/test_conformance.py` — the CLI-vs-pyinfra `(command, env, stdin)` gate.
+- `tests/unit/test_deploy_engine.py` — that a deploy ran the script (`--data select=`), that the
+  script's own ancestor chain says so, and how the deploy interpreter is chosen.
 - `tests/unit/test_cli.py` — acceptance criteria A2…A10 against real subprocesses.
