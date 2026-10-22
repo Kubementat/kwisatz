@@ -1,7 +1,12 @@
-"""Running a task: the environment contract, stdin, streaming, timeouts.
+"""Running things: the environment contract, stdin, streaming, timeouts.
 
-The runner applies what `orchestrator.Task` describes and nothing else — no `apt`, no
-`docker`, no `/srv` writes (R-SAFE-003: only the task scripts change the machine).
+Two runners, one contract. `run_deploy()` is what `apply` uses: pyinfra runs the task
+through `deploy.py`, so the command and the environment are pyinfra's
+(`repo.py:deploy_argv()`). `run_task()` is the direct script run behind `run`,
+`--interactive` and `models sync`; it applies what `orchestrator.Task` describes and nothing
+else — no `apt`, no `docker`, no `/srv` writes (R-SAFE-003: only the task scripts change the
+machine). Both go through the same `_execute`, so streaming, log mode and the process-group
+timeout cannot differ between them.
 
 Output rules it implements:
   * non-JSON runs stream the script's stdout through unchanged (R-OUT-004) and write a

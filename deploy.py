@@ -2,10 +2,11 @@
 
 Usage: uv run pyinfra @local deploy.py [--dry | -y -vvv] [--data config=<file>]
                                        [--data select=<name>[,<name>…]]
-(`./run-setup.sh apply|status` wraps exactly this, and `kwisatz apply` runs the same
-contract directly — see `kwisatz/orchestrator.py`. `select` runs exactly the named
-targets, in the order given, whether or not they are enabled — `kwisatz apply <target>`
-passes it, and it is the only way to reach a single script through pyinfra.)
+(`./run-setup.sh apply|status` wraps exactly this, and `kwisatz apply` *starts this deploy*
+for each target it resolves — see `kwisatz/repo.py:deploy_argv()` and R-ARCH-101.
+`select` runs exactly the named targets, in the order given, whether or not they are enabled —
+`kwisatz apply <target>` passes it, and it is the only way to reach a single script through
+pyinfra.)
 
 Everything that decides *what* runs and *how* lives in `kwisatz.orchestrator`, which
 both entry points read: the config contract (`.scripts.<name>` = `enabled` / `env` /
