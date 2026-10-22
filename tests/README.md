@@ -7,6 +7,10 @@
 | Unit / CLI / conformance | `uv run pytest` | ~12 s | the CLI: planning, `--json`, exit codes, and that `kwisatz apply` and `deploy.py` agree |
 | Integration + idempotency | `tests/run-vm-tests.sh` | 15–30 min | every enabled script really provisions a clean Ubuntu VM, and re-running it converges |
 
+New here? The same content as a 20-slide walkthrough (Reveal.js, no build step):
+[`docs/presentations/running-the-test-suite.html`](../docs/presentations/running-the-test-suite.html)
+— open it directly, or `python3 -m http.server -d docs/presentations 8000`.
+
 ## Run everything, in order
 
 ```console

@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Running the kwisatz test suite — onboarding</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+
+<style>
+  :root{
+    --bg0:#070b14; --bg1:#0e1524; --ink:#e8eefc; --dim:#93a4c6; --faint:#5f7096;
+    --teal:#3ddc97; --amber:#ffcb6b; --violet:#a78bfa; --red:#ff6b81; --blue:#63b3ff;
+    --line:#1d2942; --card:#111a2c;
+    --mono:"JetBrains Mono","Fira Code",SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:"Inter","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  .reveal{font-family:var(--sans);color:var(--ink);font-size:34px}
+  .reveal .slides{text-align:left}
+  .reveal .slides section{padding:0 10px}
+  .reveal h1,.reveal h2,.reveal h3{font-family:var(--sans);color:var(--ink);text-transform:none;letter-spacing:-.02em;margin:0 0 .35em}
+  .reveal h1{font-size:1.9em;font-weight:800}
+  .reveal h2{font-size:1.28em;font-weight:750}
+  .reveal h3{font-size:1.0em;color:var(--teal);font-weight:700}
+  .reveal p,.reveal li{line-height:1.45}
+  .reveal ul{margin:0 0 0 1.05em}
+  .reveal .lead{color:var(--dim);font-size:.86em}
+  .reveal .kicker{font-family:var(--mono);font-size:.55em;letter-spacing:.22em;text-transform:uppercase;color:var(--teal);margin-bottom:.9em}
+  .reveal em{color:var(--amber);font-style:normal;font-weight:600}
+  .reveal .warn{color:var(--red);font-weight:600}
+  .reveal a{color:var(--blue)}
+
+  /* background */
+  .reveal-viewport{background:
+     radial-gradient(1200px 600px at 12% -10%, #16233d 0%, transparent 60%),
+     radial-gradient(900px 500px at 100% 110%, #14261f 0%, transparent 55%),
+     linear-gradient(160deg,var(--bg0),var(--bg1))}
+  .reveal-viewport:after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.16;
+     background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+     background-size:48px 48px}
+
+  /* terminal window */
+  .term{background:#05080f;border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 40px rgba(0,0,0,.45);overflow:hidden;font-family:var(--mono)}
+  .term .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#0c1424;border-bottom:1px solid var(--line)}
+  .term .bar i{width:11px;height:11px;border-radius:50%;background:#33415e;display:block}
+  .term .bar i:nth-child(1){background:#ff5f57}.term .bar i:nth-child(2){background:#febc2e}.term .bar i:nth-child(3){background:#28c840}
+  .term .bar span{margin-left:8px;color:var(--faint);font-size:.5em;letter-spacing:.08em}
+  .term pre{margin:0;padding:14px 16px;font-size:.56em;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:#dfe8fb;font-family:var(--mono)}
+  .term code{background:none;padding:0;font-family:var(--mono);color:#dfe8fb}
+  .reveal .term .hljs{background:none;padding:0}
+  .cmt{color:#5f7096}.ok{color:var(--teal)}.bad{color:var(--red)}.mut{color:#93a4c6}
+
+  /* inline code */
+  .reveal code{font-family:var(--mono);background:#132038;border:1px solid #1e2f4d;border-radius:6px;padding:.06em .34em;font-size:.82em;color:#cfe4ff}
+
+  /* cards */
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  .card{background:linear-gradient(180deg,#121c2f,#0d1524);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .card h4{margin:0 0 .35em;font-size:.86em;color:var(--ink);font-weight:700}
+  .card p{margin:0;font-size:.68em;color:var(--dim);line-height:1.42}
+  .card .num{font-family:var(--mono);font-size:1.5em;font-weight:700;color:var(--teal);display:block;margin-bottom:.1em}
+  .accent-violet .num{color:var(--violet)}.accent-amber .num{color:var(--amber)}.accent-blue .num{color:var(--blue)}
+
+  /* tables */
+  .reveal table{width:100%;border-collapse:collapse;font-size:.62em;margin:.2em 0 0}
+  .reveal th{text-align:left;color:var(--teal);font-weight:700;border-bottom:1px solid #24365a;padding:.5em .6em;white-space:nowrap}
+  .reveal td{border-bottom:1px solid #17233a;padding:.46em .6em;color:#cdd9f2;vertical-align:top}
+  .reveal tr:last-child td{border-bottom:none}
+  .reveal td code{font-size:.9em}
+  .tag{font-family:var(--mono);font-size:.85em;padding:.05em .4em;border-radius:5px;border:1px solid}
+  .tag.p{color:var(--teal);border-color:#1f5d45;background:#0e2b21}
+  .tag.f{color:var(--red);border-color:#5d2233;background:#2b0e18}
+  .tag.t{color:var(--amber);border-color:#5d4a1f;background:#2b230e}
+
+  /* pyramid */
+  .pyr{display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:14px}
+  .pyr .lvl{display:flex;align-items:center;gap:14px;border-radius:12px;padding:12px 18px;border:1px solid var(--line);
+    background:linear-gradient(90deg,#12203a,#0d1524);font-family:var(--mono);font-size:.62em}
+  .pyr .lvl b{font-family:var(--sans);font-size:1.15em;font-weight:750}
+  .pyr .l1{width:38%}.pyr .l2{width:60%}.pyr .l3{width:80%}.pyr .l4{width:100%}
+  .pyr .lvl small{color:var(--dim);font-family:var(--sans);font-size:.95em}
+  .slow{color:var(--red)}.fast{color:var(--teal)}
+
+  /* pipeline */
+  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:8px}
+  .node{position:relative;background:linear-gradient(180deg,#132135,#0d1524);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .node .n{font-family:var(--mono);color:var(--teal);font-size:.5em;letter-spacing:.16em}
+  .node h5{margin:.25em 0 .3em;font-size:.74em;font-weight:700}
+  .node p{margin:0;font-size:.56em;color:var(--dim);line-height:1.4}
+  .node.after:after{content:"→";position:absolute;right:-15px;top:46%;color:#31456e;font-size:.9em}
+  .node.down:after{content:"↓";right:auto;left:46%;top:auto;bottom:-19px}
+  .node.danger{border-color:#4a2233;background:linear-gradient(180deg,#2a1522,#140d14)}
+  .node.danger .n{color:var(--red)}
+
+  /* misc */
+  .reveal .slide-number{color:var(--faint);background:none;font-family:var(--mono);font-size:16px}
+  .reveal .controls{color:var(--teal)}
+  .reveal .progress{height:4px;color:var(--teal)}
+  .foot{position:absolute;bottom:-6px;left:10px;right:10px;display:flex;justify-content:space-between;color:var(--faint);font-family:var(--mono);font-size:.46em;letter-spacing:.06em}
+  .rule{border-left:3px solid var(--amber);padding-left:14px;color:#dbe6ff;font-size:.74em}
+  .bignum{font-family:var(--mono);font-size:1.05em;color:var(--teal)}
+  .split{display:grid;grid-template-columns:1.15fr .85fr;gap:22px;align-items:start}
+  .split-even{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  .dense pre{font-size:.47em !important;line-height:1.45}
+  /* printing: let the page be the layout, undo the on-screen shrink */
+  @media print{.reveal .slides>section>.fit{transform:none !important}}
+  .tight li{margin-bottom:.15em}
+  .small ul{font-size:.66em !important}
+  .title-wrap{height:100%;display:flex;flex-direction:column;justify-content:center}
+  .pill{display:inline-block;font-family:var(--mono);font-size:.5em;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:.3em .9em;margin-right:.5em}
+</style>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<!-- 1 ─ TITLE -->
+<section data-background-gradient="radial-gradient(1000px 600px at 20% 10%, #17325a 0%, transparent 60%), linear-gradient(160deg,#060a12,#0d1728)">
+  <div class="title-wrap">
+    <div class="kicker">kwisatz · developer onboarding</div>
+    <h1>Running the test suite<br><span style="color:var(--teal)">without losing a weekend</span></h1>
+    <p class="lead" style="margin-top:.4em;max-width:30em">
+      Four layers of proof that a provisioning script works on a clean Ubuntu box —
+      and that running it a second time converges instead of exploding.
+    </p>
+    <div style="margin-top:1.3em">
+      <span class="pill">tests/lint.sh</span><span class="pill">uv run pytest</span>
+      <span class="pill">tests/run-vm-tests.sh</span><span class="pill">pre-commit</span>
+    </div>
+    <p class="lead" style="margin-top:1.4em;font-size:.6em">→ to advance · <code>esc</code> for overview · <code>s</code> for speaker notes</p>
+  </div>
+  <aside class="notes">Deck lives in docs/presentations/. Everything here is reproducible from
+  tests/README.md and specification/project/test-strategy.md. Press s for notes.</aside>
+</section>
+
+<!-- 2 ─ WHAT WE TEST -->
+<section>
+  <div class="kicker">why this suite looks strange</div>
+  <h2>We test a machine, not a function</h2>
+  <div class="split-even">
+    <div>
+      <p class="lead">kwisatz is ~60 task scripts plus a CLI that runs them through pyinfra. Their
+      contract is two sentences long:</p>
+      <p style="font-size:.78em;margin:.2em 0"><em>1.</em> On a clean Ubuntu server, <code>kwisatz apply</code> leaves a working service.</p>
+      <p style="font-size:.78em;margin:.2em 0 0"><em>2.</em> Running it again <em>converges</em> — reuses secrets, keeps data, never tears down.</p>
+      <p class="lead">Rule 2 is the one humans forget, and it is the one that bites in production.</p>
+    </div>
+    <div class="card" style="border-color:#2a3d63">
+      <h4>So the suite is a machine, not a mock</h4>
+      <p>A throwaway KVM guest is created per run, the whole checkout is copied in, every enabled
+      script is executed <b style="color:var(--ink)">twice</b>, and the report shows the full matrix.
+      Nothing on your host is touched, and no VM survives the run.</p>
+    </div>
+  </div>
+  <div class="grid g4" style="margin-top:12px">
+    <div class="card"><span class="num">2×</span><p>runs twice: integration, then idempotency</p></div>
+    <div class="card accent-amber"><span class="num">1</span><p>precheck reads the config first</p></div>
+    <div class="card accent-violet"><span class="num">0</span><p>VM leaks — the EXIT trap tears down too</p></div>
+    <div class="card accent-blue"><span class="num">100%</span><p>one failing script never stops the run</p></div>
+  </div>
+  <div class="foot"><span>kwisatz · testing</span><span>2</span></div>
+</section>
+
+<!-- 3 ─ PYRAMID -->
+<section>
+  <div class="kicker">the four layers</div>
+  <h2>Cheap and boring first, expensive and real last</h2>
+  <div class="pyr">
+    <div class="lvl l4"><b>Static analysis</b><span class="fast">~seconds</span><small>shellcheck · ruff — the primary gate</small></div>
+    <div class="lvl l3"><b>Repo guards</b><span class="fast">~1 s</span><small><code>tests/lint.sh</code> — 6 guards the VM suite structurally cannot see</small></div>
+    <div class="lvl l2"><b>Unit · CLI · conformance</b><span class="fast">~12 s</span><small><code>uv run pytest</code> — 114 tests</small></div>
+    <div class="lvl l1" style="background:linear-gradient(90deg,#2a2110,#0d1524)"><b>VM integration + idempotency</b><span class="slow">15–30 min</span><small><code>tests/run-vm-tests.sh</code></small></div>
+  </div>
+  <p class="lead" style="margin-top:22px;max-width:34em">Work bottom-up while iterating; the VM suite is the last
+  gate before a merge, not the first thing you run. The pre-commit hook already runs the top two for you.</p>
+  <aside class="notes">Order matters for cost: lint is sub-second, pytest ~12 s, VM suite 15-30 min.
+  The pyramid is inverted on purpose (widest = cheapest).</aside>
+  <div class="foot"><span>kwisatz · testing</span><span>3</span></div>
+</section>
+
+<!-- 4 ─ LAYER 1 -->
+<section>
+  <div class="kicker">layer 1 · static analysis</div>
+  <h2>Lint every file you touch</h2>
+  <div class="term" style="margin-bottom:14px">
+    <div class="bar"><i></i><i></i><i></i><span>bash</span></div>
+<pre><code class="language-bash">shellcheck tasks/setup-traefik.sh lib/helpers.sh   # every .sh, no errors or warnings
+uv run ruff check src tests deploy.py              # the python side
+jq empty some.json                                 # .json / .js
+yamllint -d relaxed machine-config.yml.example     # .yml / .yaml</code></pre>
+  </div>
+  <div class="split">
+    <p class="lead">AGENTS.md rule: <em>lint every created or modified file</em>. shellcheck is the repo's
+    primary quality gate — most "the script broke the box" bugs are quoting, unchecked <code>cd</code>,
+    and unset variables, and it finds them in milliseconds.</p>
+    <div class="card"><h4>Do it automatically</h4><p><code>tests/install-git-hooks.sh</code> installs a pre-commit gate
+    that lints the staged content of exactly these file types. Slide 17.</p></div>
+  </div>
+  <div class="foot"><span>layer 1 · static analysis</span><span>4</span></div>
+</section>
+
+<!-- 5 ─ LAYER 1b guards -->
+<section>
+  <div class="kicker">layer 2 · repo guards</div>
+  <h2><code>tests/lint.sh</code> — the six things a VM run cannot see</h2>
+  <div class="split-even">
+    <div>
+      <h3 style="margin-top:0">Template hardening</h3>
+      <table>
+        <tr><td>1</td><td>no <code>privileged:</code> container in <code>templates/</code> (only the concourse worker is allowlisted)</td></tr>
+        <tr><td>2</td><td>no floating <code>:latest</code> / <code>:main</code> image reference</td></tr>
+        <tr><td>3</td><td>no untagged image pull (implicitly <code>:latest</code>)</td></tr>
+      </table>
+      <h3 style="margin-top:1em">Orchestrator contract</h3>
+      <table>
+        <tr><td>4</td><td>both shipped example configs parse through <code>./kwisatz apply --dry-run</code></td></tr>
+        <tr><td>5</td><td>every example-config key names a real <code>tasks/&lt;name&gt;.sh</code> / <code>.py</code></td></tr>
+      </table>
+    </div>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>$ tests/lint.sh</span></div>
+<pre class="raw"><span class="ok">ok</span>: privileged: only in the concourse worker
+<span class="ok">ok</span>: no floating :latest/:main images in templates/
+<span class="ok">ok</span>: no untagged image pulls in templates/
+<span class="ok">ok</span>: machine-config.yml.example parses (./kwisatz apply --dry-run)
+<span class="ok">ok</span>: machine-config-inference.yml.example parses (…)
+<span class="ok">ok</span>: every example-config key names an existing task entrypoint
+lint guards: <span class="ok">PASS</span></pre>
+    </div>
+  </div>
+  <p class="lead" style="margin-top:14px">Why guards 4–5 exist: the VM harness feeds its <em>own</em> test config to the
+  precheck and reads env/args with null-tolerant jq — so a shipped example that no longer parses would sail through.</p>
+    <aside class="notes">Guards 1-3 came out of the agent-sandbox work. Guards 4-5 exist because the harness feeds the precheck its own test config, so a broken shipped example used to pass silently.</aside>
+  <div class="foot"><span>layer 2 · repo guards</span><span>5</span></div>
+</section>
+
+<!-- 6 ─ LAYER 3 pytest -->
+<section>
+  <div class="kicker">layer 3 · unit, CLI, conformance</div>
+  <h2><code>uv run pytest</code> — the CLI's own behaviour</h2>
+  <div class="split-even">
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>$ uv run pytest</span></div>
+<pre class="raw">uv run pytest                     <span class="cmt"># whole layer, ~12 s</span>
+uv run pytest -v                  <span class="cmt"># one line per test</span>
+uv run pytest -k conformance      <span class="cmt"># only the engine-agreement tests</span>
+uv run pytest tests/unit/test_cli.py --exitfirst
+uv run pytest -q --no-header</pre>
+      <div class="bar" style="border-top:1px solid var(--line);border-bottom:none"><span>result</span></div>
+<pre><code class="language-bash">114 passed in 11.64s</code></pre>
+    </div>
+    <div>
+      <p class="lead" style="margin-bottom:.6em">Under test in <code>tests/unit/</code>:</p>
+      <ul style="font-size:.72em">
+        <li>target resolution and every <code>enabled:</code> spelling</li>
+        <li>plan ordering, masking of secrets, the <code>--json</code> envelope, exit codes</li>
+        <li>the state lock, comment-preserving <code>machine-config.yml</code> edits</li>
+        <li>the command surface as <em>real subprocesses</em> against a throwaway checkout whose
+            scripts record the argv/env/stdin they were given</li>
+        <li><b>conformance</b>: <code>kwisatz apply</code> and <code>deploy.py</code> must agree on the
+            <code>(command, env, stdin)</code> triple — the release gate for "one engine"</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>layer 3 · pytest</span><span>6</span></div>
+</section>
+
+<!-- 7 ─ VM SUITE SHAPE -->
+<section>
+  <div class="kicker">layer 4 · the VM suite</div>
+  <h2>One run = 2·N + 1 test cases</h2>
+  <div class="split-even">
+    <div>
+      <table>
+        <tr><th>Phase</th><th>What happens on the guest</th><th>Pass =</th></tr>
+        <tr><td><b>precheck</b></td><td><code>./kwisatz status --config &lt;test-config&gt;</code></td><td><span class="tag p">exit 0</span></td></tr>
+        <tr><td><b>integration</b></td><td>first run of each target on the clean VM, in config order, with its configured <code>env:</code>/<code>args:</code></td><td><span class="tag p">exit 0</span></td></tr>
+        <tr><td><b>idempotency</b></td><td>the same target a second time on the now-provisioned VM</td><td><span class="tag p">exit 0</span></td></tr>
+      </table>
+      <p class="lead" style="margin-top:.9em">Default config: 10 fast, safe, non-interactive scripts →
+        <span class="bignum">21</span> cases. A failing script never stops the run: you always get the whole matrix.</p>
+    </div>
+    <div>
+      <div class="term"><div class="bar"><i></i><i></i><i></i><span>default script set</span></div>
+<pre class="raw">setup-basics          <span class="cmt"># git, yq, jq, nvm/node — must be first</span>
+setup-agent-sandbox
+configure-firewall    <span class="cmt"># SSHD_PORT: "22" — see slide 15</span>
+setup-docker          <span class="cmt"># before any docker-based service</span>
+setup-sshd
+setup-fail2ban
+setup-neovim
+setup-pi
+setup-ai-agent-skills
+setup-traefik</pre></div>
+      <p class="lead" style="margin-top:.7em;font-size:.6em">Heavy GPU / build / container-farm scripts
+      (<code>setup-llama-cpp</code>, <code>setup-vllm</code>, <code>setup-monitoring</code>, …) are not in the
+      default set — test them ad hoc with <code>--scripts</code>, a bigger VM and a longer timeout.</p>
+    </div>
+  </div>
+    <aside class="notes">2N+1 cases: one precheck plus integration and idempotency per script. Default config enables 10 scripts, hence 21 cases.</aside>
+  <div class="foot"><span>layer 4 · vm suite shape</span><span>7</span></div>
+</section>
+
+<!-- 8 ─ PREREQS -->
+<section>
+  <div class="kicker">once per host</div>
+  <h2>Prerequisites: one command</h2>
+  <div class="term" style="margin-bottom:12px"><div class="bar"><i></i><i></i><i></i><span>bash</span></div>
+<pre class="raw">./tasks/setup-virt-runner.sh          <span class="cmt"># clones virt-runner, installs KVM/libvirt/pools, uv tool install, verifies</span>
+virt-runner list                       <span class="cmt"># must work without sudo</span></pre></div>
+  <div class="grid g2">
+    <div class="card"><h4>Host checklist</h4><p>Ubuntu with <code>/dev/kvm</code> · libvirt usable
+      <b style="color:var(--ink)">without sudo</b> · storage pool <code>vm-pool</code> active · NAT network
+      <code>default</code> active (dnsmasq, 192.168.122.0/24) · <code>scp</code>, <code>jq</code>, <code>yq</code> on PATH
+      · <code>uv</code> for the CLI</p></div>
+    <div class="card"><h4>SSH key + overrides</h4><p>Public key injected into the guest:
+      <code>~/.ssh/id_ed25519.pub</code>, override with <code>VM_SSH_KEY</code>.<br>
+      virt-runner command on PATH is <code>virt-runner</code>, override with <code>VIRT_RUNNER</code>.</p></div>
+  </div>
+  <p class="lead" style="margin-top:16px;max-width:36em">Preflight fails <em>fast</em> and creates no VM if any of this is
+  missing — you get a message, not a half-built guest.</p>
+    <aside class="notes">Remember: only the VM create path must run without sudo. Everything inside the guest is sudo by design.</aside>
+  <div class="foot"><span>prerequisites</span><span>8</span></div>
+</section>
+
+<!-- 9 ─ FIRST RUN -->
+<section>
+  <div class="kicker">the commands you will actually type</div>
+  <h2>Running it</h2>
+  <div class="term"><div class="bar"><i></i><i></i><i></i><span>bash</span></div>
+<pre class="raw">tests/run-vm-tests.sh                                        <span class="cmt"># full default suite, 15–30 min</span>
+tests/run-vm-tests.sh --scripts setup-docker,setup-traefik   <span class="cmt"># only what you changed</span>
+tests/run-vm-tests.sh --scripts setup-llama-cpp --ram 8 --disk 60 --timeout 120
+tests/run-vm-tests.sh --keep-vm                              <span class="cmt"># leave the guest up for debugging</span>
+tests/run-vm-tests.sh --mode script --scripts setup-docker   <span class="cmt"># bypass the CLI (see slide 11)</span>
+tests/run-vm-tests.sh --release noble --user ubuntu          <span class="cmt"># another Ubuntu / user</span>
+tests/run-vm-tests.sh --config /path/to/my-test-config.yml
+tests/run-vm-tests.sh --help</pre></div>
+  <p class="lead" style="margin-top:14px">Wall clock: VM creation 1–3 min (the ~820 MiB cloud image is cached after the
+  first download), then the test phase dominates.</p>
+  <div class="foot"><span>run it</span><span>9</span></div>
+</section>
+
+<!-- 10 ─ ANATOMY -->
+<section>
+  <div class="kicker">anatomy of one run</div>
+  <h2>What happens between <code>run-vm-tests.sh</code> and the report</h2>
+  <div class="flow">
+    <div class="node"><div class="n">0 · PREFLIGHT</div><h5>Fail before creating</h5><p>virt-runner + jq present, libvirt reachable, test config and SSH key readable. <code>--scripts</code> generates a one-off config (env/args preserved).</p></div>
+    <div class="node"><div class="n">1 · CREATE</div><h5>virt-runner create --json</h5><p>Fresh Ubuntu guest <code>mas-vmtest-&lt;ts&gt;</code>, cloud-init injects the key, DHCP lease + real SSH round-trip verified; 5 min extra retry for slow boots.</p></div>
+    <div class="node"><div class="n">2 · COPY</div><h5>scp the checkout</h5><p>repo → <code>/home/&lt;user&gt;/kwisatz</code>, active config → <code>/tmp/test-config.yml</code>.</p></div>
+    <div class="node after"><div class="n">3 · BOOTSTRAP</div><h5>yq, jq, uv</h5><p>apt install on the guest; uv to <code>/usr/local/bin</code> so <code>./kwisatz</code> works in a non-login ssh session.</p></div>
+    <div class="node down"><div class="n">4 · RUN</div><h5>tests/remote/run-tests.sh</h5><p>One SSH session: precheck → integration → idempotency, each under <code>sudo -u &lt;user&gt; timeout</code>, writing <code>results.jsonl</code> + a log per case.</p></div>
+    <div class="node"><div class="n">5 · FETCH</div><h5>/tmp/vmtest → host</h5><p>results.jsonl, meta.json and every log land in the report directory.</p></div>
+    <div class="node"><div class="n">6 · REPORT</div><h5>report.md</h5><p>script × phase table with durations, precheck, verdict, links to all artifacts.</p></div>
+    <div class="node danger"><div class="n">7 · TEARDOWN</div><h5>virt-runner destroy</h5><p>destroy + undefine + delete <code>&lt;name&gt;_vda.qcow2</code>. Runs from the EXIT trap too, so early failures never leak a VM.</p></div>
+  </div>
+  <div class="rule" style="margin-top:18px">The guest is named <code>mas-vmtest-&lt;timestamp&gt;</code> and teardown touches
+  that domain and its volume only — your other VMs are never at risk.</div>
+  <aside class="notes">Each case runs as the VM user under `sudo -u`, which re-initialises supplementary groups:
+  without it, `usermod -aG docker` from an earlier case would stay invisible in the long-lived SSH session and break
+  every later docker call.</aside>
+  <div class="foot"><span>anatomy</span><span>10</span></div>
+</section>
+
+<!-- 11 ─ MODES -->
+<section>
+  <div class="kicker">two ways to run one case</div>
+  <h2><code>--mode cli</code> vs <code>--mode script</code></h2>
+  <div class="split-even">
+    <div class="card" style="border-color:#1f5d45">
+      <h4>cli <span class="tag p">default</span></h4>
+      <p><code>./kwisatz apply &lt;target&gt;</code> — a real pyinfra deploy of the copied checkout
+      (<code>deploy.py -y -vvv --data select=&lt;target&gt;</code>).</p>
+      <p style="margin-top:.6em">Under test: the entry point, target resolution, the config's
+      <code>env:</code>/<code>args:</code>, <code>INTERACTIVE=false</code>, <code>/dev/null</code> stdin.
+      This is what operators and agents run, so this is what counts.</p>
+    </div>
+    <div class="card" style="border-color:#5d4a1f">
+      <h4>script <span class="tag t">fallback</span></h4>
+      <p><code>sudo -u &lt;vm-user&gt; env … ./tasks/&lt;name&gt;.sh &lt;args&gt;</code> — the bare script.</p>
+      <p style="margin-top:.6em">The runner re-implements entry-point and env/args resolution with yq+jq, which is
+      exactly why it is not the default. Use it to <em>bisect</em>: a case failing in <code>cli</code> but passing in
+      <code>script</code> is a dispatch bug, not a script bug.</p>
+    </div>
+  </div>
+  <div class="term" style="margin-top:18px"><div class="bar"><i></i><i></i><i></i><span>bisect a failure</span></div>
+<pre class="raw">tests/run-vm-tests.sh --scripts setup-traefik                <span class="cmt"># fails → is it the script or the dispatch?</span>
+tests/run-vm-tests.sh --scripts setup-traefik --mode script  <span class="cmt"># passes → dispatch; fails → script</span></pre></div>
+    <aside class="notes">Use script mode to bisect: script passes but cli fails is a dispatch bug, not a provisioning bug.</aside>
+  <div class="foot"><span>modes</span><span>11</span></div>
+</section>
+
+<!-- 12 ─ REPORT -->
+<section>
+  <div class="kicker">reading the result</div>
+  <h2><code>report.md</code> is the deliverable</h2>
+  <div class="split">
+    <div class="term"><div class="bar"><i></i><i></i><i></i><span>tests/reports/vmtest-&lt;ts&gt;/report.md</span></div>
+<pre class="raw">- VM: mas-vmtest-20261022-121638 (resolute, 4 GiB, 2 vCPU, 30 GiB)
+- Guest OS: Ubuntu 26.04.1 LTS · Per-script timeout: 30m
+- How it ran: ./kwisatz apply &lt;target&gt; — one pyinfra deploy per target
+
+| Script              | Integration  | Idempotency |
+| setup-basics        | PASS (129s)  | PASS (23s)  |
+| setup-agent-sandbox | PASS (18s)   | PASS (1s)   |
+| configure-firewall  | PASS (1s)    | PASS (1s)   |
+| setup-docker        | PASS (32s)   | PASS (0s)   |
+| setup-sshd          | PASS (18s)   | PASS (5s)   |
+| setup-pi            | PASS (121s)  | PASS (24s)  |
+| setup-traefik       | PASS (22s)   | PASS (4s)   |
+
+Precheck: kwisatz status — PASS
+<span class="ok">Verdict: PASS — all 21 test cases succeeded</span></pre></div>
+    <div>
+      <h3 style="margin-top:0">Verdict vocabulary</h3>
+      <table>
+        <tr><td><span class="tag p">PASS (Ns)</span></td><td>exit 0 in that phase</td></tr>
+        <tr><td><span class="tag f">FAIL (rc=N)</span></td><td>the script's own exit code</td></tr>
+        <tr><td><span class="tag f">rc=125</span></td><td>no <code>tasks/&lt;name&gt;.sh</code> / <code>.py</code> — typo in config or <code>--scripts</code></td></tr>
+        <tr><td><span class="tag t">TIMEOUT (Mm)</span></td><td>rc=124, raise <code>--timeout</code></td></tr>
+      </table>
+      <h3 style="margin-top:1em">Exit codes of the harness</h3>
+      <table>
+        <tr><td><code>0</code></td><td>every case passed</td></tr>
+        <tr><td><code>1</code></td><td>a case failed <em>or</em> the pipeline itself did (VM create, scp, …)</td></tr>
+        <tr><td><code>2</code></td><td>usage error</td></tr>
+      </table>
+    </div>
+  </div>
+    <aside class="notes">Exit code 1 covers both a failing case and a failing pipeline - always read the verdict table.</aside>
+  <div class="foot"><span>report</span><span>12</span></div>
+</section>
+
+<!-- 13 ─ ARTIFACTS -->
+<section>
+  <div class="kicker">when something fails</div>
+  <h2>The artifact directory is the black-box recorder</h2>
+  <div class="split">
+    <div class="term"><div class="bar"><i></i><i></i><i></i><span>tests/reports/vmtest-&lt;ts&gt;/</span></div>
+<pre class="raw">report.md              <span class="cmt">← start here</span>
+create.json            <span class="cmt">virt-runner create output (error.code/.message)</span>
+create-stderr.log
+scp.log                bootstrap.log
+runner.log             <span class="cmt">remote runner console</span>
+destroy.json
+config.generated.yml   <span class="cmt">only with --scripts</span>
+ssh_config  ssh-known-hosts  vmhome-bin/
+vmtest/
+  results.jsonl        <span class="cmt">machine-readable: one object per case</span>
+  meta.json            <span class="cmt">guest hostname / OS / kernel</span>
+  logs/
+    precheck-&lt;mode&gt;-status.log
+    integration-&lt;script&gt;.log
+    idempotency-&lt;script&gt;.log</pre></div>
+    <div>
+      <h3 style="margin-top:0">The three commands that answer most failures</h3>
+      <div class="term" style="margin-top:6px"><div class="bar"><i></i><i></i><i></i><span>bash</span></div>
+<pre><code class="language-bash">R=tests/reports/vmtest-&lt;ts&gt;
+tail -60 $R/vmtest/logs/integration-setup-traefik.log
+jq 'select(.rc!=0)' $R/vmtest/results.jsonl
+jq -r '.error' $R/create.json</code></pre></div>
+      <p class="lead" style="margin-top:.9em;font-size:.66em">The last lines of every failing script are also echoed to
+      the console at the end of the run — you rarely need to open the file at all.</p>
+    </div>
+  </div>
+    <aside class="notes">logs are chmod 644 deliberately so you can read them without sudo after a failed run.</aside>
+  <div class="foot"><span>artifacts</span><span>13</span></div>
+</section>
+
+<!-- 14 ─ TRIAGE -->
+<section>
+  <div class="kicker">debug flow</div>
+  <h2>Reproduce it where it broke</h2>
+  <div class="term dense" style="margin-bottom:14px"><div class="bar"><i></i><i></i><i></i><span>bash</span></div>
+<pre class="raw">tests/run-vm-tests.sh --scripts setup-traefik --keep-vm      <span class="cmt"># prints the ssh command + teardown command</span>
+ssh ubuntu@192.168.122.253                                   <span class="cmt"># then re-run by hand, inside the checkout:</span>
+  <span class="cmt">#   cd ~/kwisatz && ./kwisatz apply traefik --config /tmp/test-config.yml</span>
+  <span class="cmt">#   ./kwisatz doctor · ./kwisatz status · sudo journalctl -u docker · dmesg | tail</span>
+tests/reports/vmtest-&lt;ts&gt;  <span class="cmt">→ keep the logs, then destroy for real:</span>
+  virt-runner destroy mas-vmtest-&lt;ts&gt;</pre></div>
+  <table style="font-size:.62em">
+    <tr><th>Symptom</th><th>Cause / fix</th></tr>
+    <tr><td><code>no DHCP lease after 120s</code></td><td>libvirt network or disk — <code>virsh net-info default</code>, <code>virsh pool-info vm-pool</code>, then <code>create.json</code></td></tr>
+    <tr><td>create timed out waiting for SSH</td><td>slow first boot — raise <code>--ram</code>/<code>--vcpu</code>; watch with <code>virsh console &lt;name&gt;</code> and <code>--keep-vm</code></td></tr>
+    <tr><td>harness loses the VM mid-run</td><td>guest OOM'd — re-run with <code>--keep-vm --ram 8</code>, then <code>dmesg</code>; the trap already tore the orphan down</td></tr>
+    <tr><td>a script locks the harness out of the VM</td><td>almost always an SSH-port mismatch — see the rule below</td></tr>
+    <tr><td><code>yq is required for --scripts</code></td><td>install <code>yq</code>/<code>jq</code> on the host (host <em>and</em> guest tolerate either yq flavour)</td></tr>
+  </table>
+  <div class="foot" style="position:static;margin-top:10px"><span>triage</span><span>14</span></div>
+</section>
+
+<!-- 15 ─ RULES -->
+<section>
+  <div class="kicker">rules for editing the test config</div>
+  <h2>Two rules, then you can add a script</h2>
+  <div class="rule" style="font-size:.8em;margin-bottom:.9em"><b>1 — Keep <code>SSHD_PORT: "22"</code></b> on
+    <code>configure-firewall</code>, <code>setup-sshd</code> and <code>setup-fail2ban</code>. The harness reaches the guest on
+    22; the scripts' own default (<code>2224</code>) would move sshd or the firewall under the harness and lock the run out mid-suite.</div>
+  <div class="rule" style="font-size:.8em;margin-bottom:1.1em"><b>2 — Order matters.</b>
+    <code>setup-basics</code> first (git/yq/jq/node), <code>setup-docker</code> before anything docker-based. Scripts execute in config order.</div>
+  <div class="split-even">
+    <div class="card"><h4>Adding a new script to the default set</h4><p>It must be non-interactive without a TTY, safe on a
+      clean VM with the default VM user, and its <em>second</em> run must skip cleanly or genuinely converge — the default
+      set only contains scripts that already satisfy the re-run policy.</p></div>
+    <div class="card accent-amber"><h4><code>--scripts a,b,c</code> does not edit the config</h4><p>It generates a one-off config
+      in the report dir. Listed scripts keep their env/args; unknown ones get <b style="color:var(--ink)">empty</b> env/args — so for
+      SSH-port-related scripts, add them to <code>machine-config.test.yml</code> instead.</p></div>
+  </div>
+  <div class="foot"><span>config rules</span><span>15</span></div>
+</section>
+
+<!-- 16 ─ PRECOMMIT -->
+<section>
+  <div class="kicker">new · guard the commit, not just the branch</div>
+  <h2>The pre-commit lint gate</h2>
+  <div class="split-even small">
+    <div>
+      <div class="term"><div class="bar"><i></i><i></i><i></i><span>bash</span></div>
+<pre class="raw">tests/install-git-hooks.sh            <span class="cmt"># once: core.hooksPath = tests/git-hooks</span>
+tests/install-git-hooks.sh --status   <span class="cmt"># installed?</span>
+tests/install-git-hooks.sh --uninstall</pre></div>
+      <div class="term" style="margin-top:14px"><div class="bar"><i></i><i></i><i></i><span>a blocked commit</span></div>
+<pre class="raw"><span class="bad">pre-commit: LINT FAILED — commit blocked</span>
+pre-commit:   shellcheck tasks/setup-docker.sh
+pre-commit: fix the files, 'git add' them, commit again.
+pre-commit: bypass (discouraged): KWISATZ_PRECOMMIT_SKIP=1 git commit …</pre></div>
+    </div>
+    <ul class="tight">
+      <li>lints the <b>staged</b> content by type: <code>.sh</code> + bash-shebang scripts (shellcheck),
+          <code>.yml</code> (yamllint), <code>.json</code> (jq), <code>.js</code> (node --check),
+          <code>.py</code> (ruff), <code>Dockerfile*</code> (hadolint)</li>
+      <li>then runs <code>tests/lint.sh</code> on every commit (~1 s)</li>
+      <li>fixing a file without staging the fix does <em>not</em> get it through</li>
+      <li>a missing linter <span class="warn">fails</span> the commit; hadolint only warns (its image is a network pull)</li>
+    </ul>
+  </div>
+  <p class="lead" style="margin-top:12px;font-size:.62em">Versioned in <code>tests/git-hooks/</code>, installed via
+  <code>core.hooksPath</code> — so one install covers every <code>git worktree</code> of the repo, and the hook logic is reviewable in a PR.</p>
+    <aside class="notes">Installs once per clone or worktree via core.hooksPath; it lints staged blobs, so fix + git add + commit.</aside>
+  <div class="foot"><span>pre-commit</span><span>16</span></div>
+</section>
+
+<!-- 17 ─ GRAPHICAL -->
+<section>
+  <div class="kicker">make it visible</div>
+  <h2>Pretty output without changing the repo</h2>
+  <div class="split-even">
+    <div>
+      <div class="term dense"><div class="bar"><i></i><i></i><i></i><span>bash</span></div>
+<pre class="raw"><span class="cmt"># 1 · a real HTML report for pytest, no repo dependency added</span>
+uv run --with pytest-html pytest --html=/tmp/pytest.html --self-contained-html
+
+<span class="cmt"># 2 · live pass/fail matrix straight from a VM run</span>
+jq -r '[.phase,.script,.duration_s,.rc]|@tsv' \
+   tests/reports/vmtest-&lt;ts&gt;/vmtest/results.jsonl | column -t
+
+<span class="cmt"># 3 · where the minutes went</span>
+jq -r '[.duration_s,.script,.phase]|@tsv' …results.jsonl | sort -rn | head
+
+<span class="cmt"># 4 · watch the fast layers while you edit</span>
+find tasks lib tests -name '*.sh' | entr -c shellcheck
+ls tests/unit/*.py | entr -c uv run pytest -q
+
+<span class="cmt"># 5 · the report as a page / PDF for the PR or the ticket</span>
+glow tests/reports/vmtest-&lt;ts&gt;/report.md
+pandoc tests/reports/vmtest-&lt;ts&gt;/report.md -o report.pdf</pre></div>
+    </div>
+    <div>
+      <div class="card"><h4>Colour and structure are already in the tools</h4><p><code>./kwisatz</code> prints progress with
+        colour (<code>--no-color</code> to strip it, <code>--json</code> for a machine-readable envelope on stdout, progress on stderr);
+        <code>report.md</code> is markdown on purpose — it diffs, it pastes into Forgejo, it renders.</p></div>
+      <div class="card accent-violet" style="margin-top:14px"><h4>Deck itself</h4><p>This presentation is a file in the repo:
+        <code>docs/presentations/running-the-test-suite.html</code>. Open it, or serve it:<br>
+        <code>python3 -m http.server -d docs/presentations 8000</code></p></div>
+    </div>
+  </div>
+  <div class="foot"><span>visible output</span><span>17</span></div>
+</section>
+
+<!-- 18 ─ DEFINITION OF READY -->
+<section>
+  <div class="kicker">definition of ready</div>
+  <h2>A change is mergeable when…</h2>
+  <div class="grid g2" style="margin-top:8px">
+    <div class="card"><span class="num">1</span><p><b style="color:var(--ink)">Lint clean.</b> shellcheck for shell, ruff for python — no errors, no warnings.</p></div>
+    <div class="card"><span class="num">2</span><p><b style="color:var(--ink)"><code>tests/lint.sh</code> passes.</b></p></div>
+    <div class="card"><span class="num">3</span><p><b style="color:var(--ink)">VM suite says <code>SUITE: PASS</code></b> for the scripts you touched — or the default set if you changed the orchestrator, the CLI, or shared <code>lib/</code>. Default <code>--mode cli</code> is the one that counts.</p></div>
+    <div class="card"><span class="num">4</span><p><b style="color:var(--ink)">Idempotency holds.</b> Phase 2 must pass: the re-run converges, reuses secrets, tears nothing down.</p></div>
+  </div>
+  <div class="term" style="margin-top:20px"><div class="bar"><i></i><i></i><i></i><span>the whole ladder, in order</span></div>
+<pre class="raw">shellcheck tasks/&lt;changed&gt;.sh &amp;&amp; uv run ruff check src tests deploy.py
+tests/lint.sh &amp;&amp; uv run pytest
+tests/run-vm-tests.sh --scripts &lt;what&gt;,&lt;you&gt;,&lt;changed&gt;   <span class="cmt"># or: no args, for the default set</span></pre></div>
+    <aside class="notes">Phase 2 is the one people skip: it must prove converge, not just a second green run.</aside>
+  <div class="foot"><span>definition of ready</span><span>18</span></div>
+</section>
+
+<!-- 19 ─ CHEAT SHEET -->
+<section data-background-gradient="radial-gradient(900px 500px at 80% 0%, #1b3357 0%, transparent 60%), linear-gradient(160deg,#060a12,#0d1728)">
+  <div class="kicker" style="margin-bottom:.45em">cheat sheet — screenshot this</div>
+  <h2 style="margin-bottom:.35em">Everything on one slide</h2>
+  <div class="term dense"><div class="bar"><i></i><i></i><i></i><span>bash</span></div>
+<pre class="raw">tests/install-git-hooks.sh                              <span class="cmt"># once: lint on every commit</span>
+./tasks/setup-virt-runner.sh                            <span class="cmt"># once per host: KVM + libvirt + virt-runner</span>
+
+<span class="cmt"># fast layers (minutes, run constantly)</span>
+shellcheck tasks/setup-x.sh lib/helpers.sh              <span class="cmt"># .sh files you touched</span>
+uv run ruff check src tests deploy.py                   <span class="cmt"># python</span>
+tests/lint.sh                                           <span class="cmt"># 6 repo guards · ~1 s</span>
+uv run pytest                                           <span class="cmt"># unit + CLI + conformance · ~12 s</span>
+
+<span class="cmt"># the real thing</span>
+tests/run-vm-tests.sh                                   <span class="cmt"># 10 scripts × 2 phases + precheck · 15–30 min</span>
+tests/run-vm-tests.sh --scripts a,b --ram 8 --disk 60 --timeout 120
+tests/run-vm-tests.sh --scripts a --mode script         <span class="cmt"># script bug or dispatch bug?</span>
+tests/run-vm-tests.sh --scripts a --keep-vm             <span class="cmt"># guest stays up; ssh in and iterate</span>
+
+<span class="cmt"># after the run</span>
+R=tests/reports/vmtest-&lt;ts&gt;; cat $R/report.md           <span class="cmt"># verdict + script × phase table</span>
+jq 'select(.rc!=0)' $R/vmtest/results.jsonl             <span class="cmt"># failed cases</span>
+tail -60 $R/vmtest/logs/integration-setup-x.log         <span class="cmt"># the log that matters</span>
+virt-runner list                                        <span class="cmt"># no test VM should survive the run</span>
+
+<span class="cmt"># config knobs</span>  VIRT_RUNNER=&lt;cmd&gt;  VM_SSH_KEY=~/.ssh/id_ed25519.pub
+<span class="cmt"># exit codes</span>    0 = all passed · 1 = a case or the pipeline failed · 2 = usage error</pre></div>
+  <div class="foot" style="position:static;margin-top:10px"><span>cheat sheet</span><span>19</span></div>
+</section>
+
+<!-- 20 ─ NEXT -->
+<section>
+  <div class="kicker">where to read next</div>
+  <h2>Start with these four files</h2>
+  <div class="grid g2" style="margin-top:10px">
+    <div class="card"><h4>tests/README.md</h4><p>The full VM suite: prerequisites, CLI reference, workflow,
+      artifacts, troubleshooting, safety design. <b style="color:var(--teal)">The canonical source.</b></p></div>
+    <div class="card"><h4>specification/project/test-strategy.md</h4><p>Which layers exist, which are planned, and the
+      definition of ready the whole team shares.</p></div>
+    <div class="card"><h4>tests/run-vm-tests.sh --help</h4><p>Flags, env vars and exit codes straight from the
+      implementation — always current.</p></div>
+    <div class="card"><h4>AGENTS.md + skills/kwisatz-assistant</h4><p>Repo conventions (idempotency, templating, secrets,
+      paths) and how to ask the assistant about this codebase.</p></div>
+  </div>
+  <div style="text-align:center;margin-top:34px">
+    <h2 style="color:var(--teal)">Prove it twice, then ship it.</h2>
+    <p class="lead" style="font-size:.66em">Deck: <code>docs/presentations/running-the-test-suite.html</code> ·
+      press <code>esc</code> for the overview · <code>s</code> for notes</p>
+  </div>
+  <div class="foot"><span>kwisatz · testing · onboarding</span><span>20</span></div>
+</section>
+
+</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script>
+  // Auto-fit: reveal scales the deck by viewport, never by slide height, so any
+  // slide taller than `height` would clip. Shrink such a slide and nothing else.
+  var SLIDE_H = 760;
+  function wrapSlides() {
+    document.querySelectorAll('.reveal .slides > section').forEach(function (sec) {
+      if (sec.querySelector(':scope > .fit')) return;
+      var box = document.createElement('div');
+      box.className = 'fit';
+      while (sec.firstChild) box.appendChild(sec.firstChild);
+      sec.appendChild(box);
+    });
+  }
+  function fitSlides() {
+    document.querySelectorAll('.reveal .slides > section > .fit').forEach(function (box) {
+      box.style.transform = '';
+      var h = box.scrollHeight;
+      var k = Math.min(1, (SLIDE_H - 4) / h);
+      if (k < 1) {
+        box.style.transformOrigin = 'top center';
+        box.style.transform = 'scale(' + k.toFixed(4) + ')';
+        if (k < 0.85) console.warn('slide shrunk to ' + k.toFixed(2) + ' - trim it', box.parentElement);
+      }
+    });
+  }
+
+  Reveal.initialize({
+    hash: true,
+    slideNumber: false,
+    controls: true,
+    progress: true,
+    center: false,
+    transition: 'slide',
+    transitionSpeed: 'default',
+    width: 1280,
+    height: 760,
+    margin: 0.06,
+    plugins: [RevealHighlight, RevealNotes]
+  }).then(function () {
+    wrapSlides();
+    fitSlides();
+    Reveal.addEventListener('ready', fitSlides);
+  });
+</script>
+</body>
+</html>
