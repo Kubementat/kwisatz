@@ -149,8 +149,27 @@ belongs to the script.
 ## Behavior 8 — concurrency
 
 One writer per checkout: `<repo>/.kwisatz/lock` records the PID and the start time, and is
-treated as stale when the owner is gone or the path names a different checkout. A second
-run exits `9` unless `--lock-timeout <s>` is given. Read-only commands never take the lock.
+treated as stale when the owner is gone or the path names a different checkout. A file that
+exists but names no owner (`flock`'s empty file, a truncated write after a crash, a touched
+file) counts as held for one second and is then reclaimed — deleting it immediately would
+clobber a run that is mid-creation, which is the one failure this class exists to prevent. A
+second run exits `9` unless `--lock-timeout <s>` is given. Read-only commands never take the
+lock.
+
+## Behavior 9 — `doctor`'s verdicts
+
+`doctor` is the command whose output *is* its answer, so its check lines go to stdout and stay
+there under `-q` (`status`/`list`/`services` do the same; apply's step lines stay on stderr,
+because stdout belongs to the task script). With `--json` the same facts are one flat list:
+
+```bash
+./kwisatz doctor --json | jq '.result.items[] | select(.ok|not) | {name, kind, hint}'
+# kind ∈ prerequisite | port | service — the whole to-fix list in one read
+```
+
+A release outside the tested set (26.04, 27.04, …) is `required: false`: a warning, not exit 4.
+Refusing a box that this repo's own VM suite boots would make the CLI's advice wrong on the
+machine it ships on.
 
 ## Design decisions
 
@@ -174,8 +193,11 @@ run exits `9` unless `--lock-timeout <s>` is given. Read-only commands never tak
 
 - `tests/unit/test_plan.py` — resolution, ambiguity, ordering, the prerequisite table.
 - `tests/unit/test_config.py` — A8, atomic write, backups, quoting, validate.
-- `tests/unit/test_exec.py` — recorded env, timeout kills the process group, log mode.
-- `tests/unit/test_services.py` — the health verdict, docker/systemd parsing, log dialects.
-- `tests/unit/test_state_lock.py` — history ordering, one-writer rule.
+- `tests/unit/test_exec.py` — recorded env, timeout kills the process group, log mode, and that
+  pipe EOF arriving before the exit is not a failure.
+- `tests/unit/test_services.py` — the health verdict, docker/systemd parsing, log dialects, and
+  a modern engine that must still read as running.
+- `tests/unit/test_checks.py` — what the host facts may and may not stop a run for.
+- `tests/unit/test_state_lock.py` — history ordering, one-writer rule, the lock nobody owns.
 - `tests/unit/test_conformance.py` — the CLI-vs-pyinfra `(command, env, stdin)` gate.
 - `tests/unit/test_cli.py` — acceptance criteria A2…A10 against real subprocesses.

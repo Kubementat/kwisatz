@@ -31,7 +31,7 @@ class LogSource:
     path: str = ""
 
 
-def source_for(service: services.Service | None, target: str, logs_dir: Path) -> LogSource:
+def source_for(service: serviceio.Service | None, target: str, logs_dir: Path) -> LogSource:
     if service is not None and service.manager == "docker" and service.source:
         compose = Path(service.source)
         if compose.is_file():

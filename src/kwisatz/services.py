@@ -133,8 +133,16 @@ def _run(tool: str, args: list[str], timeout: float) -> str:
 
 
 def docker_running() -> bool:
-    """True only when a `docker info` answers — an installed CLI is not a daemon."""
-    return bool(_run("docker", ["info", "--format", "{{.Server.Version}}"], 10.0))
+    """True only when a `docker info` answers — an installed CLI is not a daemon.
+
+    `{{.ServerVersion}}` first: the engine's format struct dropped `.Server.Version` in
+    newer releases, so probing the old spelling reads a working daemon as "no docker" and
+    silently disables every piece of docker discovery (found on an Ubuntu 26.04 VM running
+    Engine 29.9.2, where `docker info --format '{{.Server.Version}}'` exits 1).
+    """
+    if _run("docker", ["info", "--format", "{{.ServerVersion}}"], 10.0):
+        return True
+    return bool(_run("docker", ["version", "--format", "{{.Server.Version}}"], 10.0))
 
 
 def systemd_running() -> bool:

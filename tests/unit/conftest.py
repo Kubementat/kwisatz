@@ -17,7 +17,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-RECORD_KEYS = ("INTERACTIVE", "KEY", "SECRET", "PLAIN", "EXTRA", "VIRTUAL_ENV")
+RECORD_KEYS = ("INTERACTIVE", "KEY", "SECRET", "PLAIN", "EXTRA", "VIRTUAL_ENV", "PYTHONPATH")
 
 STUB_SH = """#!/usr/bin/env bash
 # records its argv / env / stdin instead of installing anything

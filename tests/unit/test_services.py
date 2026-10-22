@@ -160,3 +160,49 @@ def test_stream_argv_uses_each_tool_s_dialect():
     assert logsio.stream_argv(compose, tail=50, since=None, follow=False) == [
         "docker", "compose", "-f", "f", "logs", "--tail", "50",
     ]
+
+
+def test_a_modern_engine_is_still_read_as_running(monkeypatch):
+    """Engine 29.9 dropped `.Server.Version` from `docker info`'s format struct.
+
+    Probing only that spelling makes `docker_running()` False on a box with a working
+    daemon, which silently drops every docker stack from discovery — the traefik stack on
+    the Ubuntu 26.04 VM vanished from `kwisatz services` for exactly this reason.
+    """
+
+    def fake_run(tool, args, timeout):
+        if args[:1] == ["info"] and "{{.Server.Version}}" in " ".join(args):
+            return ""  # rc != 0: template error
+        if args[:1] == ["info"]:
+            return "29.9.2\n"
+        if args[:2] == ["compose", "ls"]:
+            return '[{"Name":"traefik","Status":"running(2)","ConfigFiles":"/opt/traefik/docker-compose.yml"}]\n'
+        if args[:2] == ["ps", "-a"]:
+            return (
+                json.dumps(
+                    {
+                        "Names": "traefik",
+                        "State": "running",
+                        "HealthStatus": "none",
+                        "Status": "Up 3 minutes",
+                        "Image": "traefik:v3",
+                        "Ports": "",
+                        "Labels": "com.docker.compose.project=traefik,"
+                        "com.docker.compose.project.config_files=/opt/traefik/docker-compose.yml",
+                    }
+                )
+                + "\n"
+            )
+        return ""
+
+    monkeypatch.setattr(services, "_run", fake_run)
+    assert services.docker_running() is True
+    found = services.docker_services()
+    assert found["traefik"].state == services.RUNNING
+    assert found["traefik"].srv == "/opt/traefik"
+
+
+def test_no_daemon_means_no_docker_stacks(monkeypatch):
+    monkeypatch.setattr(services, "_run", lambda *a, **k: "")
+    assert services.docker_running() is False
+    assert services.docker_services() == {}

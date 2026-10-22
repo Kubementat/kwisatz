@@ -20,16 +20,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import checks
+from . import __version__, checks, jsonio, orchestrator, state
 from . import config as configio
 from . import exec as runner
-from . import jsonio, logs as logsio, orchestrator, plan as planner, repo as repoio, state
+from . import logs as logsio
+from . import plan as planner
+from . import repo as repoio
 from . import services as serviceio
 from .errors import EXIT_CODES, CliError, Exit, config_error, usage
 from .output import Out
 from .repo import Repo
-
-from . import __version__
 
 
 @dataclass(frozen=True)
@@ -53,7 +53,7 @@ class CommandSpec:
     args: tuple[tuple[str, str], ...] = ()
     flags: tuple[Flag, ...] = ()
     #: nested verbs (`kwisatz config enable x`); nothing else may dispatch on a second word
-    subcommands: tuple["CommandSpec", ...] = ()
+    subcommands: tuple[CommandSpec, ...] = ()
     mutates: bool = False
     milestone: str = "M1"
 
@@ -477,9 +477,14 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
             item["status"] = "failed"
             item["exit_code"] = outcome.returncode
             failed += 1
+            code = outcome.returncode
             app.fail(
                 Exit.TASK_FAILED,
-                f"{target.name} exited {outcome.returncode}",
+                (
+                    f"{target.name} exited {code}"
+                    if code is not None
+                    else f"{target.name} never reported an exit status · kwisatz logs {target.name}"
+                ),
                 target=target.name,
                 hint=f"kwisatz apply {target.name}  (retry this one target only)",
             )
@@ -585,7 +590,7 @@ def _running_services(app: App) -> list:
         except CliError:
             pass
         cached = serviceio.discover(names)
-        setattr(app, "_services", cached)
+        app._services = cached
     return cached
 
 
@@ -693,7 +698,16 @@ def cmd_doctor(app: App) -> int:
     broken = serviceio.unhealthy(running)
     missing = [c for c in found if c.required and not c.ok]
     code = Exit.PREREQUISITE if missing else (Exit.HEALTH if broken or not all(c.ok for c in conflicts) else Exit.OK)
+    items = [{"name": c.name, "kind": "prerequisite", "ok": c.ok, **c.as_dict()} for c in found]
+    items += [{"name": c.detail, "kind": "port", "ok": c.ok, **c.as_dict()} for c in conflicts]
+    items += [
+        {"name": s.name, "kind": "service", "ok": s.state not in (serviceio.UNHEALTHY, serviceio.STOPPED),
+         "state": s.state, "source": s.source, "hint": f"kwisatz logs {s.name}"}
+        for s in broken
+    ]
     app.result = {
+        # the flat list an agent branches on: `doctor --json | jq '.result.items[]|select(.ok|not)'`
+        "items": items,
         "checks": [c.as_dict() for c in found],
         "ports": [c.as_dict() for c in conflicts],
         "unhealthy": [s.as_dict() for s in broken],
@@ -706,15 +720,15 @@ def cmd_doctor(app: App) -> int:
     for check in found:
         detail = f"{check.name}: {check.detail}" if check.detail else check.name
         if check.ok:
-            app.out.ok(detail)
+            app.out.verdict("✓", detail)
         elif check.required:
-            app.out.error(f"{detail} — {check.hint}")
+            app.out.verdict("✗", f"{detail} — {check.hint}")
         else:
-            app.out.warning(f"{detail} — {check.hint}")
+            app.out.verdict("⚠", f"{detail} — {check.hint}")
     for check in conflicts:
-        app.out.error(f"{check.detail} — {check.hint}")
+        app.out.verdict("✗", f"{check.detail} — {check.hint}")
     for service in broken:
-        app.out.error(f"{service.name} is {service.state} — kwisatz logs {service.name}")
+        app.out.verdict("✗", f"{service.name} is {service.state} — kwisatz logs {service.name}")
     for message in app.warnings:
         app.out.warning(message)
     app.warnings_shown = True

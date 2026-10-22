@@ -12,7 +12,7 @@ import os
 import subprocess
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -136,6 +136,7 @@ class Lock:
         self.owner_path = str(repo.path)
 
     def _owner(self) -> dict | None:
+        """The recorded owner; None when the file exists but says nothing (see try_acquire)."""
         try:
             data = json.loads(self.path.read_text())
         except (OSError, ValueError):
@@ -165,7 +166,18 @@ class Lock:
             return False
         if owner:  # an aborted run: reclaim the lock
             self.path.unlink(missing_ok=True)
-        fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        elif self.path.exists():
+            # The file names nobody: a crashed run's truncated write, `flock`'s own empty file,
+            # or a stray touch. Reclaim it only after a grace period — a live run's file exists
+            # empty for a moment between O_EXCL and the write, and deleting that would let two
+            # writers in, which is the one thing this class exists to prevent.
+            if time.time() - self.path.stat().st_mtime < 1.0:
+                return False
+            self.path.unlink(missing_ok=True)
+        try:
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            return False  # we were raced by a run that is alive
         with os.fdopen(fd, "w") as handle:
             json.dump({"pid": os.getpid(), "repo": self.owner_path, "started_at": _utcnow()}, handle)
         self.held = True
@@ -189,7 +201,7 @@ class Lock:
                     + (
                         f" (pid {owner.get('pid')} since {owner.get('started_at')})"
                         if owner
-                        else ""
+                        else " (the file exists but names no owner — remove it only if you know no run is live)"
                     ),
                     hint="wait for it, or pass --lock-timeout <seconds> to queue",
                 )

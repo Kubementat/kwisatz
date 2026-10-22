@@ -116,3 +116,39 @@ def test_the_context_manager_always_gives_the_lock_back(repo):
         with held(repo):
             raise RuntimeError("boom")
     assert not (repo.work / "lock").exists()
+
+
+def test_an_unparseable_lock_file_is_locked_not_a_traceback(repo):
+    """A lock file we cannot read is treated as held (exit 9), not as a Python error.
+
+    A file left behind by `flock`, a truncated write, or an operator touching it, used to
+    escape `try_acquire` as FileExistsError and reach the user as a traceback with exit 1 —
+    found on a VM by holding the file with `flock -x`.
+    """
+    repo.ensure_work()
+    (repo.work / "lock").write_text("")
+    lock = Lock(repo)
+    assert lock.try_acquire() is False
+    with pytest.raises(CliError) as exc:
+        lock.acquire()
+    assert exc.value.code == Exit.LOCKED
+    assert "no owner" in str(exc.value)
+
+
+def test_junk_left_by_a_crash_is_reclaimable_but_a_fresh_file_is_not(repo):
+    """A lock that names nobody is stale once it is older than a moment.
+
+    The grace period matters: a live run's lock file exists empty for an instant between
+    O_EXCL and the JSON write, and deleting that would let two writers in.
+    """
+    import os
+    import time
+
+    repo.ensure_work()
+    (repo.work / "lock").write_text("not json at all")
+    assert Lock(repo).try_acquire() is False, "a file that just appeared belongs to someone"
+
+    (repo.work / "lock").write_text("not json at all")
+    stamp = time.time() - 30
+    os.utime(repo.work / "lock", (stamp, stamp))
+    assert Lock(repo).try_acquire() is True  # nothing recorded, so nothing alive to wait for

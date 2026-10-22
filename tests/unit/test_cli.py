@@ -241,3 +241,17 @@ def test_the_command_table_is_the_cli(work):
     verbs = {c["name"] for c in next(c for c in body["result"]["commands"] if c["name"] == "config")["subcommands"]}
     assert {"show", "validate", "enable", "disable", "set", "unset", "args", "path", "init"} == verbs
     assert set(body["result"]["exit_codes"]) == {str(i) for i in range(10)}
+
+
+def test_doctor_prints_verdicts_on_stdout_and_lists_them_as_items(repo):
+    """Everything else puts progress on stderr; `doctor`'s checks ARE its output (R-OPS-003)."""
+    stub(repo.path, "stub-a")
+    repo.write_config("version: 1\nscripts:\n  stub-a:\n    enabled: true\n    description: A\n")
+    human = run_cli("doctor", repo=repo.path)
+    assert human.returncode in (0, 4, 5)
+    assert "✓" in human.stdout or "⚠" in human.stdout or "✗" in human.stdout, human.stdout
+
+    record = doc(run_cli("doctor", "--json", repo=repo.path))
+    items = record["result"]["items"]
+    assert items and all(isinstance(item["ok"], bool) for item in items)
+    assert record["result"]["doctor_exit_code"] == record["exit_code"]

@@ -60,3 +60,24 @@ R-ARCH-003 requires the executable `./kwisatz` *at the repo root* and a root-lev
 - `install` does not silently `curl | sh` the uv installer: it prints the exact pinned
   command and offers `--with-uv` (which prompts unless `--yes`), because R-SAFE-003
   forbids the CLI mutating the host outside a task script.
+
+## Status (2026-10-22, end of this branch)
+
+| WP | State | Evidence |
+|----|-------|----------|
+| 1 correctness | done | D1–D8 fixed; the conformance test is the gate, not a description |
+| 2 M2 surface | done | `config`, `services`, `logs`, `state`, `models`, `run`, `doctor --quiet` |
+| 3 apply completeness | done | `--keep-going`, `--events`, `--quiet`, lock (exit 9 enforced), sudo warm-up, config-change warning |
+| 4 tests | done | 103 unit/CLI tests, plus the VM matrix: `tests/run-vm-tests.sh` 21/21 on Ubuntu 26.04 and a CLI-driven pass over the kept VM |
+| 5 docs | done | README, architecture.md, `specification/features/kwisatz-cli/behaviors.md`, skill, AUTOMATIONS.md, `docs/research/…` |
+
+Deferred deliberately: `requires:` keys, group selection, `doctor --fix`, `--redact-stdout`,
+`upgrade`, `uninstall`, shell completions — reasons in §6 of
+`docs/research/2026-10-22-kwisatz-cli-review.md`.
+Deviations from the spec: the package lives in `src/kwisatz/` (a root `kwisatz/` package and a
+root `./kwisatz` executable cannot coexist), and `--config` is the CLI spelling of pyinfra's
+`--data config=`.
+
+The VM matrix is what closed this branch. Its 21/21 was the easy half — the suite does not
+exercise the CLI at all, so driving `kwisatz` against the kept VM produced seven more fixes,
+documented in §5b of the research doc.

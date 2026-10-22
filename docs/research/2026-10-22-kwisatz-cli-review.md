@@ -60,7 +60,7 @@ Measured on a provisioned host, not assumed:
 
 | finding | consequence for the CLI |
 |---|---|
-| Traefik's compose stack lives outside `/srv`, at `/opt/traefik` | discovery keys off `com.docker.compose.project*` labels first, `/srv/*` second — a `/srv`-only glob would have missed the box's first service |
+| Traefik's compose stack lives outside `/srv`, at `/opt/traefik` | discovery keys off `com.docker.compose.project*` labels first, `/srv/*` second — and read §5b/1 before trusting it: the label path was silently dead on a modern engine until the `docker info` probe was fixed, which is exactly the class of thing a `/srv`-only unit test cannot notice |
 | 11 compose stacks, 5 `devenv_*` worktree stacks that are not kwisatz services | stacks are attributed by path and by project name, so `kwisatz services` does not present a developer's pet stack as an installed service |
 | a systemd unit that does not exist reports `active=false`, indistinguishable from "stopped" | `LoadState` is checked; a missing unit is reported as *missing*, never as stopped |
 | `lib/helpers.sh:wait_for_healthy` counts `health=none` as healthy and restart policy does not count as progress | the CLI's health verdict reuses that rule rather than inventing "running == healthy", or the CLI and the scripts would disagree forever |
@@ -75,6 +75,28 @@ Measured on a provisioned host, not assumed:
 5. **The exit code is the API** (§8 of the spec) — 10 codes, `run` forwarding the script's code as `script_exit_code`, and 9 (lock) actually implemented, because a second `kwisatz apply` from an agent is a real scenario now that agents drive this.
 6. **No silent host mutation.** `install` does not download uv behind your back: `--with-uv <version>` is pinned and gated on `--yes`. `models sync --dry-run` prints the command instead of fabricating a dry-run that `tasks/sync-models.py` does not have.
 7. **Config edits that respect the file.** `ruamel.yaml` round-trip, atomic 0600 write, 5 kept backups, validate-after-write with rollback, and a test that enables one flag in a commented file and asserts *one line* changed.
+
+## 5b. What the VM run actually found
+
+`tests/run-vm-tests.sh` passed 9/9 for `setup-basics`, `setup-docker`, `configure-firewall`,
+`setup-traefik` (twice each) on Ubuntu 26.04 — and that is the least interesting thing in this
+section, because **the suite never runs the CLI**: its precheck is `run-setup.sh status` and its
+test phase is `sudo -u <user> env … tasks/<name>.sh`. So I kept the VM (`--keep-vm`) and drove
+the CLI on it. Six of the findings below would not have shown up in any amount of unit testing.
+
+| # | defect | how the VM caught it | fixed |
+|---|---|---|---|
+| 1 | `docker_running()` probed `docker info --format '{{.Server.Version}}'`. Engine 29.9 removed that field from the format struct, so the probe exits 1 and the function answered *False on a working daemon* — which silently deleted every docker stack from `kwisatz services` (`/opt/traefik/docker-compose.yml` was running, labeled, healthy, and invisible). | traefik was missing from `services` right after a green traefik install | `{{.ServerVersion}}` first, `docker version --format {{.Server.Version}}` as fallback; regression test that a modern engine is still "running" |
+| 2 | The drain loop in `run_task` ended on pipe EOF and then read `proc.poll()`, which can still be `None` a few milliseconds before the child is reaped. The old `_returncode` mapped that to **1** — a fabricated failure for a script that exited 0. | 2 of 6 `kwisatz apply setup-traefik` runs failed with "exited 1" while the script's own log showed the success banner; manual `bash tasks/setup-traefik.sh` was 3/3 clean | wait for the child after EOF; never invent a status. Regression test closes stdout, sleeps, `exit 0` |
+| 3 | The checkout shim exports `PYTHONPATH=<repo>/src`, and the CLI passed it through to the task scripts. pyinfra does not, so the "identical env" rule was already broken — a task's `python3` could import kwisatz's own modules. | a recording script under `kwisatz run` recorded `PYTHONPATH=`, where pyinfra recorded nothing | stripped in `strip_venv_from_environ`; `PYTHONPATH` added to the conformance fixture's recorded keys so it is a gate now |
+| 4 | A lock file that already exists but parses as nothing (empty file from `flock`, a truncated write after a crash, an operator `touch`) escaped `try_acquire` as `FileExistsError` → traceback, exit 1 instead of 9. | `flock -x 9 9>.kwisatz/lock` in the background, then `kwisatz apply` | exists-but-nameless owner is "held" for 1 s (so a run mid-creation is not clobbered), then reclaimed; a held lock answers exit 9 with the path named |
+| 5 | `doctor` wrote all of its verdicts to stderr (`ok()` is progress), so `kwisatz doctor | grep docker` found nothing and `-q doctor` printed nothing; `--json` had no `items` key even though README, the skill and `behaviors.md` all told agents `jq '.result.items[]|select(.ok|not)'`. | stdout of `./kwisatz doctor 2>/dev/null` was empty | a `verdict()` channel that is stdout unless `--json`; `result.items` added, carrying prerequisites, port conflicts and unhealthy stacks |
+| 6 | The OS check demanded 22.04/24.04, so an Ubuntu 26.04 box — **the release `tests/run-vm-tests.sh` boots by default** — failed `doctor` with exit 4 while every script installed cleanly. | `doctor rc=4` on a box with zero real problems | untested-but-Ubuntu release is advisory (⚠, not required); non-Ubuntu stays a real stop, because the scripts are apt-based |
+| 7 | **The lint gate had a hole**: `[tool.ruff] exclude = [..., "kwisatz"]` (added to keep the extensionless bash shim from being parsed as Python) also matched `src/kwisatz`, so `ruff check src` reported "No Python files found" and every earlier "All checks passed!" had been checking the tests only. Nine real findings — including one `F821` — appeared the moment the pattern was anchored to `/kwisatz`. | `ruff check src` printing a warning I had learned to ignore | exclude is `/kwisatz`; verified with a deliberate `import os` probe file |
+
+Two things the run did *not* find, so that the negative result is on record: the
+`(command, env, stdin)` conformance gate held on a real machine, and nothing in the M1/M2
+surface produced a traceback on a clean box.
 
 ## 6. Deferred, with reasons
 

@@ -102,6 +102,17 @@ def strip_venv_from_environ(environ: dict[str, str]) -> dict[str, str]:
     environment it builds. Same result for the script, which is what parity means.
     """
     environ.pop("VIRTUAL_ENV", None)
+    # A `./kwisatz` checkout puts <repo>/src on PYTHONPATH to find the package; that path
+    # belongs to the CLI, not to the task. Left in place it leaks `import kwisatz` and the
+    # repo's own modules into every task script's interpreter (observed on a VM: the probe
+    # recorded PYTHONPATH=/home/ubuntu/kwisatz/src where pyinfra's run recorded nothing).
+    own_src = str(Path(__file__).resolve().parent.parent)
+    if "PYTHONPATH" in environ:
+        keep = [p for p in environ["PYTHONPATH"].split(os.pathsep) if p and p != own_src]
+        if keep:
+            environ["PYTHONPATH"] = os.pathsep.join(keep)
+        else:
+            del environ["PYTHONPATH"]
     if "PATH" in environ:
         env_bin = f"{sys.prefix}/bin"
         environ["PATH"] = os.pathsep.join(p for p in environ["PATH"].split(os.pathsep) if p != env_bin)

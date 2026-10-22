@@ -27,7 +27,7 @@ from pathlib import Path
 
 from . import orchestrator
 from .jsonio import TAIL_BYTES, TAIL_LINES
-from .orchestrator import STDIN_INHERIT, Task
+from .orchestrator import Task
 
 
 @dataclass
@@ -96,7 +96,7 @@ def run_task(
             bufsize=1,
             start_new_session=True,
         )
-    except OSError as e:  # tasks/<name>.sh not executable, bash missing, …
+    except OSError:  # tasks/<name>.sh not executable, bash missing, …
         if handle:
             handle.close()
         return RunResult(returncode=127, duration_ms=_ms(started), stdout_tail=[], log_path=_name(log_path))
@@ -107,6 +107,11 @@ def run_task(
             _reap(proc, timeout)
         else:
             _drain(proc, proc.stdout, handle, echo_stdout, tail, started, timeout, heartbeat, on_heartbeat)
+            # EOF is not the same instant as the exit. Draining stops when the pipe closes, which
+            # can be milliseconds before bash finishes exit processing — reading poll() there
+            # answers None, and the old `else 1` reported "script exited 1" for a script that
+            # exited 0 (reproduced on a VM: ~1 in 6 `apply setup-traefik` runs failed this way).
+            _reap(proc, max(0.0, timeout - (time.monotonic() - started)))
     except TimeoutExpired:
         timed_out = True
         _kill(proc)
@@ -171,9 +176,17 @@ def _reap(proc, timeout: float) -> None:
         raise TimeoutExpired from None
 
 
-def _returncode(proc) -> int:
-    code = proc.poll()
-    return -code if code is not None and code < 0 else (code if code is not None else 1)
+def _returncode(proc) -> int | None:
+    """The child's own status, or None when it never one.
+
+    Never a made-up number: an exit status we could not observe has to look like exactly that,
+    not like a script that failed. A signal reports 128+n, the shell convention, because -9
+    would otherwise be read as exit code 9, which this CLI reserves for a held lock.
+    """
+    code = proc.returncode
+    if code is None:
+        return None
+    return 128 + abs(code) if code < 0 else code
 
 
 def _kill(proc) -> None:

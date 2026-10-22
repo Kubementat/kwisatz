@@ -9,12 +9,12 @@ import platform
 import shutil
 import subprocess
 import sys
-
-from . import orchestrator
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+from . import orchestrator
 
 DATA = Path(__file__).resolve().parent / "data"
 
@@ -77,24 +77,28 @@ def has_sudo() -> bool:
         return False
 
 
-def os_check() -> Check:
+# The Ubuntu releases this repo's own VM suite boots, plus the one it used to run: a release
+# we have not tested is a warning, never a stop, because refusing would call our own green
+# matrix a failure (found on a `--release resolute` test VM, where `doctor` exited 4 while
+# every script installed cleanly).
+TESTED_UBUNTU = ("26.04", "24.04", "22.04")
+
+
+def os_check(path: Path = Path("/etc/os-release")) -> Check:
     try:
-        info = dict(
-            line.split("=", 1)
-            for line in Path("/etc/os-release").read_text().splitlines()
-            if "=" in line
-        )
+        info = dict(line.split("=", 1) for line in path.read_text().splitlines() if "=" in line)
     except OSError:
-        return Check("os", False, "no /etc/os-release", "kwisatz targets Ubuntu 22.04/24.04", True)
+        return Check("os", False, "no /etc/os-release", "kwisatz targets Ubuntu", True)
     name = info.get("ID", "").strip('"')
     version = info.get("VERSION_ID", "").strip('"')
-    ubuntu = name == "ubuntu" and version.startswith(("22.04", "24.04"))
+    pretty = f"{info.get('PRETTY_NAME', name)} · {platform.machine()}"
+    if name != "ubuntu":
+        # the task scripts are apt/unit based, so a non-Ubuntu box genuinely cannot run them
+        return Check("os", False, pretty, "kwisatz targets Ubuntu; this distro is best effort", True)
+    if version.startswith(TESTED_UBUNTU):
+        return Check("os", True, pretty, "", True)
     return Check(
-        "os",
-        ubuntu,
-        f"{info.get('PRETTY_NAME', name)} · {platform.machine()}",
-        "target is Ubuntu 22.04/24.04; other distros are best effort" if not ubuntu else "",
-        True,
+        "os", False, pretty, f"Ubuntu {version} is outside the tested set ({', '.join(TESTED_UBUNTU)})", False
     )
 
 

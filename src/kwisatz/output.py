@@ -72,5 +72,19 @@ class Out:
     def ok(self, message: str) -> None:
         self.progress(self.paint(f"✓ {message}", GREEN))
 
+    def verdict(self, glyph: str, text: str) -> None:
+        """One line of a command whose whole output is its verdicts (`doctor`).
+
+        stdout, not stderr: `kwisatz doctor | grep -i docker` has to answer, and
+        `kwisatz -q doctor` still has to report what it found. Only --json mutes it, because
+        that mode owns stdout. `ok()` is for apply's step lines, where stdout belongs to the
+        task script — a different situation, so a different call.
+        """
+        if self.json:
+            return
+        color = {"✓": GREEN, "⚠": YELLOW, "✗": RED}.get(glyph, "")
+        line = self.paint(f"{glyph} {text}", color)
+        print(line, file=sys.stdout, flush=True)
+
     def step(self, message: str) -> None:
         self.progress(self.paint(f"  {message}", DIM))

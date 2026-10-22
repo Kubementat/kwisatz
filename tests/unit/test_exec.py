@@ -103,3 +103,27 @@ def test_inherit_stdio_lets_the_script_own_the_terminal(tmp_path):
     )
     assert result.returncode == 0
     assert result.stdout_tail == []
+
+
+def test_stdout_closing_early_must_not_look_like_a_failure(tmp_path):
+    """A pipe reaching EOF is not the same instant as the child exiting.
+
+    This was the bug: the drain loop ended on EOF, `poll()` still answered None, and the
+    runner answered "1" — an exit status it had never observed, reported as a script that
+    failed. Deterministic reproduction: close stdout, then exit 0 a moment later.
+    """
+    script = tmp_path / "fast.sh"
+    script.write_text("#!/usr/bin/env bash\necho line\nexec 1>&-\nsleep 0.4\nexit 0\n")
+    script.chmod(0o755)
+    result = runner.run_task(task(["bash", str(script)]), root=tmp_path)
+    assert result.returncode == 0, result
+    assert "line" in " ".join(result.stdout_tail)
+
+
+def test_a_killed_script_reports_the_signal_not_a_small_negative(tmp_path):
+    """A SIGTERM exit status must not be readable as exit code 9 (which means LOCKED)."""
+    script = tmp_path / "killme.sh"
+    script.write_text("#!/usr/bin/env bash\nkill -TERM $$\n")
+    script.chmod(0o755)
+    result = runner.run_task(task(["bash", str(script)]), root=tmp_path)
+    assert result.returncode == 143

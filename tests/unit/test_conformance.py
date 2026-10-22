@@ -80,6 +80,8 @@ def test_cli_and_pyinfra_hand_the_scripts_the_same_thing(repo):
     assert cli["stub-p"]["argv"] == ["--py"]
     assert cli["stub-p"]["INTERACTIVE"] == "false"
     assert "VIRTUAL_ENV" not in cli["stub-a"], "task scripts must not inherit the venv"
+    # <repo>/src belongs to the CLI's own import path; a task script must not get it
+    assert "PYTHONPATH" not in cli["stub-a"], "task scripts must not inherit kwisatz's src path"
     assert "VIRTUAL_ENV" not in infra["stub-a"]
 
 

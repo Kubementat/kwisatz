@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import jsonio, orchestrator
-from .errors import CliError, Exit, config_error, usage
+from .errors import Exit, config_error, usage
 from .orchestrator import Config, Plan, Task
 
 PREFIXES = ("setup-", "configure-")
@@ -192,7 +192,7 @@ def order_targets(targets: list[Target], config: Config) -> list[Target]:
 
 def similar(word: str, names: list[str], count: int) -> list[str]:
     """The `did you mean …` list: closest first, ties broken alphabetically."""
-    scored = sorted(((_distance(word, n), n) for n in names))
+    scored = sorted((_distance(word, n), n) for n in names)
     return [n for _, n in scored[:count]]
 
 

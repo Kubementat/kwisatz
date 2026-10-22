@@ -36,7 +36,9 @@ testpaths = ["tests/unit"]
 line-length = 110
 target-version = "py310"
 # `kwisatz` (no extension) is the bash entry point, not Python — ruff must not try to parse it
-exclude = [".venv", "logs", ".kwisatz", "kwisatz", "deploy.py.bak"]
+# `/kwisatz` is the bash entry point (no extension), and the leading slash keeps the pattern
+# root-relative — bare `kwisatz` would also exclude the package under src/, silently.
+exclude = [".venv", "logs", ".kwisatz", "/kwisatz"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "W", "SIM", "B"]
