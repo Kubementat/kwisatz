@@ -72,6 +72,7 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    cp machine-config.yml.example machine-config.yml
    cp models.yml.example models.yml
    ```
+   Or let the CLI do it for you: `./kwisatz init` copies the example and then runs `doctor`.
    The orchestrator reads `machine-config.yml` by default (or pass `--data config=<file>` to use a different one).
    Open `machine-config.yml` and set `enabled: true` for the scripts you'd like to install. See the [Configuration](#configuration) section below for the YAML format.
 4. **Run the orchestrator**:
@@ -80,8 +81,14 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    ./run-setup.sh apply    # install all enabled services
    ```
    Run without arguments to see usage instructions.
-5. **Watch the output** - scripts run non-interactively; they print progress and final status messages. The run stops at the first failing script.
-6. **What the run leaves behind** depends on what you enabled — `status` above is the
+5. **Install one service only** — this is what the CLI is for, and it is the same code path,
+   so you are not editing the config and hoping nothing else moved:
+   ```bash
+   ./kwisatz status
+   ./kwisatz apply traefik
+   ```
+6. **Watch the output** - scripts run non-interactively; they print progress and final status messages. The run stops at the first failing script.
+7. **What the run leaves behind** depends on what you enabled — `status` above is the
    honest answer, so read its list before judging the result. The bare
    `machine-config.yml.example` enables only `setup-basics`, so a default run gives you
    tools and nothing else. Docker (`docker run hello-world`), sshd on its custom port,
@@ -90,8 +97,60 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
 
 ---
 
+## Using the `kwisatz` CLI
+
+`kwisatz` is one command over the same orchestrator: it discovers what you can install, runs
+exactly one service through the sanctioned code path, and prints every result as JSON when an
+agent is asking. `./run-setup.sh` and pyinfra still work — the CLI is additive, and both
+paths execute the identical command with the identical environment (a conformance test fails
+if they ever differ).
+
+```bash
+./kwisatz init            # first run: create machine-config.yml from the example, then doctor
+kwisatz status            # what will run, in order, with env keys and the real command line
+kwisatz apply             # provision everything enabled (stops at the first failure)
+kwisatz apply traefik     # install/update just traefik — same env, no config edit needed
+kwisatz services          # what is running right now, and whether it is healthy
+kwisatz doctor            # OS, sudo, uv, docker, GPU, disk, port collisions, unhealthy stacks
+kwisatz config enable vllm  # flip one flag; comments and ordering survive byte-for-byte
+```
+
+Every command works from a fresh checkout with zero install (`./kwisatz …`, or install the
+launcher with `./kwisatz install`). `kwisatz --help` is generated from the command table, so
+help, `kwisatz commands --json` and the dispatcher cannot disagree.
+
+For scripts and agents: `--json` prints exactly one JSON document on stdout (progress goes to
+stderr), and the exit code means the same thing in every command —
+`0` ok, `1` task failed, `2` usage, `3` config/unknown target, `4` prerequisite missing,
+`5` unhealthy stack or timeout, `6` needs a human, `7` needs an operator, `8` partial
+(`--keep-going`), `9` another run holds the lock. Full contract:
+[`docs/features/kwisatz-cli-specification.md`](docs/features/kwisatz-cli-specification.md) §8–§9.
+
+```bash
+# the whole CLI, as data — no README reading required
+./kwisatz commands --json | jq '.result.commands[].name'
+
+# install one target and report the outcome
+./kwisatz apply traefik --json | jq '{ok, exit_code, items: [.result.items[] | {target, status}]}'
+
+# what is running, for a dashboard or an agent
+./kwisatz services --json | jq '.result.items[] | {name, manager, state, ports}'
+```
+
+The task scripts under `tasks/` remain the implementation: `kwisatz` never runs `apt`,
+`docker` or `systemctl` itself, it only executes them with the contract the orchestrator has
+always used. When a script needs arguments the CLI cannot know, send them through verbatim:
+`kwisatz run forgejo -- --force`.
+
+---
+
 ## How It Works
-- **Orchestrator** - a [pyinfra](https://docs.pyinfra.com/en/3.x/) deploy (`deploy.py`, wrapped by `run-setup.sh`) reads a YAML configuration file to determine which services to install, then runs them in config order and stops at the first failure. Use `./run-setup.sh status` to preview and `./run-setup.sh apply` to execute. The default config file is `machine-config.yml` in the repository root, or pass a different file with `--data config=<file>`. No log file is written; append `2>&1 | tee apply.log` when you want one.
+- **Orchestrator** — two entry points, one contract. `kwisatz apply` (or `./kwisatz apply <target>`)
+  runs each enabled script directly as a subprocess; `./run-setup.sh apply` runs the same set
+  through the [pyinfra](https://docs.pyinfra.com/en/3.x/) deploy `deploy.py`. Both read
+  `src/kwisatz/orchestrator.py`, which defines what runs, in what order, and with which
+  environment, so they cannot drift. `kwisatz status` previews; task stdout is streamed live
+  and copied to `logs/kwisatz-<ts>-<target>.log` (mode 0600).
 - **Modular task scripts** - Each `tasks/*.sh` task is self-contained and idempotent; it can be run individually or through the orchestrator. A Python task (`tasks/*.py`, e.g. `sync-models`) is dispatched the same way.
 - **Configuration via YAML** - `machine-config.yml` declares which scripts to run, their environment variables, and command-line arguments. All tunable values have sensible defaults and can be overridden.
 - **Re-run policy: converge by default** - Re-running a task script against an existing stack converges it: config is re-rendered, existing secrets are reused, and `docker compose up -d` reconciles only what changed — no tear-down, no silent skip. Divergence that cannot be applied to a running stack is printed with the exact re-create command (see `specification/project/conventions.md` → *Re-run policy: converge by default*).
@@ -205,7 +264,7 @@ uv run pyinfra @local deploy.py -y -vvv    # = ./run-setup.sh apply
 - `status` is read-only and lists only the enabled scripts; read the YAML for disabled ones and for env/args.
 - No log file is written — append `2>&1 | tee apply.log` when you want one.
 - **`apply` echoes every command line** (it runs pyinfra at `-vvv`, the only level that streams task output). Configured `env:` values are printed as `export KEY=*MASKED*` — pyinfra masks them and executes the real value — but script names, `args:` and all task output are echoed verbatim. Treat `machine-config.yml` as a public file anyway: it is read as plain text by anything on the box, so keep credentials in the `/srv/<service>/.env` files the task scripts manage, not in an `env:` block.
-- Every task runs with `INTERACTIVE=false` and `stdin=/dev/null`, so a stray prompt fails fast instead of hanging. There is no interactive mode: for prompts run the task script directly, e.g. `INTERACTIVE=true tasks/setup-forgejo.sh`. A per-script `env:` entry `INTERACTIVE: "true"` in the config still overrides the default for that script, but stdin stays `/dev/null`.
+- Every task runs with `INTERACTIVE=false` and `stdin=/dev/null`, so a stray prompt fails fast instead of hanging. When a script must prompt, ask for it explicitly: `./kwisatz apply forgejo --interactive` hands the script your terminal (it needs a TTY) and keeps the rest of the contract. Running the script by hand — `INTERACTIVE=true tasks/setup-forgejo.sh` — still works, but it skips the config's `env:`/`args:` and the ordering, which is why the CLI exists. A per-script `env:` entry `INTERACTIVE: "true"` also overrides the default, with stdin left as `/dev/null`.
 - **What the task script sees in its environment**: pyinfra exports *only* `INTERACTIVE=false` plus that script's `env:` block (`export KEY=value && bash tasks/<name>.sh` — `python tasks/<name>.py` for a Python task), and it does not merge `os.environ` into that list — but the command still runs as a child of the shell that started the run, so the script also inherits the ambient environment (`PATH`, `HOME`, anything you export yourself). `deploy.py` drops `VIRTUAL_ENV` and the venv's `bin` from `PATH` before handing off, so tasks use the system `python3`/`pip` instead of the orchestrator's venv. A per-script `env:` therefore adds and overrides variables; it never hides the ambient ones, and it always wins over `INTERACTIVE=false`.
 
 Called without a subcommand (or with an unknown one), `run-setup.sh` prints its usage to stderr and exits `2`; `-h`/`--help` prints it and exits `0`.

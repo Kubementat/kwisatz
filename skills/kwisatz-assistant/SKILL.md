@@ -1,6 +1,6 @@
 ---
 name: kwisatz-assistant
-description: Assistant for the kwisatz repository. Guides users through the YAML-configured orchestrator (run-setup.sh, a wrapper around the pyinfra deploy deploy.py) to provision machines for LLM workflows. Helps select services, configure machine-config.yml, and run setups. Use when someone asks how to set up a machine, which service to install, or how to configure any task in this repo.
+description: Assistant for the kwisatz repository. Guides users through the `kwisatz` CLI — the operator front end over the orchestrator — to provision machines for LLM workflows: the service catalog, machine-config.yml, running one service or the whole box, and reading the outcome as JSON. Use when someone asks how to set up a machine, which service to install, or how to configure any task in this repo.
 Invoke this skill when the users asks for usage instructions or repository introduction.
 ---
 
@@ -22,7 +22,10 @@ This repo uses **two YAML configuration files**, each governing a different conc
 | `machine-config.yml` | Which **services** to install, their env vars & args (infrastructure) |
 | `models.yml` | Which **LLMs** to download, serve, and wire into coding agents (model catalog) |
 
-The **orchestrator** (`run-setup.sh`, a thin wrapper around the pyinfra deploy `deploy.py`) drives `machine-config.yml`. The **sync tool** (`tasks/sync-models.py`) drives `models.yml`. Together they turn a fresh Ubuntu box into a working local-LLM inference server.
+The **orchestrator** (`src/kwisatz/orchestrator.py`, driven by the `kwisatz` CLI — or by
+`run-setup.sh`, which wraps the pyinfra deploy `deploy.py`) manages `machine-config.yml`. The
+**sync tool** (`tasks/sync-models.py`) manages `models.yml`. Together they turn a fresh Ubuntu
+box into a working local-LLM inference server.
 
 ## Workflow
 
@@ -93,27 +96,40 @@ scripts:
 - `args` are passed as CLI flags to the script
 - `args:` / `env:` with nothing under it (the flags sit in the comment below) means **none**, exactly like `args: []` / `env: {}` — do not "fix" it
 - a malformed `env:`/`args:` in a **disabled** script only warns; a malformed one in a script that will run is a hard error naming it
-- Use `./run-setup.sh status` after editing to verify before applying
+- verify with `kwisatz config validate` (it reports *every* problem at once), then `kwisatz status`
 
 ### 4. Preview and Apply
 
 ```bash
-# Preview what will run
-./run-setup.sh status
-
-# Execute all enabled scripts
-./run-setup.sh apply
+kwisatz status                 # what will run, in order, with env keys and the real commands
+kwisatz apply                  # install every enabled target
+kwisatz apply traefik          # …or exactly one service, through the same code path
+kwisatz services               # what is running now, and whether it is healthy
 ```
 
-The orchestrator is a pyinfra deploy (`deploy.py`); `run-setup.sh` wraps `uv run pyinfra @local deploy.py --dry` (status) and `... -y -vvv` (apply), and passes extra arguments on to pyinfra. A config key runs `tasks/<name>.sh`, or `tasks/<name>.py` when there is no such `.sh` (`sync-models` is dispatched this way); the `.sh` wins if both exist, and a key with neither file is an error naming the script. Scripts run in the order they appear in the config. The run **stops at the first failing script** (exit code 1); scripts after it do not run. No log file is written (append `2>&1 | tee apply.log`). Tasks run non-interactively (`INTERACTIVE=false`, stdin `/dev/null`); for prompts run the task script directly with `INTERACTIVE=true tasks/<name>.sh`.
+Prefer the CLI. `./run-setup.sh` (`uv run pyinfra @local deploy.py`) still works and is what CI
+uses — both read the same `src/kwisatz/orchestrator.py`, so a script gets the identical
+command, environment and stdin either way; a conformance test fails if that stops being true.
 
-`apply` echoes every command line it runs (that is what `-vvv` does). Values from a script's `env:` block are printed as `export KEY=*MASKED*`, but script names, `args:` and all task output appear verbatim. `machine-config.yml` is plain text on a machine that will hold API keys, so keep secrets out of it: task scripts store their own credentials under `/srv/<service>/.env`.
+A config key runs `tasks/<name>.sh`, or `tasks/<name>.py` when there is no such `.sh`
+(`sync-models` is dispatched this way); the `.sh` wins if both exist, and a key with neither
+file is an error naming the script. Scripts run in config order and the run **stops at the
+first failing script** (exit 1; the rest do not run — `--keep-going` runs them all and exits
+8). Each task's stdout is streamed to you and copied to `logs/kwisatz-<ts>-<target>.log`
+(mode 0600), and every run leaves a record in `.kwisatz/state.jsonl`. Tasks run
+non-interactively (`INTERACTIVE=false`, stdin `/dev/null`); when a script must prompt, say so:
+`kwisatz apply <target> --interactive` (needs a TTY).
+
+`status` echoes the command line with `env:` values masked (`KEY=*MASKED*`), as does every
+JSON field. `machine-config.yml` is plain text on a machine that will hold API keys, so keep
+secrets out of it: the task scripts store their own credentials under `/srv/<service>/.env`.
 
 ### 5. Custom Config File (optional)
 
 ```bash
-./run-setup.sh status --data config=path/to/other-config.yml
-./run-setup.sh apply --data config=path/to/other-config.yml
+kwisatz status --config path/to/other-config.yml
+kwisatz apply  --config path/to/other-config.yml
+# the pyinfra path spells the same thing: --data config=path/to/other-config.yml
 ```
 
 ### 6. Model Catalog (optional, after inference stack)
@@ -128,19 +144,59 @@ MODELS_YML=/path/to/custom.yml ./tasks/sync-models.py
 ./tasks/sync-models.py --agents-only
 ```
 
-## Running Individual Scripts
+## Running one service
 
-Every task script is standalone and idempotent — safe to run directly:
+Every task script is standalone and idempotent, but the *sanctioned* way to run one is the
+CLI, because that applies the config's `env:`/`args:` and records the run:
 
 ```bash
-bash tasks/setup-docker.sh
-bash tasks/setup-traefik.sh
+kwisatz apply docker            # by config key, or by any prefix-stripped name
+kwisatz apply unsloth           # a script with no config entry: runs with script defaults
+kwisatz run forgejo -- --force  # forward the script's own flags, verbatim
+bash tasks/setup-docker.sh      # still valid for debugging — just not for installing
 ```
 
-This is useful for:
-- Testing a single service before adding it to the config
-- Re-running a failed script after fixing configuration
-- Adding a service that's not yet in `machine-config.yml`
+Prefer the CLI whenever the change must survive the next `kwisatz apply`. Hand-running a
+script and stopping there is the most common way this repo ends up with a box that no longer
+matches its own config.
+
+## Working as a script or an agent
+
+Three properties make the CLI safe to automate: the command table is machine-readable, exit
+codes carry the meaning, and `--json` prints exactly one document on stdout (progress and
+warnings go to stderr).
+
+```bash
+# 1. discover, without parsing prose
+./kwisatz commands --json | jq -r '.result.commands[].name'
+./kwisatz list --all --json | jq -r '.result.items[].target'
+
+# 2. install one target, then branch on the exit code — not on the message text
+./kwisatz apply traefik --json | jq '{ok, exit_code, failed: [.errors[].target]}'
+
+# 3. diagnose without a human
+./kwisatz doctor --json | jq '.result.items[] | select(.ok|not)'
+./kwisatz services --json | jq '.result.items[] | select(.health != "healthy")'
+./kwisatz logs traefik --tail 100 --json | jq -r '.result.text'
+```
+
+| exit | what it means | what to do |
+|---|---|---|
+| 0 | done, or already converged | `kwisatz services` to confirm |
+| 1 | a task script failed | `kwisatz logs <target>`, fix, `kwisatz apply <target>` |
+| 2 | bad flag or ambiguous target | `kwisatz --help`, `kwisatz list` |
+| 3 | config bad or target unknown | `kwisatz init`, `kwisatz list --all` (the error names the near misses) |
+| 4 | host prerequisite missing | `kwisatz doctor --json` — the item names the fix |
+| 5 | stack unhealthy or timed out | `kwisatz logs <target>`, `./kwisatz services --names <t>` |
+| 6 | a human prompt is required | `kwisatz apply <target> --interactive` |
+| 7 | cannot converge automatically | run the command the error prints |
+| 8 | `--keep-going` finished with failures | `kwisatz status` |
+| 9 | another run holds the lock | `kwisatz apply … --lock-timeout 30` |
+
+An agent that must not surprise the operator: read `kwisatz doctor` and `kwisatz status` **and
+act on both before** running anything, because the CLI validates against what it finds, not
+against what a config assumed (R-SAFE-001). Ask for approval before `apply` unless the user
+already asked for an install.
 
 ## Model Catalog Configuration (`models.yml`)
 
@@ -389,8 +445,8 @@ Details: README "Backups" section, AUTOMATIONS.md → *Backup*, spec
 - **Docker group not active after install**: Run `newgrp docker` or log out/in
 - **Port conflict**: Change the port in `machine-config.yml` env vars for the affected service
 - **Traefik TLS not working**: Ensure `ACME_EMAIL` is set and ports 80/443 are open in UFW and your cloud firewall
-- **llama-server not found**: Enable `setup-llama-cpp` in the config and run `./run-setup.sh apply`
-- **Script fails mid-run**: The orchestrator stops at the failing script; its output is right above the error. Fix the cause and re-run `./run-setup.sh apply` — scripts are idempotent
+- **llama-server not found**: `kwisatz config enable setup-llama-cpp && kwisatz apply setup-llama-cpp`
+- **Script fails mid-run**: the run stopped at that script and its output is right above the error. Read `./kwisatz logs <name>`, fix the cause, then `kwisatz apply <name>` — scripts are idempotent, so re-running only that target is enough
 - **Secure Boot blocks kernel modules**: Disable Secure Boot in BIOS/UEFI (affects upstream kernel, NVIDIA drivers)
 - **`models.yml not found`**: Copy `models.yml.default` or `models.yml.example` to `models.yml`
 - **Sync fails with schema error**: Run `./tasks/sync-models.py --agents-only` to skip llama-swap and isolate agent config issues; check YAML indentation and required fields (`name`, `type`, `baseUrl`)

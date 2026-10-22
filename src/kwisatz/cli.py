@@ -38,6 +38,8 @@ class Flag:
     help: str
     metavar: str | None = None
     default: object = None
+    #: repeatable option (`--env K=1 --env K=2`), which argparse cannot infer from the shape
+    append: bool = False
 
     def names(self) -> list[str]:
         return list(self.flags)
@@ -85,7 +87,7 @@ GLOBAL_FLAGS: tuple[Flag, ...] = (
     Flag(("-q", "--quiet"), "suppress progress output"),
     Flag(("-v", "--verbose"), "raise verbosity (repeatable)"),
     Flag(("--no-color",), "never emit ANSI colour"),
-    Flag(("--env",), "set KEY=VALUE for the task run, wins over config env", "<KEY=VALUE>"),
+    Flag(("--env",), "set KEY=VALUE for the task run, wins over config env", "<KEY=VALUE>", append=True),
     Flag(("--timeout",), "wall-clock budget for the whole command", "<s>", 3600),
     Flag(("--lock-timeout",), "how long to wait for another kwisatz run", "<s>", 0),
     Flag(("--reveal",), "print env values unmasked (and say so)"),
@@ -961,7 +963,7 @@ def _config_mutate(app: App, repo: Repo, path: Path, verb: str) -> int:
                 app.out.note(f"{key}: no {env_key} to remove — nothing changed")
                 return Exit.OK
         elif verb == "args":
-            configio.set_args(doc, key, list(getattr(app.args, "flag", None) or []))
+            configio.set_args(doc, key, list(getattr(app.args, "flags", None) or []))
         else:
             raise usage(f"unknown config verb {verb!r}", hint="kwisatz config show|validate|enable|…")
 
@@ -1418,6 +1420,9 @@ def _add_command(sub, spec: CommandSpec, *, nested: bool) -> None:
 
 
 def _add_flag(p: argparse.ArgumentParser, flag: Flag, *, nested: bool = False) -> None:
+    if flag.append:
+        p.add_argument(*flag.names(), metavar=flag.metavar, action="append", default=[] if not nested else argparse.SUPPRESS, help=flag.help)
+        return
     """The same flag on a verb's own parser.
 
     A verb must accept `kwisatz config enable x --json` without the operator repeating the
@@ -1441,10 +1446,10 @@ def _add_flag(p: argparse.ArgumentParser, flag: Flag, *, nested: bool = False) -
 def _positional(name: str, help_text: str) -> tuple:
     """`[ARGS]…` takes everything after `--`; `[TARGET]` is optional; the rest is required."""
     dest = _dest_of(name)
-    if name.startswith("[ARGS") or name.startswith("[FLAG"):
-        return dest, {"nargs": argparse.REMAINDER, "help": help_text}
-    if name.endswith("\u2026"):  # a list: `kwisatz apply traefik nextcloud …`
-        return dest, {"nargs": "*", "default": [], "help": help_text}
+    if name.startswith("[ARGS"):
+        return "rest", {"nargs": argparse.REMAINDER, "help": help_text}
+    if name.endswith("\u2026"):  # a list: dest pluralises, so `[TARGET]…` is `targets`
+        return f"{dest}s", {"nargs": "*", "default": [], "help": help_text}
     if name.startswith("["):
         return dest, {"nargs": "?", "default": None, "help": help_text}
     return dest, {"help": help_text}

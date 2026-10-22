@@ -1,3 +1,4 @@
+---
 # kwisatz service hints — read by `kwisatz services` (spec §6.7 R-OPS-001).
 #
 # Discovery is by convention (see kwisatz/services.py: /srv/*/docker-compose.yml, the

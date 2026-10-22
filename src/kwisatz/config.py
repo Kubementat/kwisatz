@@ -85,9 +85,10 @@ def load(path: Path):
     try:
         text = path.read_text()
     except OSError as e:
+        detail = "the file does not exist" if isinstance(e, FileNotFoundError) else f"{type(e).__name__}: {e}"
         raise CliError(
             Exit.CONFIG,
-            f"{path}: cannot read config ({' '.join(f'{type(e).__name__}: {e}'.split())})",
+            f"{path}: cannot read config ({detail})",
             hint="kwisatz init writes machine-config.yml from the shipped example",
         ) from e
     try:
@@ -125,7 +126,7 @@ def dump(doc, path: Path, *, backup: Path | None = None) -> str:
     if new == old:
         return new
     if backup is not None and old:
-        backup.parent.mkdir(mode=0o700, exist_ok=True)
+        backup.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         backup.write_text(old)
         _rotate_backups(backup.parent, backup.name)
     atomic_write(path, new)
@@ -151,7 +152,9 @@ def restore(path: Path, text: str) -> None:
 
 def backup_path(repo_work: Path | None, target: Path, when: datetime | None = None) -> Path:
     """`.kwisatz/config-backups/<name>.<utc-ts>` — kept next to the run state, not in git."""
-    stamp = (when or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    # microseconds, not seconds: a scripted loop can write the file twice in one second, and
+    # two writes that collide on a name silently lose one of the two backups
+    stamp = (when or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%S%fZ")
     base = repo_work or target.parent
     return base / "config-backups" / f"{target.name}.{stamp}"
 

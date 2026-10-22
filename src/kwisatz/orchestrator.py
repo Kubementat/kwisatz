@@ -251,9 +251,9 @@ def load_config(path: Path, root: Path) -> Config:
         # missing file: point at the example / --config override instead of a generic error
         hint = ""
         if path == root / "machine-config.yml" and (root / "machine-config.yml.example").is_file():
-            hint = " (copy machine-config.yml.example to machine-config.yml, or pass --config <file>)"
-        msg = " ".join(f"{type(e).__name__}: {e}".split())
-        raise ConfigError(f"{path}: cannot read config{hint} ({msg})") from e
+            hint = ". copy machine-config.yml.example there, or pass --config <file>"
+        detail = "the file does not exist" if isinstance(e, FileNotFoundError) else f"{type(e).__name__}: {e}"
+        raise ConfigError(f"{path}: cannot read config — {detail}{hint}") from e
     try:
         # BaseLoader keeps every scalar a string, exactly as written (true stays "true")
         doc = yaml.load(raw, Loader=yaml.BaseLoader)

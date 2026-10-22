@@ -132,6 +132,8 @@ class Lock:
         self.path = repo.work / "lock"
         self.timeout = timeout
         self.held = False
+        #: the checkout this lock belongs to, so a stray lock in a reused directory is stale
+        self.owner_path = str(repo.path)
 
     def _owner(self) -> dict | None:
         try:
@@ -141,6 +143,10 @@ class Lock:
         return data if isinstance(data, dict) else None
 
     def _stale(self, owner: dict) -> bool:
+        if owner.get("repo") and str(owner["repo"]) != self.owner_path:
+            # a lock written by a run of a *different* checkout — same filename, different
+            # machine-state, and the usual reason a reused tmp directory reports LOCKED
+            return True
         pid = owner.get("pid")
         if not isinstance(pid, int):
             return True
@@ -161,7 +167,7 @@ class Lock:
             self.path.unlink(missing_ok=True)
         fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(fd, "w") as handle:
-            json.dump({"pid": os.getpid(), "started_at": _utcnow()}, handle)
+            json.dump({"pid": os.getpid(), "repo": self.owner_path, "started_at": _utcnow()}, handle)
         self.held = True
         return True
 

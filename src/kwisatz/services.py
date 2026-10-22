@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 SERVICES_YML = Path(__file__).resolve().parent / "data" / "services.yml"
+#: the layout every task script writes; a test may point this at a directory of its own
+SRV_ROOT = Path("/srv")
 
 RUNNING = "running"
 UNHEALTHY = "unhealthy"
@@ -252,7 +254,7 @@ def srv_stacks() -> dict[str, Service]:
     """`/srv/<name>/docker-compose.yml` that the daemon does not know about (i.e. stopped)."""
     found: dict[str, Service] = {}
     try:
-        entries = sorted(Path("/srv").iterdir())
+        entries = sorted(SRV_ROOT.iterdir())
     except OSError:  # no /srv, or no permission to look
         return found
     for directory in entries:

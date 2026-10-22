@@ -35,4 +35,12 @@ testpaths = ["tests/unit"]
 [tool.ruff]
 line-length = 110
 target-version = "py310"
-exclude = [".venv", "logs", ".kwisatz"]
+# `kwisatz` (no extension) is the bash entry point, not Python — ruff must not try to parse it
+exclude = [".venv", "logs", ".kwisatz", "kwisatz", "deploy.py.bak"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W", "SIM", "B"]
+ignore = ["E501", "B008", "SIM105"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["SIM", "B"]

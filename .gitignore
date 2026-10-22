@@ -21,3 +21,4 @@ models.yml.full
 .playwright-mcp/
 .agents/
 .kwisatz/
+dist/

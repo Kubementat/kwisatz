@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from conftest import REPO_ROOT, run_cli, run_pyinfra, stub
 
 from kwisatz import orchestrator

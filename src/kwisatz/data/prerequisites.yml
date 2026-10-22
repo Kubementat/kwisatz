@@ -1,3 +1,4 @@
+---
 # kwisatz ordering / host-fact advisory (§6.5, R-ORD-001)
 #
 # This is NOT a dependency resolver: kwisatz stays a linear "run what is enabled, in

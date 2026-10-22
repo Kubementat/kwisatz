@@ -112,7 +112,7 @@ def run_cli(*args: str, repo: Path | None = None, env: dict | None = None, timeo
         text=True,
         env=environ,
         timeout=timeout,
-        cwd=str(repo),
+        cwd=str(repo or Path.cwd()),
         check=False,
     )
 

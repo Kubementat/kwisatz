@@ -4,6 +4,11 @@ The list of all automated software components in this repository.
 For each of the scripts you can run the script with the `--help` parameter to display all environment configuration and script parameters.
 E.g. `./tasks/setup-basics.sh --help`
 
+To install one of them, prefer the CLI over the bare script — it applies the config's
+`env:`/`args:` and records the run: `kwisatz apply <name>` (`./kwisatz apply basics` also
+resolves `setup-basics`). `kwisatz info <name>` shows the same `--help` text plus the target's
+resolved command, env keys and last apply.
+
 ### System & Infrastructure
 
 #### `setup-basics.sh`
