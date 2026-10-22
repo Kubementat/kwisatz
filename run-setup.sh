@@ -1,39 +1,70 @@
 #!/usr/bin/env bash
-# run-setup.sh — thin wrapper around the pyinfra deploy (deploy.py). Requires uv.
+# run-setup.sh — DEPRECATED: the thin wrapper this script was is now the `kwisatz` CLI.
+#
+# It stays for one release so that old docs, CI jobs and muscle memory keep working, and
+# it does not implement anything: it translates `apply`/`status` (and pyinfra's
+# `--data config=<file>`) into the equivalent CLI call and execs it. Everything the
+# operator used to get from this script — the plan, the env, the masking, the exit
+# codes — comes from `kwisatz` now, and the exit codes are the CLI's table
+# (`specification/features/kwisatz-cli/behaviors.md`), so `status` on a broken config
+# exits 3, where pyinfra used to exit 1. Remove this file one release after it was
+# deprecated; `tasks/<name>.sh` stays runnable by hand as always.
+#
+#   ./run-setup.sh apply [--data config=<file>]   ->  ./kwisatz apply [--config <file>]
+#   ./run-setup.sh status [--data config=<file>]  ->  ./kwisatz status [--config <file>]
 set -euo pipefail
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat <<'USAGE'
-Usage: ./run-setup.sh apply|status [pyinfra args...]
+Usage: ./run-setup.sh apply|status [pyinfra args...]   (DEPRECATED — use ./kwisatz)
 
-  apply    run all enabled task scripts of the config, in config order;
-           stops at the first failing script (exit 1)
-  status   list the enabled task scripts without running anything
+  apply    = ./kwisatz apply     run every enabled task script, in config order
+  status   = ./kwisatz status    the plan, without running anything
+  --data config=<file>  = ./kwisatz --config <file> ...
 
-  --data config=<file>   use <file> instead of <repo>/machine-config.yml
-  -h, --help             show this help
+Use the CLI instead: it runs the same deploy.py, adds single-target apply
+(`./kwisatz apply traefik`), and documents its exit codes in
+specification/features/kwisatz-cli/behaviors.md.
 
-Requires uv:  curl -LsSf https://astral.sh/uv/install.sh | sh
-Runs:         uv run pyinfra @local deploy.py -y -vvv   (apply)
-              uv run pyinfra @local deploy.py --dry     (status)
-Task scripts run with INTERACTIVE=false and stdin from /dev/null. For prompts
-run one directly: INTERACTIVE=true tasks/<name>.sh
-
-WARNING: apply runs pyinfra at -vvv, the only level that streams task output,
-and that also echoes every command line. Values from a script's `env:` block
-are printed as *MASKED* (pyinfra HiddenValue), but script names, `args:` and
-all task output are printed verbatim. Treat machine-config.yml as secret-free:
-the task scripts keep their own credentials in /srv/<service>/.env.
+To run one script by hand, with the script's own defaults, run it directly:
+  INTERACTIVE=true ./tasks/<name>.sh
 USAGE
 }
 
 case "${1:-}" in
-  apply)  flags=(-y -vvv) ;;
-  status) flags=(--dry) ;;
-  -h|--help) usage; exit 0 ;;
-  *) usage >&2; exit 2 ;;
+  apply | status)
+    command="$1"
+    shift
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
 esac
-PATH="$PATH:$HOME/.local/bin"  # where the uv installer puts it; not on PATH before the next login
-command -v uv >/dev/null || { echo "run-setup.sh: uv not found — install it: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2; exit 1; }
-exec uv run --project "$dir" pyinfra @local "$dir/deploy.py" "${flags[@]}" "${@:2}"
+
+# translate only what pyinfra's --data could mean here; anything else is forwarded
+# verbatim, so an unknown key fails loudly in the CLI instead of running nothing
+extra=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --data)
+      case "${2:-}" in
+        config=*) extra+=(--config "${2#config=}") ;;
+        *) extra+=(--data "$2") ;;
+      esac
+      shift 2
+      ;;
+    *)
+      extra+=("$1")
+      shift
+      ;;
+  esac
+done
+
+echo "run-setup.sh: DEPRECATED — run './kwisatz ${command}' instead." >&2
+exec "${dir}/kwisatz" "${command}" "${extra[@]+"${extra[@]}"}"

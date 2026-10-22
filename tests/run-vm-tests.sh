@@ -12,7 +12,11 @@
 #     1. Spin up a fresh Ubuntu VM via virt-runner (virt-runner create)
 #     2. Copy this repository to the VM (scp)
 #     3. Run every enabled script from the test config twice:
-#        phase 1 "integration" (clean VM), phase 2 "idempotency" (re-run)
+#        phase 1 "integration" (clean VM), phase 2 "idempotency" (re-run).
+#        In the default mode each run is ./kwisatz apply <target>, so the task executes
+#        inside a pyinfra deploy of the copied checkout — the command an operator or an
+#        agent uses. "--mode script" keeps the old behaviour of running tasks/<name>.sh
+#        directly, which is the documented escape hatch.
 #     4. Destroy the test VM (virt-runner destroy) — unless --keep-vm
 #     5. Write a Markdown test report to tests/reports/vmtest-<ts>/report.md
 #
@@ -23,6 +27,8 @@
 #   --scripts A,B,C    Test only these scripts (comma-separated; overrides
 #                      the enabled set in the test config, env/args for each
 #                      script are still taken from the test config)
+#   --mode MODE        cli (default) = drive ./kwisatz apply <target>; script = run
+#                      tasks/<name>.sh directly (the fallback path)
 #   --config FILE      Test config file (default: tests/machine-config.test.yml)
 #   --release REL      Ubuntu release codename (default: resolute)
 #   --ram GB           VM RAM in GiB (default: 4)
@@ -66,12 +72,13 @@ VCPUS=2
 DISK=30
 VM_USER="ubuntu"
 TIMEOUT_MIN=30
+MODE="cli"
 ONLY_SCRIPTS=""
 KEEP_VM=0
 REAL_HOME="$HOME"
 SSH_KEY="${VM_SSH_KEY:-${REAL_HOME}/.ssh/id_ed25519.pub}"
 
-usage() { sed -n '3,47p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,52p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -84,11 +91,17 @@ while [[ $# -gt 0 ]]; do
     --disk)      DISK="$2"; shift 2 ;;
     --user)      VM_USER="$2"; shift 2 ;;
     --timeout)   TIMEOUT_MIN="$2"; shift 2 ;;
+    --mode)      MODE="$2"; shift 2 ;;
     --keep-vm)   KEEP_VM=1; shift ;;
     -h|--help)   usage; exit 0 ;;
     *)           echo "run-vm-tests.sh: unknown option: $1" >&2; usage; exit 2 ;;
   esac
 done
+
+if [[ "$MODE" != "cli" && "$MODE" != "script" ]]; then
+  echo "run-vm-tests.sh: --mode must be cli or script, got: $MODE" >&2
+  exit 2
+fi
 
 log()  { echo "[VM-TEST] $*"; }
 fail() { echo "[VM-TEST][ERROR] $*" >&2; exit 1; }
@@ -256,6 +269,14 @@ if ! scp "${SSH_OPTS[@]}" -r "${REPO_ROOT}/." "${VM_USER}@${VM_IP}:${REMOTE_DIR}
   fail "scp to VM failed — see ${REPORT_DIR/scp.log}"
 fi
 
+# scp has no exclusion, so a host-built `.venv` lands on the VM with it — and
+# `./kwisatz` would take that as its fast path, with a pyvenv.cfg that points at the
+# host's interpreter. Same for a `.kwisatz/lock` copied from a run on the host. Neither
+# is data, so drop both and let the VM's own `uv run` build what it needs.
+log "Dropping the copied .venv / .kwisatz so the VM builds its own"
+remote_ssh "rm -rf '${REMOTE_DIR}/.venv' '${REMOTE_DIR}/.kwisatz'" \
+  || log "WARN: could not clean .venv/.kwisatz on the VM — the precheck may need to be re-run"
+
 # Explicit copy of the active test config (may be generated outside the repo)
 readonly TEST_CONFIG_REMOTE="/tmp/test-config.yml"
 scp "${SSH_OPTS[@]}" "$CONFIG" "${VM_USER}@${VM_IP}:${TEST_CONFIG_REMOTE}" \
@@ -265,7 +286,7 @@ scp "${SSH_OPTS[@]}" "$CONFIG" "${VM_USER}@${VM_IP}:${TEST_CONFIG_REMOTE}" \
 # Step 3 — run the tests on the VM
 # ---------------------------------------------------------------------------
 
-# uv goes to /usr/local/bin: the precheck (run-setup.sh status) runs in a
+# uv goes to /usr/local/bin: the precheck (./kwisatz status) runs in a
 # non-login ssh session whose PATH does not include ~/.local/bin.
 log "Bootstrapping test prerequisites on the VM (yq, jq, uv)"
 if ! remote_ssh "sudo apt-get update -qq && sudo apt-get install -y -qq yq jq curl \
@@ -275,7 +296,7 @@ if ! remote_ssh "sudo apt-get update -qq && sudo apt-get install -y -qq yq jq cu
   fail "VM bootstrap failed — see ${REPORT_DIR/bootstrap.log}"
 fi
 
-log "Running test suite on the VM (timeout ${TIMEOUT_MIN}m per script)"
+log "Running test suite on the VM (timeout ${TIMEOUT_MIN}m per script, mode=${MODE})"
 TEST_RC=0
 if ! scp "${SSH_OPTS[@]}" "${SCRIPT_DIR}/remote/run-tests.sh" \
       "${VM_USER}@${VM_IP}:/tmp/run-tests.sh" > /dev/null 2>&1; then
@@ -285,6 +306,7 @@ remote_ssh "bash /tmp/run-tests.sh \
     --config '${TEST_CONFIG_REMOTE}' \
     --workdir '${REMOTE_DIR}' \
     --out '/tmp/vmtest' \
+    --mode '${MODE}' \
     --timeout '${TIMEOUT_MIN}'" \
   > "$REPORT_DIR/runner.log" 2>&1 || TEST_RC=$?
 # Distinguish "tests failed" (1) from pipeline/SSH errors (anything else)
@@ -360,6 +382,11 @@ write_report() {
     echo "- **Guest OS:** ${guest_os} (kernel ${guest_kernel}, hostname ${guest_host})"
     echo "- **Test config:** ${CONFIG}"
     echo "- **Per-script timeout:** ${TIMEOUT_MIN}m"
+    if [[ "${MODE}" == "cli" ]]; then
+      echo "- **How it ran:** \`./kwisatz apply <target>\` — one pyinfra deploy per target"
+    else
+      echo "- **How it ran:** \`tasks/<name>.sh\` directly (fallback mode, no CLI in the loop)"
+    fi
     echo
     echo "## Results"
     echo
@@ -397,14 +424,16 @@ write_report() {
     if [[ -n "$pre_line" ]]; then
       local pre_rc
       pre_rc="$(jq -r '.rc' <<< "$pre_line")"
+      local pre_name
+      pre_name="$(jq -r '.script' <<< "$pre_line")"
       (( total++ ))
       if (( pre_rc == 0 )); then
         echo
-        echo "Precheck: \`run-setup.sh status\` — PASS"
+        echo "Precheck: \`${pre_name}\` — PASS"
       else
         echo
-        echo "Precheck: \`run-setup.sh status\` — FAIL (rc=${pre_rc})"
-        failed+=("run-setup.sh status (precheck, rc=$pre_rc)")
+        echo "Precheck: \`${pre_name}\` — FAIL (rc=${pre_rc})"
+        failed+=("${pre_name} (precheck, rc=$pre_rc)")
       fi
     fi
 

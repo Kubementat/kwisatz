@@ -13,6 +13,15 @@
 #   and arguments configured for them. Failures do NOT stop the run —
 #   every configured script is tested.
 #
+# MODES (--mode, default cli):
+#   cli     run `./kwisatz apply <target>`, i.e. the command an operator and every
+#           agent actually use. The task then executes inside a pyinfra deploy of this
+#           checkout, so the env, the args and the stdin come from machine-config.yml and
+#           deploy.py — nothing is re-implemented here.
+#   script  run `tasks/<name>.sh` directly, the documented escape hatch. The runner
+#           resolves the entry point and the config's env/args itself, which is exactly
+#           why it is a fallback and not the default.
+#
 #   Each test case runs under 'sudo -u <vm-user>': this runner is one
 #   long-lived SSH session, so group membership changes made by earlier
 #   test cases (setup-docker's 'usermod -aG docker') are invisible to it
@@ -27,10 +36,11 @@
 #
 # USAGE:
 #   run-tests.sh --config <config.yml> --workdir <repo-dir> --out <dir> \
-#                [--timeout MIN]
+#                [--timeout MIN] [--mode cli|script]
 #
 # REQUIREMENTS:
-#   yq, jq, uv (installed by the host orchestrator before this script runs)
+#   yq, jq, uv (installed by the host orchestrator before this script runs);
+#   mode=cli additionally needs the checkout's `./kwisatz` entry point.
 #
 # EXIT CODES:
 #   0 all test cases passed
@@ -44,6 +54,7 @@ CONFIG=""
 WORKDIR=""
 OUT=""
 TIMEOUT_MIN=30
+MODE="cli"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -55,8 +66,9 @@ while [[ $# -gt 0 ]]; do
     --workdir) WORKDIR="$2"; shift 2 ;;
     --out)     OUT="$2"; shift 2 ;;
     --timeout) TIMEOUT_MIN="$2"; shift 2 ;;
+    --mode)    MODE="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -71,10 +83,19 @@ if [[ -z "$CONFIG" || -z "$WORKDIR" || -z "$OUT" ]]; then
   exit 2
 fi
 
+if [[ "$MODE" != "cli" && "$MODE" != "script" ]]; then
+  echo "run-tests.sh: --mode must be cli or script, got: $MODE" >&2
+  exit 2
+fi
+
 command -v yq &>/dev/null || { echo "run-tests.sh: yq not found" >&2; exit 1; }
 command -v jq &>/dev/null || { echo "run-tests.sh: jq not found" >&2; exit 1; }
 [[ -f "$CONFIG" ]] || { echo "run-tests.sh: config not found: $CONFIG" >&2; exit 1; }
 [[ -d "$WORKDIR/tasks" ]] || { echo "run-tests.sh: no tasks/ in workdir: $WORKDIR" >&2; exit 1; }
+if [[ "$MODE" == "cli" && ! -x "$WORKDIR/kwisatz" ]]; then
+  echo "run-tests.sh: mode=cli needs the checkout's ./kwisatz entry point: $WORKDIR/kwisatz" >&2
+  exit 1
+fi
 
 # The VM user this runner runs as (set by sshd; fall back to the uid name).
 # Each test case is wrapped in 'sudo -u' so it sees fresh group membership
@@ -118,17 +139,24 @@ jq -cn \
   --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{hostname: $hostname, os: $os, kernel: $kernel, date: $date}' > "$OUT/meta.json"
 
-echo "run-tests.sh: testing ${#SCRIPTS[@]} script(s) x 2 phases (timeout ${TIMEOUT_MIN}m each)"
+echo "run-tests.sh: testing ${#SCRIPTS[@]} script(s) x 2 phases (timeout ${TIMEOUT_MIN}m each, mode=$MODE)"
 
 # ---------------------------------------------------------------------------
-# Precheck: orchestrator must be able to read the test config
+# Precheck: the entry point must be able to read the test config
 # ---------------------------------------------------------------------------
 
-PRE_LOG="$OUT/logs/precheck-run-setup-status.log"
-( cd "$WORKDIR" && ./run-setup.sh status --data config="$CONFIG" ) > "$PRE_LOG" 2>&1
+if [[ "$MODE" == "cli" ]]; then
+  PRE_NAME="kwisatz status"
+  PRE_LOG="$OUT/logs/precheck-kwisatz-status.log"
+  ( cd "$WORKDIR" && ./kwisatz status --config "$CONFIG" ) > "$PRE_LOG" 2>&1
+else
+  PRE_NAME="run-setup.sh status"
+  PRE_LOG="$OUT/logs/precheck-run-setup-status.log"
+  ( cd "$WORKDIR" && ./run-setup.sh status --data config="$CONFIG" ) > "$PRE_LOG" 2>&1
+fi
 PRE_RC=$?
-record "run-setup.sh status" "precheck" "$PRE_RC" 0 "$PRE_LOG"
-echo "run-tests.sh: [PRECHECK] run-setup.sh status rc=$PRE_RC"
+record "$PRE_NAME" "precheck" "$PRE_RC" 0 "$PRE_LOG"
+echo "run-tests.sh: [PRECHECK] $PRE_NAME rc=$PRE_RC"
 
 # Interpreter for `tasks/*.py` entrypoints: the project venv the precheck's `uv run`
 # just created, so a .py task imports the repo's dependencies exactly as deploy.py's
@@ -152,48 +180,68 @@ for phase in integration idempotency; do
     name="${script%.sh}"
     log="$OUT/logs/${phase}-${script}.log"
 
-    # Same resolution rule as deploy.py: tasks/<name>.sh (run by its exec bit) wins
-    # over tasks/<name>.py, which runs under the orchestrator's own interpreter so its
-    # imports resolve against the venv uv built during the precheck.
-    runner=()
-    if [[ -f "$WORKDIR/tasks/${name}.sh" ]]; then
-      script_path="$WORKDIR/tasks/${name}.sh"
-    elif [[ -f "$WORKDIR/tasks/${name}.py" ]]; then
-      script_path="$WORKDIR/tasks/${name}.py"
-      runner=("${PY_BIN}")
-    else
-      script_path=""
-    fi
-
-    if [[ -z "$script_path" ]]; then
-      echo "script not found: $WORKDIR/tasks/${name}.sh or .py" > "$log"
-      record "$script" "$phase" 125 0 "$log"
-      echo "run-tests.sh: [FAIL] $phase $script (missing on disk)"
-      OVERALL_RC=1
-      continue
-    fi
-
-    # Env vars and args from the config (same values run-setup.sh would apply)
-    # shellcheck disable=SC2016  # $n is a yq variable, not bash
-    mapfile -t envp < <(yq -r --arg n "$name" \
-      '.scripts[$n].env // {} | to_entries[] | "\(.key)=\(.value)"' "$CONFIG" 2>/dev/null \
-      | grep -vE '^$|^null$' || true)
-    # shellcheck disable=SC2016  # $n is a yq variable, not bash
-    mapfile -t args < <(yq -r --arg n "$name" \
-      '.scripts[$n].args // [] | .[]' "$CONFIG" 2>/dev/null \
-      | grep -vE '^$|^null$' || true)
-
-    # 'sudo' (below) resets the environment, which would drop the SSH
-    # session metadata; scripts that read the live session port
-    # (configure-firewall, setup-sshd) must still see it.
-    [[ -n "${SSH_CONNECTION:-}" ]] && envp+=("SSH_CONNECTION=${SSH_CONNECTION}")
-    [[ -n "${SSH_CLIENT:-}" ]] && envp+=("SSH_CLIENT=${SSH_CLIENT}")
+    # 'sudo' (below) resets the environment, which would drop the SSH session metadata;
+    # scripts that read the live session port (configure-firewall, setup-sshd) must still
+    # see it, in both modes.
+    sshp=()
+    [[ -n "${SSH_CONNECTION:-}" ]] && sshp+=("SSH_CONNECTION=${SSH_CONNECTION}")
+    [[ -n "${SSH_CLIENT:-}" ]] && sshp+=("SSH_CLIENT=${SSH_CLIENT}")
 
     start=$(date +%s)
-    timeout --kill-after=60 "${TIMEOUT_MIN}m" \
-      sudo -u "${VM_USER}" env "${envp[@]}" ${runner[@]+"${runner[@]}"} \
-        "$script_path" "${args[@]}" > "$log" 2>&1
-    rc=$?
+    if [[ "$MODE" == "cli" ]]; then
+      # The operator's own command. Everything a run means — which file is the entry
+      # point, the config's env:/args:, INTERACTIVE=false, /dev/null stdin, the project
+      # venv strip — comes from machine-config.yml + deploy.py here. That is the point of
+      # mode=cli: the suite must not re-implement the dispatch it is testing.
+      # `--repo` is explicit because the case runs with the SSH session's cwd, not the
+      # checkout's, and the CLI resolves the checkout from where it is standing.
+      timeout --kill-after=60 "${TIMEOUT_MIN}m" \
+        sudo -u "${VM_USER}" env ${sshp[@]+"${sshp[@]}"} \
+          "$WORKDIR/kwisatz" apply "$name" --repo "$WORKDIR" --config "$CONFIG" \
+          --timeout "$(( TIMEOUT_MIN * 60 ))" > "$log" 2>&1
+      rc=$?
+    else
+        # Same resolution rule as deploy.py: tasks/<name>.sh (run by its exec bit) wins
+        # over tasks/<name>.py, which runs under the orchestrator's own interpreter so its
+        # imports resolve against the venv uv built during the precheck. Needed in script
+        # mode only — the CLI resolves the entry point itself, which is what mode=cli tests.
+        runner=()
+        if [[ -f "$WORKDIR/tasks/${name}.sh" ]]; then
+          script_path="$WORKDIR/tasks/${name}.sh"
+        elif [[ -f "$WORKDIR/tasks/${name}.py" ]]; then
+          script_path="$WORKDIR/tasks/${name}.py"
+          runner=("${PY_BIN}")
+        else
+          script_path=""
+        fi
+
+        if [[ -z "$script_path" ]]; then
+          echo "script not found: $WORKDIR/tasks/${name}.sh or .py" > "$log"
+          record "$script" "$phase" 125 0 "$log"
+          echo "run-tests.sh: [FAIL] $phase $script (missing on disk)"
+          OVERALL_RC=1
+          continue
+        fi
+
+        # Env vars and args from the config (same values run-setup.sh would apply)
+        # shellcheck disable=SC2016  # $n is a yq variable, not bash
+        mapfile -t envp < <(yq -r --arg n "$name" \
+          '.scripts[$n].env // {} | to_entries[] | "\(.key)=\(.value)"' "$CONFIG" 2>/dev/null \
+          | grep -vE '^$|^null$' || true)
+        # shellcheck disable=SC2016  # $n is a yq variable, not bash
+        mapfile -t args < <(yq -r --arg n "$name" \
+          '.scripts[$n].args // [] | .[]' "$CONFIG" 2>/dev/null \
+          | grep -vE '^$|^null$' || true)
+
+        # (the SSH session metadata is handed in above, before 'sudo' resets the env)
+        [[ -n "${SSH_CONNECTION:-}" ]] && envp+=("SSH_CONNECTION=${SSH_CONNECTION}")
+        [[ -n "${SSH_CLIENT:-}" ]] && envp+=("SSH_CLIENT=${SSH_CLIENT}")
+
+        timeout --kill-after=60 "${TIMEOUT_MIN}m" \
+          sudo -u "${VM_USER}" env "${envp[@]}" ${runner[@]+"${runner[@]}"} \
+            "$script_path" "${args[@]}" > "$log" 2>&1
+        rc=$?
+    fi
     dur=$(( $(date +%s) - start ))
 
     record "$script" "$phase" "$rc" "$dur" "$log"

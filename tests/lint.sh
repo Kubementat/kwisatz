@@ -25,9 +25,9 @@
 # either class of breakage: it feeds its own test config to the precheck, and the remote
 # runner reads configs with jq's null-tolerant `// []`/`// {}`.
 #
-#   4. Both shipped example configs must parse with deploy.py — `status` is the
-#      first command a new user runs, so an unparsable example is a broken quick
-#      start. Needs `uv` (the orchestrator's own prerequisite).
+#   4. Both shipped example configs must parse with the orchestrator, through the CLI —
+#      `kwisatz status` / `kwisatz apply` is the first command a new user runs, so an
+#      unparsable example is a broken quick start. Needs `uv` (the CLI's prerequisite).
 #   5. Every config key in the examples must name an existing
 #      `tasks/<name>.sh` or `tasks/<name>.py`, so a disabled-but-stale key (the
 #      `sync-models` case) cannot hide in a shipped example.
@@ -81,11 +81,13 @@ else
 fi
 
 # ── Guard 4: every shipped example config must parse with the orchestrator.
-# `run-setup.sh status` is the first command a new user runs, and both example configs
-# are the documented starting point — so an example that the orchestrator refuses to read
-# is a broken quick start, not a config bug. The VM suite cannot catch this: it feeds the
-# harness config (tests/machine-config.test.yml) to the precheck, and the harness itself
-# reads configs with jq's `// []`/`// {}`, i.e. it is null-tolerant where deploy.py is not.
+# `kwisatz status` / `kwisatz apply` is what a new user runs first, and both example configs
+# are the documented starting point — so an example that the orchestrator refuses to read is
+# a broken quick start, not a config bug. The CLI path is what we check because that is what
+# the operator types; the validation itself is `kwisatz.orchestrator.build_plan`, which
+# deploy.py runs too. The VM suite cannot catch this: it feeds the harness config
+# (tests/machine-config.test.yml) to the precheck, and the harness itself reads configs with
+# jq's `// []`/`// {}`, i.e. it is null-tolerant where deploy.py is not.
 for cfg in machine-config.yml.example machine-config-inference.yml.example; do
   if [[ ! -f "${cfg}" ]]; then
     echo "FAIL: ${cfg} missing — the shipped examples are the quick start"
@@ -94,16 +96,16 @@ for cfg in machine-config.yml.example machine-config-inference.yml.example; do
   fi
   if ! command -v uv &>/dev/null; then
     echo "FAIL: uv not found — guard 4 cannot check that ${cfg} parses"
-    echo "      (uv is the orchestrator's only prerequisite: curl -LsSf https://astral.sh/uv/install.sh | sh)"
+    echo "      (uv is the CLI's only prerequisite: curl -LsSf https://astral.sh/uv/install.sh | sh)"
     fail=1
     continue
   fi
-  if out="$(uv run --project . pyinfra @local deploy.py --dry --data config="${PWD}/${cfg}" 2>&1)"; then
-    echo "ok: ${cfg} parses (deploy.py --dry)"
+  if out="$(./kwisatz apply --dry-run --config "${PWD}/${cfg}" 2>&1)"; then
+    echo "ok: ${cfg} parses (./kwisatz apply --dry-run)"
   else
-    echo "FAIL: ${cfg} does not parse with deploy.py — every apply/status on it aborts:"
-    echo "${out}" | grep -E 'pyinfra error|WARNING' | sed 's/^/      /'
-    echo "      reproduce: ./run-setup.sh status --data config=${cfg}"
+    echo "FAIL: ${cfg} does not parse with the orchestrator — every apply/status on it aborts:"
+    echo "${out}" | grep -E 'pyinfra error|WARNING|ERROR' | sed 's/^/      /'
+    echo "      reproduce: ./kwisatz status --config ${cfg}"
     fail=1
   fi
 done
