@@ -7,10 +7,14 @@ and may I touch the machine right now.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import shutil
 import subprocess
+import sys
 import time
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -120,6 +124,48 @@ def resolve_config(repo: Repo, cli_arg: str | None = None) -> Path:
     if os.environ.get("KWISATZ_CONFIG"):
         return Path(os.environ["KWISATZ_CONFIG"]).expanduser().resolve()
     return repo.path / "machine-config.yml"
+
+
+def pyinfra_command(repo: Repo) -> list[str]:
+    """How to start a pyinfra deploy against this checkout.
+
+    Order matters for determinism, not just convenience:
+
+    1. the *current* interpreter, when `pyinfra` is importable from it — the CLI and the
+       deploy then provably run on the same interpreter and the same pyinfra, which is
+       what `apply` means; `./kwisatz` and a `uv sync`-ed checkout both land here.
+    2. `<repo>/.venv/bin/pyinfra`, when the checkout has a venv the CLI is not running in.
+    3. `uv run --project <repo>`, which resolves and syncs the checkout's own pins.
+    4. neither available → exit 4 with the command that fixes it, because `apply` runs
+       its targets *through* a deploy and cannot substitute a bare script run.
+    """
+    if importlib.util.find_spec("pyinfra") is not None:
+        return [sys.executable, "-m", "pyinfra"]
+    venv = repo.path / ".venv" / "bin" / "pyinfra"
+    if venv.is_file() and os.access(venv, os.X_OK):
+        return [str(venv)]
+    if shutil.which("uv"):
+        return ["uv", "run", "--project", str(repo.path), "pyinfra"]
+    raise CliError(
+        Exit.PREREQUISITE,
+        f"no pyinfra in this interpreter, in {repo.path / '.venv'}, or in uv — apply runs its targets through a deploy",
+        hint="uv sync --project " + str(repo.path) + "   ·   curl -LsSf https://astral.sh/uv/install.sh | sh",
+    )
+
+
+def deploy_argv(repo: Repo, config_path: Path, names: Sequence[str] | None = None) -> list[str]:
+    """The command line of one deploy of `names` (all enabled entries when None).
+
+    `-y -vvv` is what `run-setup.sh apply` passes, and `--data config=` is passed every
+    time so a config outside the checkout is honoured; `--data select=` is what narrows
+    the deploy to exactly the named targets. Keep it one place — the VM suite and every
+    agent read this command out of the logs.
+    """
+    argv = [*pyinfra_command(repo), "@local", str(repo.path / "deploy.py"), "-y", "-vvv"]
+    argv += ["--data", f"config={config_path}"]
+    if names is not None:
+        argv += ["--data", f"select={','.join(names)}"]
+    return argv
 
 
 # ── the single-writer lock (R-SAFE-001) ──────────────────────────────────────────

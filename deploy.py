@@ -1,8 +1,11 @@
 """kwisatz orchestrator (pyinfra adapter): run every enabled task script, in config order.
 
 Usage: uv run pyinfra @local deploy.py [--dry | -y -vvv] [--data config=<file>]
+                                       [--data select=<name>[,<name>…]]
 (`./run-setup.sh apply|status` wraps exactly this, and `kwisatz apply` runs the same
-contract directly — see `kwisatz/orchestrator.py`.)
+contract directly — see `kwisatz/orchestrator.py`. `select` runs exactly the named
+targets, in the order given, whether or not they are enabled — `kwisatz apply <target>`
+passes it, and it is the only way to reach a single script through pyinfra.)
 
 Everything that decides *what* runs and *how* lives in `kwisatz.orchestrator`, which
 both entry points read: the config contract (`.scripts.<name>` = `enabled` / `env` /
@@ -42,15 +45,30 @@ ROOT = Path(__file__).resolve().parent
 # `uv run` activates the project venv; task scripts must see the system python3/pip
 orchestrator.strip_venv_from_environ(os.environ)
 
+config_path = Path(host.data.get("config") or ROOT / "machine-config.yml")
+# `--data select=<name>[,<name>…]` is how `kwisatz apply <target>` runs exactly those
+# targets through this deploy instead of the whole enabled list; the CLI resolves the
+# names, this file only runs them. Without it, the full config in config order.
+raw_select = str(host.data.get("select") or "")
+select = [name.strip() for name in raw_select.split(",") if name.strip()]
+# `--data env='{"KEY":"value"}'` is `kwisatz apply --env KEY=value`: it wins over the
+# config's `env:` (R-APP-012) and stays masked in the echo, exactly like a config value.
+raw_env = host.data.get("env") or {}
+if not isinstance(raw_env, dict) or any(not isinstance(k, str) for k in raw_env):
+    raise DeployError(f"{config_path}: --data env must be a mapping of strings, got {raw_env!r}")
+overrides = {k: str(v) for k, v in raw_env.items()}
+
 try:
-    config_path = Path(host.data.get("config") or ROOT / "machine-config.yml")
-    plan = orchestrator.build_plan(orchestrator.load_config(config_path, ROOT))
+    loaded = orchestrator.load_config(config_path, ROOT)
+    tasks = (
+        orchestrator.select_tasks(loaded, select, overrides=overrides)
+        if select
+        else list(orchestrator.iter_enabled(loaded, overrides=overrides))
+    )
 except orchestrator.ConfigError as e:
     raise DeployError(str(e)) from None
 
-for item in plan.enabled:
-    task = item.task
-    assert task is not None  # build_plan() resolved every enabled entry
+for task in tasks:
     server.shell(
         name=task.name,
         commands=[task.command],

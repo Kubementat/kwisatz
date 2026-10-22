@@ -70,24 +70,106 @@ def run_task(
     on_heartbeat=None,
     inherit_stdio: bool = False,
 ) -> RunResult:
-    started = time.monotonic()
+    """Direct execution of one task script — `kwisatz run`, and `apply --interactive`.
+
+    Everything else that runs a task goes through `run_deploy()`: pyinfra executes the
+    command, and this function only hands the child the environment the contract says
+    (`child_env`: ambient, venv stripped, `INTERACTIVE` then config `env:`, then `--env`).
+    """
     env = child_env(task, interactive=interactive, extra=extra_env)
-    stdin = subprocess.DEVNULL if task.stdin == orchestrator.STDIN_NULL else None
-    if interactive or inherit_stdio:
-        # R-APP-013: the operator gets the script's own prompts, live, on this terminal.
-        # `run` uses the same fd inheritance (R-JSON-001's exception) without forcing
-        # INTERACTIVE=true, which is only what --interactive means.
-        stdin, stdout = None, None
-    else:
-        stdout = subprocess.PIPE
+    # R-APP-013: interactive means the operator gets the script's own prompts, live, on
+    # this terminal, so nothing is captured and stdin is not /dev/null. `run` uses the
+    # same fd inheritance (R-JSON-001's exception) without forcing INTERACTIVE=true.
+    capture = not (interactive or inherit_stdio)
+    stdin = subprocess.DEVNULL if capture and task.stdin == orchestrator.STDIN_NULL else None
+    return _execute(
+        task.argv,
+        cwd=root,
+        env=env,
+        stdin=stdin,
+        capture=capture,
+        log_path=log_path,
+        timeout=timeout,
+        echo_stdout=echo_stdout,
+        heartbeat=heartbeat,
+        on_heartbeat=on_heartbeat,
+    )
+
+
+def run_deploy(
+    *,
+    argv: list[str],
+    root: Path,
+    env: dict[str, str],
+    log_path: Path | None = None,
+    timeout: float = 3600.0,
+    echo_stdout: bool = True,
+    heartbeat: float = 3.0,
+    on_heartbeat=None,
+) -> RunResult:
+    """One pyinfra deploy of one or more targets (`deploy.py -y -vvv --data select=…`).
+
+    This is how `kwisatz apply` runs a task: the same deploy `run-setup.sh apply` runs,
+    so the command, the environment and the `/dev/null` stdin are pyinfra's, not the
+    CLI's. pyinfra writes its whole report — including what the task script printed — to
+    *stderr*, which is what `run-setup.sh` does today: a piped `kwisatz apply` gets no
+    task output on stdout. The log copy under `log_path` is what makes that recoverable
+    (R-OUT-004), and `kwisatz logs <target>` reads it.
+    """
+    return _execute(
+        argv,
+        cwd=root,
+        env=env,
+        stdin=None,
+        capture=True,
+        log_path=log_path,
+        timeout=timeout,
+        echo_stdout=echo_stdout,
+        heartbeat=heartbeat,
+        on_heartbeat=on_heartbeat,
+    )
+
+
+def deploy_env(repo_path: Path) -> dict[str, str]:
+    """The environment of the pyinfra process itself.
+
+    `strip_venv_from_environ` keeps `deploy.py` from handing its own venv to the tasks;
+    `<repo>/src` goes onto `PYTHONPATH` so `deploy.py` can import `kwisatz.orchestrator`
+    in a checkout that has not been `uv sync`-ed. Task scripts never see either: the
+    adapter strips both again before it builds their environment.
+    """
+    env = dict(os.environ)
+    orchestrator.strip_venv_from_environ(env)
+    src = repo_path / "src"
+    if src.is_dir():
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(src), env.get("PYTHONPATH", "")]))
+    return env
+
+
+def _execute(
+    argv: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    stdin,
+    capture: bool,
+    log_path: Path | None,
+    timeout: float,
+    echo_stdout: bool,
+    heartbeat: float,
+    on_heartbeat,
+) -> RunResult:
+    """Spawn, stream, and bound one child process. Both runners above come through here."""
+    started = time.monotonic()
     tail: deque[str] = deque(maxlen=TAIL_LINES * 2)
     tail_bytes = 0
+    stdout = subprocess.PIPE if capture else None
 
     handle = _open_log(log_path)
     try:
         proc = subprocess.Popen(
-            task.argv,
-            cwd=str(root),
+            argv,
+            cwd=str(cwd),
             env=env,
             stdin=stdin,
             stdout=stdout,

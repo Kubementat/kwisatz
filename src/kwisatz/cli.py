@@ -413,6 +413,20 @@ def cmd_apply(app: App) -> int:
         lock.release()
 
 
+def _deploy_argv(app: App, repo: Repo, names: list[str], extra: dict[str, str]) -> list[str]:
+    """One deploy of exactly `names` — `-y -vvv`, this checkout's deploy.py, `select=`.
+
+    `--env K=V` cannot be handed to the child the way a direct run would (deploy.py
+    builds the task env, and the connector re-exports the config's own values on top of
+    whatever it inherits), so it travels as `--data env=` and lands inside the same
+    `build_task()` that computes the command. pyinfra parses the JSON back into a dict.
+    """
+    argv = repoio.deploy_argv(repo, app.config.path, names)
+    if extra:
+        argv += ["--data", "env=" + json.dumps(extra, separators=(",", ":"))]
+    return argv
+
+
 def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
     extra = _env_overrides(app)
     timeout = float(getattr(app.args, "timeout", 3600) or 3600)
@@ -436,19 +450,38 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
         app.out.progress(header)
         app.out.action(f"running {target.name}")
         log = repo.logs / f"kwisatz-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{target.name}.log"
-        outcome = runner.run_task(
-            target.task,
-            root=repo.path,
-            interactive=interactive,
-            extra_env=extra,
-            log_path=log,
-            timeout=timeout,
-            echo_stdout=not app.out.json,
-            heartbeat=3.0,
-            on_heartbeat=lambda elapsed, pid, name=target.name: app.out.progress(
-                f"  … {name} still running {elapsed}s · pid {pid}"
-            ),
-        )
+        if interactive:
+            # the one path that is not a deploy: an interactive run is the operator
+            # running the script on their own terminal, which is what `--interactive`
+            # has always meant, and pyinfra cannot attach a TTY (R-APP-013).
+            outcome = runner.run_task(
+                target.task,
+                root=repo.path,
+                interactive=True,
+                extra_env=extra,
+                log_path=log,
+                timeout=timeout,
+                echo_stdout=not app.out.json,
+                heartbeat=3.0,
+                on_heartbeat=lambda elapsed, pid, name=target.name: app.out.progress(
+                    f"  … {name} still running {elapsed}s · pid {pid}"
+                ),
+            )
+        else:
+            # R-APP-001/§11.3: the task runs inside a pyinfra deploy of this checkout, so
+            # the command, the env and the stdin are deploy.py's, not the CLI's.
+            outcome = runner.run_deploy(
+                argv=_deploy_argv(app, repo, [target.name], extra),
+                root=repo.path,
+                env=runner.deploy_env(repo.path),
+                log_path=log,
+                timeout=timeout,
+                echo_stdout=not app.out.json,
+                heartbeat=3.0,
+                on_heartbeat=lambda elapsed, pid, name=target.name: app.out.progress(
+                    f"  … {name} still running {elapsed}s · pid {pid}"
+                ),
+            )
         _event(app, {"type": "step", "action": "start", "target": target.name, "index": index})
         item: dict = {
             "target": target.name,
@@ -517,7 +550,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
             "config_sha": state.config_sha(app.config.path) if app.config else "",
             "entries": state.entries_map(app.config) if app.config else {},
             "exit_code": Exit.TASK_FAILED if failed else Exit.OK,
-            "items": [{k: i[k] for k in ("target", "status", "exit_code", "duration_ms")} for i in items],
+            "items": [{k: i.get(k) for k in ("target", "status", "exit_code", "duration_ms")} for i in items],
         },
     )
     if failed:

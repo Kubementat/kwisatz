@@ -42,7 +42,7 @@ import os
 import re
 import shlex
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -328,7 +328,14 @@ class Task:
         return f"export {bits} && {self.command}"
 
 
-def build_task(name: str, entry: dict, config: Config, *, warn: Callable[[str], None] = warn) -> Task:
+def build_task(
+    name: str,
+    entry: dict,
+    config: Config,
+    *,
+    warn: Callable[[str], None] = warn,
+    overrides: Mapping[str, str] | None = None,
+) -> Task:
     """The command + env for one config entry. Parity-critical; keep it total.
 
     Config env is applied after `INTERACTIVE` so a per-script `INTERACTIVE: 'true'` still
@@ -337,13 +344,15 @@ def build_task(name: str, entry: dict, config: Config, *, warn: Callable[[str], 
     """
     args = [a for a in (entry.get("args") or [])]
     env_config = {k: v for k, v in (entry.get("env") or {}).items()}
+    # `--env` wins over the config (R-APP-012) and is masked like any other configured value
+    cli_env = {k: str(v) for k, v in (overrides or {}).items()}
     return Task(
         name=name,
         argv=[*task_command(name, config, warn=warn), *args],
-        env={"INTERACTIVE": "false", **env_config},
+        env={"INTERACTIVE": "false", **env_config, **cli_env},
         description=str(entry.get("description") or ""),
         args=args,
-        secrets=frozenset(env_config),
+        secrets=frozenset(env_config) | frozenset(cli_env),
     )
 
 
@@ -377,7 +386,9 @@ class Plan:
         return [i for i in self.items if i.enabled]
 
 
-def build_plan(config: Config, *, warn: Callable[[str], None] = warn) -> Plan:
+def build_plan(
+    config: Config, *, warn: Callable[[str], None] = warn, overrides: Mapping[str, str] | None = None
+) -> Plan:
     """Read every `.scripts` entry in config order and validate it.
 
     `warn` receives the raw message (no `-->` prefix) for each problem; the default
@@ -399,7 +410,7 @@ def build_plan(config: Config, *, warn: Callable[[str], None] = warn) -> Plan:
         check_values(name, entry, strict=enabled, config=config, warn=note_warning)
         args = [a for a in (entry.get("args") or [])]
         env = {k: v for k, v in (entry.get("env") or {}).items()}
-        task = build_task(name, entry, config, warn=note_warning) if enabled else None
+        task = build_task(name, entry, config, warn=note_warning, overrides=overrides) if enabled else None
         plan.items.append(
             PlanItem(
                 name=name,
@@ -414,11 +425,52 @@ def build_plan(config: Config, *, warn: Callable[[str], None] = warn) -> Plan:
     return plan
 
 
-def iter_enabled(config: Config) -> Iterator[Task]:
+def iter_enabled(config: Config, *, overrides: Mapping[str, str] | None = None) -> Iterator[Task]:
     """The tasks deploy.py runs today: enabled entries, in config order."""
-    for item in build_plan(config).enabled:
+    for item in build_plan(config, overrides=overrides).enabled:
         assert item.task is not None  # enabled items always resolve
         yield item.task
+
+
+def select_tasks(
+    config: Config,
+    names: Sequence[str],
+    *,
+    warn: Callable[[str], None] = warn,
+    overrides: Mapping[str, str] | None = None,
+) -> list[Task]:
+    """The tasks named explicitly, in the order given — `deploy.py --data select=a,b`.
+
+    This is the single-target path of `kwisatz apply`: the CLI has resolved the names
+    already (config key, prefix-tolerant, or a `tasks/` file with no config entry), so
+    this function neither re-resolves nor warns. It runs exactly what it is told to run,
+    and that is the point — a named target runs whether or not it is *enabled*, and a
+    script that is absent from the config runs with the script's own defaults plus
+    `INTERACTIVE=false`, which is what `kwisatz apply <target>` promises (§6.2.3).
+
+    A name with no `tasks/<name>.sh`/`.py` is a hard error: the CLI's resolver may have
+    been right, but a deploy must never quietly run nothing.
+    """
+    tasks: list[Task] = []
+    for name in names:
+        try:
+            entry = config.entry(name)
+        except KeyError:
+            entry = {}
+        if entry:
+            # strict: this entry is going to run
+            check_values(name, entry, strict=True, config=config, warn=warn)
+            tasks.append(build_task(name, entry, config, warn=warn, overrides=overrides))
+        else:
+            tasks.append(
+                Task(
+                    name=name,
+                    argv=task_command(name, config, warn=warn),
+                    env={"INTERACTIVE": "false", **{k: str(v) for k, v in (overrides or {}).items()}},
+                    secrets=frozenset(str(k) for k in (overrides or {})),
+                )
+            )
+    return tasks
 
 
 def pyinfra_env(task: Task, hidden: Callable[[str], Any]) -> dict[str, Any]:
