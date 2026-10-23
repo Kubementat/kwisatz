@@ -107,6 +107,7 @@ surface produced a traceback on a clean box.
 | `doctor --fix`, `--redact-stdout`, `upgrade`, `uninstall`, completions | each is either a mutation surface or a generated artifact; all four want a design pass, not a stub |
 | VM-based integration tests (`tests/run-vm-tests.sh --cli`) | the unit/conformance layer is green; the VM matrix is the next gate, and its runner already exists |
 | `state show` as a distinct verb | `kwisatz state --json` covers the machine case; a pretty human view is worth having, not worth a second code path today |
+| exit `6` and `7` | both are published in `commands --json` and documented as **reserved**. `7` is A4's branch: telling an operator that a running stack's keys diverged, and printing the exact command that re-creates it, wants a real diff against the live compose/project state — a guess here would be the most expensive lie this CLI can tell. `6` wants the CLI to raise a prompt of its own, which today belongs to the script. Both cost more than the one sentence that makes them honest: they are asserted as reserved in `test_jsonio.py`, so whoever ships them has to update the table. |
 
 ## 7. Open questions for the next round
 

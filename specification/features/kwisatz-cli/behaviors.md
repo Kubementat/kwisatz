@@ -158,8 +158,8 @@ belongs to the script.
 | 3 | config missing/unparsable, unknown target | `kwisatz init` / `kwisatz list --all` |
 | 4 | uv/sudo/docker/OS/TTY missing | `kwisatz doctor --json` |
 | 5 | stack unhealthy, or `--timeout` killed the run | `kwisatz logs <t>` |
-| 6 | a prompt is needed | `kwisatz apply <t> --interactive` |
-| 7 | converge impossible (diverged keys) | the printed command |
+| 6 | a prompt is needed — **reserved, v1 never emits it** (a missing TTY is `4`) | `kwisatz apply <t> --interactive` |
+| 7 | converge impossible (diverged keys) — **reserved, v1 never emits it** (a failed converge is `1`) | the printed command |
 | 8 | `--keep-going` finished with ≥1 failure | `kwisatz status` |
 | 9 | another run holds `<repo>/.kwisatz/lock` | `--lock-timeout 30` |
 
@@ -172,6 +172,11 @@ prints the command and runs nothing (R-SAFE-002).
 `kwisatz` with no command is the help — the same text `--help` prints, exit `0` — and
 `kwisatz --json` on its own prints the command table as one document. A *wrong* command is still
 the usage answer: exit `2`, with the closest name from the table (R-CMD-002).
+
+Codes `6` and `7` are published by `commands --json` but are **reserved**: no v1 path returns
+them, so branching on them is dead code today. The deferred work behind them is recorded in
+`docs/research/2026-10-22-kwisatz-cli-review.md` §6 (raise a prompt = 6; A4's
+converge-impossible re-create command = 7).
 
 ## Behavior 8 — concurrency
 

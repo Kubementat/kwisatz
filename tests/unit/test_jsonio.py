@@ -56,5 +56,16 @@ def test_exit_codes_are_stable_names_an_agent_can_branch_on():
     assert sorted(EXIT_CODES) == list(range(10))
 
 
+def test_the_two_codes_v1_never_returns_say_they_are_reserved():
+    """The table promises 6 and 7; nothing emits them (a prompt is `4`, a failed converge is `1`).
+
+    Publishing them is right — the numbering is the contract — but an agent must be able to
+    learn from the JSON that branching on them would be dead code, and this test is what keeps
+    that sentence true. Implementing A4 removes it, on purpose.
+    """
+    for code in (Exit.INTERACTIVE_REQUIRED, Exit.NEEDS_ATTENTION):
+        assert "reserved" in EXIT_CODES[code].lower()
+
+
 def test_stdout_tail_limits_match_the_documented_cap():
     assert jsonio.TAIL_LINES == 40 and jsonio.TAIL_BYTES == 16 * 1024

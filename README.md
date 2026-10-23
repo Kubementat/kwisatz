@@ -124,8 +124,9 @@ help, `kwisatz commands --json` and the dispatcher cannot disagree.
 For scripts and agents: `--json` prints exactly one JSON document on stdout (progress goes to
 stderr), and the exit code means the same thing in every command —
 `0` ok, `1` task failed, `2` usage, `3` config/unknown target, `4` prerequisite missing,
-`5` unhealthy stack or timeout, `6` needs a human, `7` needs an operator, `8` partial
-(`--keep-going`), `9` another run holds the lock. Full contract:
+`5` unhealthy stack or timeout, `8` partial (`--keep-going`), `9` another run holds the lock.
+`6` and `7` are reserved — published in `kwisatz commands --json`, but no v1 command returns
+them. Full contract:
 [`docs/features/kwisatz-cli-specification.md`](docs/features/kwisatz-cli-specification.md) §8–§9.
 
 ```bash

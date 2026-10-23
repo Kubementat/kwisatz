@@ -530,6 +530,12 @@ Stable, documented, asserted in tests. Agents branch on these, not on message te
   (its own "pre-flight/mutation failed") surfaces as `1` with `script_exit_code: 2`.
 - **R-EXIT-002 (MUST)** — `kwisatz --version` and `… --help` exit `0`.
 - **R-EXIT-003 (MUST)** — Exit codes are in the `commands --json` output and in the README.
+- **Reserved in v1** — nothing returns `6` or `7` today: a missing terminal is
+  `PREREQUISITE` (4), and a converge that cannot converge reports `TASK_FAILED` (1). They stay in
+  this table and in `commands --json` because the numbering is a compatibility promise, and their
+  description says *reserved* so an agent can see that branching on them is dead code. Shipping
+  them means the CLI raising a prompt of its own (`6`) and A4's re-create-command branch (`7`) —
+  both recorded as deferred in `docs/research/2026-10-22-kwisatz-cli-review.md` §6.
 
 ---
 
@@ -689,7 +695,7 @@ tests/unit/        pytest (uv run pytest)
 | A1 | fresh Ubuntu 24.04, repo cloned | `./kwisatz install && kwisatz init` | `machine-config.yml` exists, `kwisatz` on PATH, doctor exit 0/4 stated |
 | A2 | config with 3 enabled scripts | `kwisatz apply` | 3 scripts in config order, exit 0, summary table, state records written |
 | A3 | `setup-docker` disabled in config | `kwisatz apply docker` | docker installed, config **unchanged**, one warning about "not enabled" |
-| A4 | traefik stack running | `kwisatz apply traefik` | converges, exit 0; if keys diverged: exit `7` + exact re-create command |
+| A4 | traefik stack running | `kwisatz apply traefik` | converges, exit 0; if keys diverged: exit `7` + exact re-create command — **not shipped in v1** (7 is reserved, see §9); a diverged stack fails as `1` |
 | A5 | typo | `kwisatz apply traefiks` | exit 3, closest candidates listed |
 | A6 | two kwisatz shells | concurrent `apply` | second exits `9`, or waits for `--lock-timeout` |
 | A7 | agent shell, non-TTY | `kwisatz services --json` | one document, valid `schema_version`, no prompt, exit 0 |
