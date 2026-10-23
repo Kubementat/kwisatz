@@ -137,6 +137,13 @@ def test_models_status_reads_the_catalog_that_wins_and_the_swap_it_found(work):
     assert catalog["path"] == str(work.path / "models.yml")
     assert (catalog["providers"], catalog["models"]) == (2, 3)
     assert "qwen38-27b" in catalog["names"]
+    # a smoke check on the human line, not a contract: the swap value used to be a nested
+    # ternary inside the f-string, so an interpolated `None`/`True` is the regression to watch for
+    human = run_cli("models", "status", "--repo", str(work.path), repo=work.path)
+    assert human.returncode == 0, human.stderr
+    swap = next(line for line in human.stdout.splitlines() if line.startswith("swap     "))
+    stated = swap.removeprefix("swap     ")
+    assert stated.strip() and stated not in ("True", "None"), swap
 
 
 def test_models_status_reports_a_catalog_it_cannot_parse_without_lying(work):

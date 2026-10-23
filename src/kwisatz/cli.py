@@ -1284,6 +1284,11 @@ def _models_status(app: App, sync: bool) -> int:
     catalog = _catalog_summary(path) if path else {"path": "", "providers": 0, "models": 0, "names": []}
     swap = serviceio.discover(["llama-swap"])
     swap_state = serviceio.find(swap, "llama-swap")
+    # the human line says the same thing `result.llama_swap` says, and `UNKNOWN` is the honest
+    # word when a stack exists but no manager reports its state
+    swap_line = swap_state.state if swap_state else "not installed"
+    if swap_state and swap_state.state == serviceio.RUNNING:
+        swap_line = "running"
     app.result = {
         "catalog": catalog,
         "llama_swap": swap_state.as_dict() if swap_state else {"name": "llama-swap", "state": serviceio.UNKNOWN},
@@ -1295,7 +1300,7 @@ def _models_status(app: App, sync: bool) -> int:
         app.out.result(f"models   {catalog['models']} across {catalog['providers']} provider(s)")
         if catalog["names"]:
             app.out.result("         " + ", ".join(catalog["names"]))
-        app.out.result(f"swap     {'running' if swap_state and swap_state.state == serviceio.RUNNING else swap_state.state if swap_state else 'not installed'}")
+        app.out.result(f"swap     {swap_line}")
         if sync:
             app.out.note("kwisatz models sync applies it")
     return Exit.OK
@@ -1565,15 +1570,15 @@ def _add_command(sub, spec: CommandSpec, *, nested: bool) -> None:
 
 
 def _add_flag(p: argparse.ArgumentParser, flag: Flag, *, nested: bool = False) -> None:
+    """Declare one flag, on the top-level parser or on a verb's own parser.
+
+    A verb must accept `kwisatz config enable x --json` without the operator repeating the flag
+    before the verb. `default=SUPPRESS` on a nested parser is what makes that safe: an
+    unspecified flag leaves the parent's value alone instead of resetting it to `False`.
+    """
     if flag.append:
         p.add_argument(*flag.names(), metavar=flag.metavar, action="append", default=[] if not nested else argparse.SUPPRESS, help=flag.help)
         return
-    """The same flag on a verb's own parser.
-
-    A verb must accept `kwisatz config enable x --json` without the operator repeating the
-    flag before the verb. `default=SUPPRESS` on a nested parser is what makes that safe: an
-    unspecified flag leaves the parent's value alone instead of resetting it to `False`.
-    """
     names = flag.names()
     default = argparse.SUPPRESS if nested else flag.default
     if flag.metavar:

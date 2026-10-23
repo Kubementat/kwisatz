@@ -7,13 +7,18 @@ internals. Where the spec names an acceptance criterion (A2…A7) the test says 
 
 from __future__ import annotations
 
+import ast
 import difflib
+import inspect
 import json
 import os
 import stat
+from pathlib import Path
 
 import pytest
 from conftest import run_cli, stub
+
+from kwisatz import cli as cli_module
 
 CONFIG = """version: 1
 scripts:
@@ -488,3 +493,27 @@ def test_a_single_failing_target_says_nothing_about_remaining_scripts(work):
     result = run_cli("apply", "stub-a", "--repo", str(work.path), repo=work.path)
     assert result.returncode == 1
     assert "script(s) did not run" not in result.stderr, result.stderr
+
+
+def test_no_docstring_hides_behind_a_return():
+    """`_add_flag` put its docstring after the early `return`, so it was a dead expression.
+
+    `help(_add_flag)` answered "no docstring", which is the only symptom. Checked at AST level so
+    the next helper with the same mistake is caught by the same test: a string statement that is
+    not a function's *first* statement is a comment pretending to be documentation.
+    """
+    tree = ast.parse(Path(inspect.getsourcefile(cli_module)).read_text(encoding="utf-8"))
+    dead = [
+        f"{fn.name}:{stmt.lineno}"
+        for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
+        for stmt in fn.body[1:]
+        if isinstance(stmt, ast.Expr)
+        and isinstance(stmt.value, ast.Constant)
+        and isinstance(stmt.value.value, str)
+    ]
+    assert dead == [], "a string after the first statement is a comment, not a docstring"
+
+
+def test_the_parser_helpers_are_documented():
+    """The same bug, from the other side: `_add_flag.__doc__` used to be None."""
+    assert cli_module._add_flag.__doc__ is not None
