@@ -22,3 +22,5 @@ models.yml.full
 .agents/
 .kwisatz/
 dist/
+# pyinfra writes this into the checkout root when a deploy dies internally
+pyinfra-debug.log
