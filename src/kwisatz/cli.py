@@ -1447,7 +1447,7 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="kwisatz",
         description="kwisatz — one command for the whole machine, or just one service.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="run `kwisatz` with no command for the command map",
+        epilog="run `kwisatz` with no command (or --help) for this map and the global flags",
     )
     parser.add_argument("--version", action="store_true", help="print version and repo SHA, exit 0")
     # globals work in either position (`kwisatz --repo x apply`, `kwisatz apply --repo x`); the
@@ -1570,8 +1570,12 @@ def main(argv: list[str] | None = None) -> int:
         return _finish(app, cmd_version(app), started)
 
     command = getattr(args, "command", None)
+    if command is None and getattr(args, "json", False):
+        # `kwisatz --json` with nothing else is the agent asking "what can you do", and it
+        # wants the answer as a document, not as help text (R-JSON-001 owns stdout).
+        args.command = command = "commands"
     if command not in HANDLERS:
-        return _no_command(argv)
+        return _no_command(argv, parser)
 
     try:
         app = _make_app(args)
@@ -1616,12 +1620,12 @@ def _first_command_token(argv: list[str]) -> str | None:
     return None
 
 
-def _no_command(argv: list[str]) -> int:
+def _no_command(argv: list[str], parser: argparse.ArgumentParser | None = None) -> int:
     first = _first_command_token(argv)
-    if first is None:  # bare `kwisatz`: the command map, then exit 2 (R-CMD-003)
-        app = App(args=argparse.Namespace(), out=Out())
-        cmd_commands(app)
-        return Exit.USAGE
+    if first is None:  # bare `kwisatz` is the help — the same answer `--help` gives, exit 0
+        if parser is not None:
+            parser.print_help()
+        return Exit.OK
     print(f"kwisatz: unknown command {first!r}", file=sys.stderr)
     print(f"        try: kwisatz <{'|'.join(HANDLERS)}>", file=sys.stderr)
     close = [c for c in planner.similar(first, list(HANDLERS), 3) if planner._distance(c, first) <= 2]

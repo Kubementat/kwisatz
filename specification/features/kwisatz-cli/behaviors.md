@@ -166,8 +166,9 @@ belongs to the script.
 `kwisatz run` forwards the script's code, mapping its `2` to `1` and keeping it as
 `script_exit_code` (R-EXIT-001).
 
-`kwisatz` with no command prints the command map and exits `2`: it is the usage answer, not a
-success, so a script that wants something has to name the command.
+`kwisatz` with no command is the help — the same text `--help` prints, exit `0` — and
+`kwisatz --json` on its own prints the command table as one document. A *wrong* command is still
+the usage answer: exit `2`, with the closest name from the table (R-CMD-002).
 
 ## Behavior 8 — concurrency
 

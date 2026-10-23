@@ -283,6 +283,26 @@ def test_version_and_help_exit_zero(work):
     assert run_cli("--help", repo=work.path).returncode == 0
 
 
+def test_no_command_is_the_help_and_exits_zero(work):
+    """The epilog invites `kwisatz` with no command, so it must succeed and say what --help says.
+
+    It used to print the command map and exit `2` — a usage answer for the one invocation that
+    is not a mistake. Unknown verbs still exit `2` with the `did you mean` (R-CMD-002).
+    """
+    bare = run_cli(repo=work.path)
+    assert bare.returncode == 0, bare.stderr
+    assert bare.stdout == run_cli("--help", repo=work.path).stdout
+
+
+def test_json_with_no_command_answers_with_the_command_table():
+    """An agent running `kwisatz --json` alone gets the document, never help text on stdout."""
+    result = run_cli("--json")
+    assert result.returncode == 0, result.stderr
+    body = doc(result)
+    assert body["command"] == "commands"
+    assert body["result"]["commands"]
+
+
 def test_the_command_table_is_the_cli(work):
     """R-CMD-100: `commands --json` is the whole surface, so no flag may be undocumented."""
     body = doc(run_cli("commands", "--json", repo=work.path))
