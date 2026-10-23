@@ -533,7 +533,10 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
         items.append(item)
         _event(app, {"type": "step", "action": "end", "target": target.name, "status": item["status"]})
         if failed and not keep_going:
-            app.out.warning(f"stopping — the remaining {total - index} script(s) did not run")
+            # the last target leaves nothing behind; "the remaining 0 script(s) did not run"
+            # is a line about a run that had no remainder at all
+            if index < total:
+                app.out.warning(f"stopping — the remaining {total - index} script(s) did not run")
             break
 
     for rest in targets[len(items) :]:

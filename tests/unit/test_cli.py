@@ -60,12 +60,17 @@ def test_apply_runs_every_enabled_target_in_config_order(work):
 
 def test_a_failing_script_stops_the_run_and_yields_exit_1(work):
     stub(work.path, "stub-b", code=1)
-    work.write_config("version: 1\nscripts:\n  stub-a:\n    enabled: true\n  stub-b:\n    enabled: true\n")
+    work.write_config(
+        "version: 1\nscripts:\n  stub-a:\n    enabled: true\n  stub-b:\n    enabled: true\n  stub-c:\n    enabled: true\n"
+    )
     result = run_cli("apply", "--repo", str(work.path), "--json", repo=work.path)
     body = doc(result)
     assert result.returncode == 1
     assert body["result"]["items"][1]["status"] == "failed"
     assert body["errors"][0]["target"] == "stub-b"
+    # the stop is said out loud, with the real count, for the targets that really did not run
+    assert "remaining 1 script(s) did not run" in result.stderr, result.stderr
+    assert not (work.records / "stub-c.txt").exists()
 
 
 def test_keep_going_runs_the_rest_and_exits_8(work):
@@ -379,3 +384,11 @@ def test_run_reports_exit_1_and_keeps_the_script_code(work):
     result = run_cli("run", "--repo", str(work.path), "stub-a", "--json", repo=work.path)
     assert result.returncode == 1, result.stderr
     assert doc(result)["result"]["script_exit_code"] == 2
+
+
+def test_a_single_failing_target_says_nothing_about_remaining_scripts(work):
+    """The last target in the run has nothing after it; "remaining 0" was pure noise."""
+    stub(work.path, "stub-a", code=1)
+    result = run_cli("apply", "stub-a", "--repo", str(work.path), repo=work.path)
+    assert result.returncode == 1
+    assert "script(s) did not run" not in result.stderr, result.stderr
