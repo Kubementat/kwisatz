@@ -181,8 +181,8 @@ warnings go to stderr).
 
 # 3. diagnose without a human
 ./kwisatz doctor --json | jq '.result.items[] | select(.ok|not)'
-./kwisatz services --json | jq '.result.items[] | select(.health != "healthy")'
-./kwisatz logs traefik --tail 100 --json | jq -r '.result.text'
+./kwisatz services --json | jq '.result.items[] | select(.state != "running")'   # the verdict is on `state`; containers[].health is the raw probe
+./kwisatz logs traefik --tail 100 --json | jq -r '.result | (.lines // .stdout_tail // [])[]'  # lines = apply log, stdout_tail = stack/unit
 ```
 
 | exit | what it means | what to do |
@@ -192,7 +192,7 @@ warnings go to stderr).
 | 2 | bad flag or ambiguous target | `kwisatz --help`, `kwisatz list` |
 | 3 | config bad or target unknown | `kwisatz init`, `kwisatz list --all` (the error names the near misses) |
 | 4 | host prerequisite missing | `kwisatz doctor --json` — the item names the fix |
-| 5 | stack unhealthy or timed out | `kwisatz logs <target>`, `./kwisatz services --names <t>` |
+| 5 | stack unhealthy, or `--timeout` killed the run | `kwisatz logs <target>`, `kwisatz services --json \| jq '.result.items[] \| select(.name=="<t>")'` |
 | 6 | a human prompt is required | `kwisatz apply <target> --interactive` |
 | 7 | cannot converge automatically | run the command the error prints |
 | 8 | `--keep-going` finished with failures | `kwisatz status` |

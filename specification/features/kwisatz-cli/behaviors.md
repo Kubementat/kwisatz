@@ -55,13 +55,19 @@ targets, configured ones in config order, the rest in the order given. Per targe
 
 - each target is one pyinfra deploy of the checkout, so the command, the `env`, the `args`
   and the `/dev/null` stdin are `deploy.py`'s. pyinfra reports that deploy on **stderr**
-  (`-vvv`), which is what `run-setup.sh apply` always did: the script's own output is fully
-  preserved in `logs/kwisatz-<UTC-ts>-<target>.log` (mode `0600`, directory `0700`), and
-  `kwisatz logs <target>` reads it. Use `--interactive` (or `kwisatz run`) when you want the
-  script's stdout on your terminal.
+  (`-vvv`), which is what `run-setup.sh apply` always did — and that is why the log copy keeps
+  *both* streams of the child: `logs/kwisatz-<UTC-ts>-<target>.log` (mode `0600`, directory
+  `0700`) is what `kwisatz logs <target>` reads after an exit `1`, and it would have nothing
+  to say if only stdout were copied. What reaches your terminal is not crossed over: stdout on
+  stdout, stderr on stderr (R-OUT-002). Use `--interactive` (or `kwisatz run`) when you want
+  the script's stdout attached to your terminal.
 - a script idle for >3 s gets `… setup-traefik still running 132s · pid 4242` on stderr, so
   slow is distinguishable from hung.
 - first failure stops the run and exit is `1`; `--keep-going` runs the rest and exits `8`.
+- `--timeout` kills the process group and the run exits `5` (`HEALTH`, R-AGE-002), **not** `1`:
+  a stack that hung is not a script that failed, and retrying it as one costs the same twenty
+  minutes again. The per-item `status` is `failed` either way, and `state.jsonl` records the
+  verdict the run got. `--keep-going` keeps `8`, because that is what that flag promises.
 - after the run, one line is appended to `.kwisatz/state.jsonl` with the per-target outcomes,
   the repo SHA, and the config's sha + enabled map.
 - nothing is written before the scripts have exited, so a crashed run cannot look like a
@@ -106,9 +112,16 @@ task scripts cannot disagree: `running` + `healthy`/`none` → `running`; `unhea
 `unhealthy`; restarting → `restarting`; exited → `stopped`. A unit that does not exist is
 judged by `LoadState`, never reported as stopped.
 
+The verdict is on `state`, so the agent filter is `select(.state != "running")`; a container's
+own probe is `containers[].health` (`healthy` / `unhealthy` / `none`), not a field on the item.
+
 ## Behavior 6 — machine-readable output
 
-Exactly one document on stdout; progress, warnings and errors on stderr.
+Exactly one document on stdout; progress, warnings and errors on stderr. Where the answer is
+a list it is under `result.items` — `status`, `list`, `doctor`, `services`, `state` all spell it
+that way, and `state` keeps `result.records` as well for anyone already reading it. `logs`
+depends on what it found: `result.lines` for a stored apply log, `result.stdout_tail` for a
+compose stack or a unit.
 
 ```json
 {
@@ -144,7 +157,7 @@ belongs to the script.
 | 2 | bad flag/command, ambiguous target, `--json --interactive` | `kwisatz --help` |
 | 3 | config missing/unparsable, unknown target | `kwisatz init` / `kwisatz list --all` |
 | 4 | uv/sudo/docker/OS/TTY missing | `kwisatz doctor --json` |
-| 5 | stack unhealthy or run timed out | `kwisatz logs <t>` |
+| 5 | stack unhealthy, or `--timeout` killed the run | `kwisatz logs <t>` |
 | 6 | a prompt is needed | `kwisatz apply <t> --interactive` |
 | 7 | converge impossible (diverged keys) | the printed command |
 | 8 | `--keep-going` finished with ≥1 failure | `kwisatz status` |
@@ -152,6 +165,9 @@ belongs to the script.
 
 `kwisatz run` forwards the script's code, mapping its `2` to `1` and keeping it as
 `script_exit_code` (R-EXIT-001).
+
+`kwisatz` with no command prints the command map and exits `2`: it is the usage answer, not a
+success, so a script that wants something has to name the command.
 
 ## Behavior 8 — concurrency
 
@@ -205,8 +221,9 @@ machine it ships on.
 
 - `tests/unit/test_plan.py` — resolution, ambiguity, ordering, the prerequisite table.
 - `tests/unit/test_config.py` — A8, atomic write, backups, quoting, validate.
-- `tests/unit/test_exec.py` — recorded env, timeout kills the process group, log mode, and that
-  pipe EOF arriving before the exit is not a failure.
+- `tests/unit/test_exec.py` — recorded env, timeout kills the process group, log mode, that the
+  log keeps the child's **stderr** and not only its stdout, and that pipe EOF arriving before
+  the exit is not a failure.
 - `tests/unit/test_services.py` — the health verdict, docker/systemd parsing, log dialects, and
   a modern engine that must still read as running.
 - `tests/unit/test_checks.py` — what the host facts may and may not stop a run for.
@@ -214,4 +231,6 @@ machine it ships on.
 - `tests/unit/test_conformance.py` — the CLI-vs-pyinfra `(command, env, stdin)` gate.
 - `tests/unit/test_deploy_engine.py` — that a deploy ran the script (`--data select=`), that the
   script's own ancestor chain says so, and how the deploy interpreter is chosen.
-- `tests/unit/test_cli.py` — acceptance criteria A2…A10 against real subprocesses.
+- `tests/unit/test_cli.py` — acceptance criteria A2…A10 against real subprocesses, the exit
+  code a `--timeout` run reports, `logs <t>` after a failed apply, and stdout purity under
+  `--json`.
