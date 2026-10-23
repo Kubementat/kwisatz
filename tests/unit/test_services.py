@@ -162,6 +162,23 @@ def test_stream_argv_uses_each_tool_s_dialect():
     ]
 
 
+def test_capture_drops_follow_without_losing_the_compose_file(tmp_path):
+    """`-f` is compose's *file* flag, not `--follow` — and dropping it loses the stack.
+
+    `kwisatz logs <stack> --json` used to answer with compose's usage text for this reason:
+    the follow-stripper removed every `-f`, including the one that names the compose file.
+    """
+    from kwisatz import logs as logsio
+
+    fake = tmp_path / "docker"
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+    fake.chmod(0o755)
+    compose = logsio.LogSource(logsio.DOCKER, [str(fake), "compose", "-f", "c.yml", "logs"], "stack")
+    printed = logsio.capture(logsio.stream_argv(compose, tail=5, since=None, follow=True), 10).splitlines()
+    assert "-f" in printed and "c.yml" in printed, "the stack still has to be addressed"
+    assert "--follow" not in printed, "follow would never finish, so --json drops it"
+
+
 def test_a_modern_engine_is_still_read_as_running(monkeypatch):
     """Engine 29.9 dropped `.Server.Version` from `docker info`'s format struct.
 

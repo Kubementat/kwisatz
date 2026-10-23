@@ -437,6 +437,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
     items: list[dict] = []
     total = len(targets)
     failed = 0
+    timed_out_any = False
 
     for index, target in enumerate(targets, 1):
         if target.task is None:  # a disabled entry with nothing runnable behind it
@@ -498,6 +499,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
             item["status"] = "failed"
             item["exit_code"] = None
             failed += 1
+            timed_out_any = True
             app.fail(
                 Exit.HEALTH,
                 f"{target.name} timed out after {int(timeout)}s",
@@ -538,6 +540,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
         "skipped": sum(1 for i in items if i["status"] == "not-run"),
         "items": items,
     }
+    code = _run_exit_code(app, failed, timed_out_any, keep_going)
     _summary(app, items)
     state.record(
         repo,
@@ -549,13 +552,25 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
             "config": str(app.config.path) if app.config else "",
             "config_sha": state.config_sha(app.config.path) if app.config else "",
             "entries": state.entries_map(app.config) if app.config else {},
-            "exit_code": Exit.TASK_FAILED if failed else Exit.OK,
+            "exit_code": code,
             "items": [{k: i.get(k) for k in ("target", "status", "exit_code", "duration_ms")} for i in items],
         },
     )
-    if failed:
-        return Exit.PARTIAL if keep_going else Exit.TASK_FAILED
-    return Exit.OK
+    return code
+
+
+def _run_exit_code(app: App, failed: int, timed_out: bool, keep_going: bool) -> int:
+    """The run's verdict: a timeout is a HEALTH (R-AGE-002), not an ordinary script failure.
+
+    They used to collapse into `1`, which made an agent retry a hung 20-minute stack as if the
+    script had exited badly. `--keep-going` keeps `PARTIAL`, because that is what the flag's own
+    contract says: it finished, and at least one thing failed.
+    """
+    if not failed:
+        return Exit.OK
+    if keep_going:
+        return Exit.PARTIAL
+    return app.timed_out_code() if timed_out else Exit.TASK_FAILED
 
 
 def _summary(app: App, items: list[dict]) -> None:
@@ -877,7 +892,8 @@ def cmd_init(app: App) -> int:
     app.result["doctor_exit_code"] = doctor_code
     if doctor_code == Exit.PREREQUISITE:
         app.out.warning("prerequisites are missing — fix them before kwisatz apply")
-    app.out.result("next: kwisatz status   ·   kwisatz list --all   ·   kwisatz apply")
+    if not app.out.json:  # --json owns stdout: this line would be a second document (R-JSON-001)
+        app.out.result("next: kwisatz status   ·   kwisatz list --all   ·   kwisatz apply")
     return Exit.OK
 
 
@@ -1122,8 +1138,9 @@ def cmd_logs(app: App) -> int:
     if source.kind == logsio.APPLY_LOG:
         shown = logsio.tail(Path(source.path), int(getattr(app.args, "tail", 0) or 200))
         app.result["lines"] = shown
-        for line in shown:
-            app.out.result(line)
+        if not app.out.json:  # --json owns stdout; the lines are in `result.lines` there
+            for line in shown:
+                app.out.result(line)
         return Exit.OK
     if app.out.json:
         # R-JSON-001: nothing but the document may reach stdout, so capture instead of stream
@@ -1140,7 +1157,8 @@ def cmd_state(app: App) -> int:
     repo = app.repo_dir()
     target = getattr(app.args, "target", None)
     records = state.read(repo, target, 50)
-    app.result = {"path": str(state.path(repo)), "count": len(records), "records": records}
+    # `items` is the key every other command uses; `records` stays for anyone already reading it
+    app.result = {"path": str(state.path(repo)), "count": len(records), "records": records, "items": records}
     if app.out.json:
         return Exit.OK
     if not records:

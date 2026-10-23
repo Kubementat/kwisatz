@@ -116,8 +116,18 @@ def stream_argv(source: LogSource, *, tail: int | None, since: str | None, follo
 
 
 def capture(argv: list[str], timeout: float) -> str:
-    """Stdout of the log tool, for `--json` (`--follow` would never finish, so it is dropped)."""
-    argv = [a for a in argv if a not in ("-f", "--follow")]
+    """Stdout of the log tool, for `--json` (`--follow` would never finish, so it is dropped).
+
+    Only a *trailing* follow flag may go: compose spells its config-file flag `-f <file>`, and
+    dropping that one leaves `docker compose <file> logs …`, which answers with its usage text
+    instead of the stack's logs. The follow flag is always last, so that is the only position
+    to pop.
+    """
+    argv = list(argv)
+    while argv and argv[-1] in ("-f", "--follow"):
+        argv.pop()
+    if not argv:
+        return ""
     tool, *rest = argv
     try:
         done = subprocess.run([tool, *rest], capture_output=True, text=True, timeout=timeout, check=False)

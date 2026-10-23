@@ -193,6 +193,56 @@ def test_the_apply_history_is_written_after_the_run(work):
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+def test_state_json_answers_under_items_like_every_other_command(work):
+    run_cli("apply", "--repo", str(work.path), repo=work.path)
+    body = doc(run_cli("state", "--repo", str(work.path), "--json", repo=work.path))
+    assert body["result"]["items"][0]["items"][0]["status"] == "applied"
+    assert body["result"]["records"] == body["result"]["items"], "the old key keeps working"
+
+
+def test_a_failed_apply_leaves_the_output_in_the_log(work):
+    """The recovery path for exit 1: `kwisatz logs <target>` must have something to say.
+
+    pyinfra delivers the script's output on *stderr*, so the log copy used to be an empty file
+    and the documented next step printed nothing — the one thing an agent does after exit 1.
+    """
+    script = work.path / "tasks" / "stub-d.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\necho 'doing work'\necho 'port 9292 already in use' >&2\nexit 1\n"
+    )
+    script.chmod(0o755)
+    failed = run_cli("apply", "stub-d", "--json", "--repo", str(work.path), repo=work.path)
+    assert failed.returncode == 1, failed.stderr
+    shown = run_cli("logs", "stub-d", "--json", "--repo", str(work.path), repo=work.path)
+    assert shown.returncode == 0, shown.stderr
+    assert "port 9292 already in use" in "\n".join(doc(shown)["result"]["lines"])
+
+
+def test_a_timeout_exits_health_not_task_failed(work):
+    """R-AGE-002: a killed run is 5, so a caller does not retry it as a script bug."""
+    script = work.path / "tasks" / "stub-sleep.sh"
+    script.write_text("#!/usr/bin/env bash\nsleep 30\n")
+    script.chmod(0o755)
+    result = run_cli(
+        "apply", "stub-sleep", "--timeout", "2", "--json", "--repo", str(work.path), repo=work.path
+    )
+    assert result.returncode == 5, result.stderr
+    body = doc(result)
+    assert body["errors"][0]["exit_code"] == 5
+    assert "timed out" in body["errors"][0]["message"]
+    assert doc(run_cli("state", "--repo", str(work.path), "--json", repo=work.path))["result"]["items"][0][
+        "exit_code"
+    ] == 5, "the history records the verdict the run actually got"
+
+
+def test_init_json_is_one_document_and_says_what_it_wrote(repo):
+    """The bootstrap an agent runs first: `next: …` used to land in front of the document."""
+    result = run_cli("init", "--from-example", "base", "--json", "--repo", str(repo.path), repo=repo.path)
+    assert result.returncode == 0, result.stderr
+    assert doc(result)["result"]["created"] is True
+    assert (repo.path / "machine-config.yml").is_file()
+
+
 def test_config_enable_changes_exactly_one_line(work):
     """A8 through the CLI: no editor, and not one comment lost."""
     before = (work.path / "machine-config.yml").read_text()
