@@ -49,6 +49,30 @@ def test_run_streams_stdout_and_writes_a_0600_log(tmp_path):
     assert log.read_text() == "one\ntwo\n"
 
 
+def test_the_log_keeps_stderr_so_kwisatz_logs_can_answer(tmp_path):
+    """The reason a log exists: a failed run has to be readable afterwards.
+
+    pyinfra writes its report — and the task script's own output — to *stderr*, so copying
+    only stdout used to leave an empty file and `kwisatz logs <target>` silent for exactly
+    the runs people look it up for. Asserted on a real child writing to both streams.
+    """
+    script = tmp_path / "both.sh"
+    script.write_text("#!/bin/bash\necho on-stdout\necho on-stderr >&2\nexit 1\n")
+    script.chmod(0o755)
+    log = tmp_path / "logs" / "both.log"
+    result = runner.run_task(
+        task(["bash", str(script)], env={"INTERACTIVE": "false"}),
+        root=tmp_path,
+        log_path=log,
+        timeout=30,
+        echo_stdout=False,
+    )
+    body = log.read_text()
+    assert "on-stdout" in body and "on-stderr" in body
+    assert result.stdout_tail == ["on-stdout"], "the tail is stdout, not the whole report"
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+
+
 def test_a_script_sees_devnull_on_stdin_and_the_env_it_was_given(tmp_path):
     marker = tmp_path / "out.txt"
     script = tmp_path / "probe.sh"

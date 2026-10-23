@@ -168,9 +168,13 @@ def _execute(
     started = time.monotonic()
     tail: deque[str] = deque(maxlen=TAIL_LINES * 2)
     tail_bytes = 0
-    stdout = subprocess.PIPE if capture else None
-
     handle = _open_log(log_path)
+    stdout = subprocess.PIPE if capture else None
+    # pyinfra writes its whole report — the task script's own output included — to *stderr*, so a
+    # log copied from stdout alone is an empty file: `kwisatz logs <target>` then says nothing
+    # exactly when a run failed. stderr is piped only when there is a log to copy it into, so a
+    # run without a log keeps inheriting it instead of losing output.
+    stderr = subprocess.PIPE if (stdout is not None and handle) else None
     try:
         proc = subprocess.Popen(
             argv,
@@ -178,7 +182,7 @@ def _execute(
             env=env,
             stdin=stdin,
             stdout=stdout,
-            stderr=None,
+            stderr=stderr,
             text=True,
             bufsize=1,
             start_new_session=True,
@@ -193,7 +197,8 @@ def _execute(
         if stdout is None:
             _reap(proc, timeout)
         else:
-            _drain(proc, proc.stdout, handle, echo_stdout, tail, started, timeout, heartbeat, on_heartbeat)
+            streams = [(proc.stdout, _OUT)] + ([(proc.stderr, _ERR)] if proc.stderr is not None else [])
+            _drain(proc, streams, handle, echo_stdout, tail, started, timeout, heartbeat, on_heartbeat)
             # EOF is not the same instant as the exit. Draining stops when the pipe closes, which
             # can be milliseconds before bash finishes exit processing — reading poll() there
             # answers None, and the old `else 1` reported "script exited 1" for a script that
@@ -218,41 +223,68 @@ class TimeoutExpired(Exception):
     pass
 
 
-def _drain(proc, stream, handle, echo: bool, tail: deque[str], started: float, timeout: float,
+# where a child pipe belongs: its own terminal stream, never the other one
+_OUT = "stdout"
+_ERR = "stderr"
+
+
+def _drain(proc, streams, handle, echo: bool, tail: deque[str], started: float, timeout: float,
            heartbeat: float, on_heartbeat) -> None:
+    """Read every open child pipe without deadlocking, and copy each line into the log.
+
+    A line goes to the terminal stream it arrived on — stdout to stdout (only when `echo`
+    says the run is interactive enough to want it, R-JSON-001's stdout belongs to the
+    document otherwise), stderr to stderr, which is where `run-setup.sh` always put progress
+    (R-OUT-002). The log gets both, which is what lets `kwisatz logs <target>` answer a failed
+    deploy instead of printing nothing.
+    """
     last_seen = time.monotonic()
-    while True:
+    open_streams = dict(streams)
+    while open_streams:
         remaining = timeout - (time.monotonic() - started)
         if remaining <= 0:
             raise TimeoutExpired
         try:
-            ready, _, _ = select.select([stream], [], [], min(0.5, remaining))
+            ready, _, _ = select.select(list(open_streams), [], [], min(0.5, remaining))
         except (OSError, ValueError):  # closed / redirected pipe
             break
-        if ready:
+        for stream in ready:
             line = stream.readline()
             if not line:
-                break
-            if echo:
-                sys.stdout.write(line)
-                sys.stdout.flush()
-            if handle:
-                handle.write(line)
-                handle.flush()
-            tail.append(line.rstrip("\n"))
+                open_streams.pop(stream)  # this pipe reached EOF
+                continue
+            _forward(line, open_streams[stream], handle, echo, tail)
             last_seen = time.monotonic()
-        elif proc.poll() is not None:
+        if ready:
+            continue
+        if proc.poll() is not None:
             break
-        elif heartbeat and time.monotonic() - last_seen >= heartbeat:
+        if heartbeat and time.monotonic() - last_seen >= heartbeat:
             last_seen = time.monotonic()
             if on_heartbeat:
                 on_heartbeat(int(time.monotonic() - started), proc.pid)
-    # flush whatever is still buffered in the pipe
-    for line in stream:
-        if echo:
-            sys.stdout.write(line)
-        if handle:
-            handle.write(line)
+    # flush whatever the wrapper already pulled off the pipe
+    for stream, dest in streams:
+        if stream.closed:
+            continue
+        try:
+            for line in stream:
+                _forward(line, dest, handle, echo, tail)
+        except (OSError, ValueError):  # the pipe went away mid-flush
+            break
+
+
+def _forward(line: str, dest: str, handle, echo: bool, tail: deque[str]) -> None:
+    if dest is _OUT and echo:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    elif dest is _ERR:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+    if handle:
+        handle.write(line)
+        handle.flush()
+    if dest is _OUT:
         tail.append(line.rstrip("\n"))
 
 
