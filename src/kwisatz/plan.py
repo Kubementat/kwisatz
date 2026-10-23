@@ -18,6 +18,11 @@ from .orchestrator import Config, Plan, Task
 
 PREFIXES = ("setup-", "configure-")
 
+#: how far a name may be from what was typed and still be called a typo (R-CMD-002). Two, not
+#: one: a transposition costs 2 edits, and `tragif` is the misspelling the operator wants help
+#: with. Anything past it is a different thing, not a typo, so `did you mean` would be noise.
+MAX_SUGGESTION_DISTANCE = 2
+
 
 @dataclass
 class Target:
@@ -150,9 +155,10 @@ def resolve_target(name: str, config: Config, plan: Plan) -> Target:
         return unconfigured_target(name, config)
 
     known = sorted(set(targets) | set(files))
+    close = similar(name, known, 5)
     raise config_error(
         f"unknown target {name!r}: no config key and no tasks/{name}.sh or .py",
-        hint="closest: " + ", ".join(similar(name, known, 5)),
+        hint=("closest: " + ", ".join(close)) if close else "kwisatz list --all shows what this checkout has",
         target=name,
     )
 
@@ -190,10 +196,26 @@ def order_targets(targets: list[Target], config: Config) -> list[Target]:
     return configured + rest
 
 
-def similar(word: str, names: list[str], count: int) -> list[str]:
-    """The `did you mean …` list: closest first, ties broken alphabetically."""
-    scored = sorted((_distance(word, n), n) for n in names)
+def similar(word: str, names: list[str], count: int, max_distance: int = MAX_SUGGESTION_DISTANCE) -> list[str]:
+    """The `did you mean …` list: closest first, ties broken alphabetically, nothing unrelated.
+
+    The cutoff is what makes it advice instead of a name list: `zzzzz` is five edits from
+    everything in a checkout, so it gets no suggestion at all rather than whichever names happened
+    to be first. R-CMD-002's rule, applied to targets exactly as it is applied to commands — that
+    used to be two different behaviours, one per call site.
+    """
+    scored = sorted((d, n) for d, n in ((_nearness(word, n), n) for n in names) if d <= max_distance)
     return [n for _, n in scored[:count]]
+
+
+def _nearness(word: str, name: str) -> int:
+    """How far a typed word is from a catalog name, counting the prefix-spelling it is stored as.
+
+    Names carry `setup-` / `configure-` and operators type the component, so `traefiks` is one
+    edit from `traefik` and six from `setup-traefik`. Measuring only the stored name would answer
+    that typo with silence — six edits for a wrong letter is not R-CMD-002's idea of a hint.
+    """
+    return min(_distance(word, name), _distance(word, canonical(name)))
 
 
 def _distance(a: str, b: str) -> int:

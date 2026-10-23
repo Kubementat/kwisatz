@@ -190,7 +190,12 @@ must not grow new behaviour.
   and implementation is impossible.
 - **R-CMD-002 (MUST, M1)** — Unknown command or unknown flag → usage text on **stderr**, exit
   `2`, and a `did you mean <x>?` suggestion computed against the command/target name (Levenshtein)
-  when one candidate is within one edit.
+  when one candidate is within two edits. Two, not one, because a transposition costs two, and
+  the cutoff is the rule: a name further away is a different thing rather than a typo, so a run
+  against `zzzzz` gets no `closest:` line at all and the hint says to list the targets. The same
+  gate applies to commands and to targets, and a target name is measured against its
+  `setup-`/`configure-` spelling as well as the component, so `traefiks` still reaches
+  `setup-traefik`.
 - **R-CMD-003 (SHOULD, M1)** — `kwisatz` with no arguments prints the command map (§5.1) and the
   repo/config it resolved, exit `2`.
 - **R-CMD-004 (MUST, M2)** — `kwisatz run <target> -- <args…>` resolves `<target>` and executes

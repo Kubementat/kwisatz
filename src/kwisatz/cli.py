@@ -1711,7 +1711,7 @@ def _no_command(argv: list[str], parser: argparse.ArgumentParser | None = None) 
         return Exit.OK
     print(f"kwisatz: unknown command {first!r}", file=sys.stderr)
     print(f"        try: kwisatz <{'|'.join(HANDLERS)}>", file=sys.stderr)
-    close = [c for c in planner.similar(first, list(HANDLERS), 3) if planner._distance(c, first) <= 2]
+    close = planner.similar(first, list(HANDLERS), 3)
     if close:
         print(f"  did you mean: kwisatz {close[0]} ?", file=sys.stderr)
     return Exit.USAGE

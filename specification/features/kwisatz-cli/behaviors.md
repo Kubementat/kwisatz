@@ -36,10 +36,15 @@ scripts follow `setup-<component>.sh` / `configure-<component>.sh`:
 | `traefik`, `setup-traefik` | config key `setup-traefik` |
 | `unsloth`, `setup-unsloth` (no config key) | `tasks/setup-unsloth.sh`, run with script defaults |
 | `stub-ax` | exit `3`, with the closest names from the catalog |
+| `zzzzz` | exit `3`, and **no** `closest:` line — five edits from every name is not a typo |
 | `docker` when both `setup-docker.sh` and `configure-docker.sh` exist | exit `2`, both names printed |
 
 `.sh` beats a `.py` of the same name (a `.py` next to a `.sh` is its helper, not a second
 entry point) and says so.
+
+The `did you mean` list is distance-gated (R-CMD-002): at most two edits from what was typed,
+measured against the stored name *or* its prefix-free spelling, for commands and targets alike.
+`plan.similar()` owns that gate, so no caller can reimplement it differently.
 
 ## Behavior 2 — apply
 
@@ -238,7 +243,8 @@ machine it ships on.
 
 ## Verification
 
-- `tests/unit/test_plan.py` — resolution, ambiguity, ordering, the prerequisite table.
+- `tests/unit/test_plan.py` — resolution, ambiguity, ordering, the distance-gated `did you mean`,
+  the prerequisite table.
 - `tests/unit/test_config.py` — A8, atomic write, backups, quoting, validate.
 - `tests/unit/test_exec.py` — recorded env, timeout kills the process group, log mode, that the
   log keeps the child's **stderr** and not only its stdout, and that pipe EOF arriving before

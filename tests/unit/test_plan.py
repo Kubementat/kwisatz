@@ -119,7 +119,13 @@ def test_task_files_prefers_sh_and_is_stable(checkout):
     assert files["setup-traefik"].suffix == ".sh"
 
 
-def test_distance_is_the_suggestion_engine():
-    assert planner._distance("traefik", "traefik") == 0
-    assert planner._distance("traefiks", "traefik") == 1
+def test_similarity_suggestions_are_gated_by_distance():
+    """R-CMD-002: `did you mean` answers a typo, not a name that happens to be nearby.
+
+    The gate belongs on the public name, not on `_distance` — reaching into it from the caller is
+    how `apply` and the command table ended up with two different rules for one spec clause.
+    """
     assert planner.similar("aply", ["apply", "status"], 1) == ["apply"]
+    assert planner.similar("tragik", ["traefik"], 5) == ["traefik"], "two edits is still a typo"
+    assert planner.similar("zzzzz", ["setup-pi", "setup-zed"], 5) == [], "not a typo at all"
+    assert planner.similar("stub-ax", ["stub-a", "stub-c"], 5) == ["stub-a", "stub-c"]

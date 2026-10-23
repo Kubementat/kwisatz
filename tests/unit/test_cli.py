@@ -132,6 +132,30 @@ def test_a_typo_exits_three_and_shows_the_closest_names(work):
     assert "stub-a" in result.stderr
 
 
+def test_a_name_that_is_not_a_typo_gets_no_suggestion_at_all(work):
+    """R-CMD-002's other half: `closest:` for a typo, nothing for a name from another tool.
+
+    `similar()` used to have no cutoff, so `zzzzz` was advised five names that were merely the
+    first ones sorted — and the command table, which *did* gate on distance, answered differently
+    for the same spec clause.
+    """
+    target = run_cli("apply", "zzzzz", "--repo", str(work.path), repo=work.path)
+    assert target.returncode == 3
+    assert "closest:" not in target.stderr, target.stderr
+    assert "unknown target" in target.stderr
+
+    verb = run_cli("zzzzz", repo=work.path)
+    assert verb.returncode == 2
+    assert "did you mean" not in verb.stderr, verb.stderr
+
+
+def test_a_two_edit_misspelling_still_gets_the_command_name():
+    """The cutoff is two, so a transposition is not left without advice."""
+    result = run_cli("aply")
+    assert result.returncode == 2
+    assert "did you mean: kwisatz apply" in result.stderr
+
+
 def test_an_unknown_command_gets_a_suggestion():
     result = run_cli("aply")
     assert result.returncode == 2
