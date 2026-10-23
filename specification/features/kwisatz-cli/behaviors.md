@@ -72,6 +72,12 @@ targets, configured ones in config order, the rest in the order given. Per targe
   get 40 s and 10 s, and the second one never starts when the deadline is already spent. It is
   then `not-run` (not `failed`, so the document's counts stay honest) and the run exits `5` even
   with `--keep-going` — that flag says *it finished*, and a run the deadline stopped did not.
+- a target the §6.5 table says needs sudo is stopped **before** the first script runs, with exit
+  `4`, when `sudo -n true` fails: the deploy gives its scripts `/dev/null` stdin, so `sudo` there
+  answers `getpass`, dies with `termios.error` → `EOFError` inside gevent, and leaves behind exit
+  `1` plus a "retry this one target" hint for a box that can never do it. A cached `sudo -v`
+  ticket makes the same probe pass. `--interactive` is exempt — answering the prompt is the point
+  of that flag — and a target the table does not mention is a warning, not a stop.
 - after the run, one line is appended to `.kwisatz/state.jsonl` with the per-target outcomes,
   the repo SHA, and the config's sha + enabled map.
 - nothing is written before the scripts have exited, so a crashed run cannot look like a

@@ -131,6 +131,16 @@ def fact_advisories(targets, table: dict) -> list[str]:
     return messages
 
 
+def requires_sudo(targets, table: dict) -> bool:
+    """Whether the §6.5 `host:` map says these targets will call sudo on this machine.
+
+    The map is the only place that declaration exists, so it is the only thing that may stop a
+    run for it: a script that never touches `sudo` must not be held hostage by a box whose sudo
+    needs a password.
+    """
+    return any(bool(facts_of(table, target.name).get("sudo")) for target in targets)
+
+
 def host_checks() -> list[Check]:
     """The doctor's host set: OS, sudo, uv, python, docker, GPU, free disk, free `/srv`."""
     found = [

@@ -404,6 +404,14 @@ def cmd_apply(app: App) -> int:
         if not wanted:
             for message in _config_changed(repo, config):
                 app.warn(message)
+        # §9: a box that cannot sudo without a prompt is a prerequisite, so say `4` before the
+        # first script runs instead of letting the deploy discover it. R-APP-013 hands the child
+        # /dev/null stdin, where sudo falls back to getpass and dies with `termios.error` /
+        # `EOFError` inside gevent: exit 1, a traceback on stderr, and a hint that says "retry
+        # this one target" about a box that can never do it. Answering those prompts is what
+        # `--interactive` is for, so that path stays exempt.
+        if not interactive:
+            _require_passwordless_sudo(app, targets, table)
         if len(targets) > 1 and not getattr(app.args, "no_sudo_warmup", False):
             _sudo_warmup(app)
 
@@ -1424,6 +1432,27 @@ def _config_changed(repo: Repo, config) -> list[str]:
         f"{config.path.name} changed since the last apply on {last.get('started_at', 'an unknown run')}"
         f"{detail} — kwisatz status shows what this run will do"
     ]
+
+
+def _require_passwordless_sudo(app: App, targets: list[planner.Target], table: dict) -> None:
+    """Stop a sudo-needing apply on a box that cannot sudo without a prompt (exit `4`).
+
+    Only the §6.5 host facts decide this, and the probe is not a policy: a cached `sudo -v`
+    ticket makes the same probe answer true, so the operator who did the documented thing is not
+    stopped. Everywhere else the `_sudo_warmup` warning stays the honest answer, because a target
+    that never calls sudo should not be held hostage by this box's sudoers.
+    """
+    if not checks.requires_sudo(targets, table) or checks.has_sudo():
+        return
+    names = [t.name for t in targets if checks.facts_of(table, t.name).get("sudo")]
+    where = "sudo is not installed" if shutil.which("sudo") is None else "`sudo -n true` fails here"
+    raise CliError(
+        Exit.PREREQUISITE,
+        f"{', '.join(names)} needs passwordless sudo and {where} — its scripts get /dev/null "
+        f"stdin, so there is nowhere to ask for the password",
+        target=names[0],
+        hint="run `sudo -v` in this shell first   ·   kwisatz apply <t> --interactive",
+    )
 
 
 def _sudo_warmup(app: App) -> None:

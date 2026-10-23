@@ -262,6 +262,37 @@ def test_the_timeout_budget_is_the_commands_not_each_targets(work):
     assert body["duration_ms"] < 4500, body["duration_ms"]
 
 
+def test_apply_needing_sudo_stops_at_four_instead_of_prompting(work):
+    """§9: a missing prerequisite is `4`. Before this, the deploy asked getpass on /dev/null.
+
+    The §6.5 table says `setup-docker` wants sudo, so the box either has passwordless sudo or the
+    operator cached a ticket. Neither is true here — and the only honest answer is to stop before
+    running anything, because pyinfra's stdin is /dev/null and `sudo` answers that with a getpass
+    that dies inside gevent (exit 1, a traceback, and a "retry this target" hint).
+    """
+    script = work.path / "tasks" / "setup-docker.sh"
+    script.write_text("#!/usr/bin/env bash\nsudo apt-get install -y docker.io\n")
+    script.chmod(0o755)
+    # a `sudo` that always asks for a password, first on PATH, so the verdict does not depend on
+    # the sudoers of the machine running this test
+    bindir = work.path / "bin"
+    bindir.mkdir()
+    fake = bindir / "sudo"
+    fake.write_text("#!/bin/sh\necho 'sudo: a password is required' >&2\nexit 1\n")
+    fake.chmod(0o755)
+    result = run_cli(
+        "apply", "setup-docker", "--json", "--repo", str(work.path), repo=work.path,
+        env={"PATH": f"{bindir}:/usr/bin:/bin"},
+    )
+    assert result.returncode == 4, result.stderr
+    body = doc(result)
+    assert body["errors"][0]["target"] == "setup-docker"
+    assert "--interactive" in body["errors"][0]["hint"]
+    assert "Traceback" not in result.stderr and "gevent" not in result.stderr, result.stderr
+    assert not list(work.records.glob("*.txt")), "nothing may run on a box that cannot sudo"
+    assert not (work.path / ".kwisatz" / "state.jsonl").exists()
+
+
 def test_a_spent_budget_leaves_the_rest_not_run_and_exits_five(work):
     """The deadline stops the run mid-way, which is exit `5` even with `--keep-going`.
 
