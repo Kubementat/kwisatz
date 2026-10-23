@@ -253,8 +253,15 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec(
         "run",
         "run a task script with arguments the CLI never parses",
-        "everything after `--` goes to the script verbatim, so its own --force/--check/--help stay "
-        "reachable; the script's stdout is the command's stdout (R-JSON-001's one exception)",
+        # the `--` rule sits here because it is what the parser cannot enforce for you:
+        # kwisatz flags belong before the target, the script's arguments after `--`
+        detail=(
+            "kwisatz flags come before the target, the script's arguments go after `--`:"
+            "  `kwisatz run traefik -- --force`. The script's own --force/--check/--help stay "
+            "reachable and are never parsed here; the script's stdout is the command's stdout "
+            "(R-JSON-001's one exception). A script flag that arrives without `--` is a usage "
+            "error, not something the CLI guesses."
+        ),
         args=(("TARGET", "the target to run"), ("[ARGS]\u2026", "after `--`, forwarded verbatim")),
         mutates=True,
         milestone="M2",
@@ -1286,6 +1293,16 @@ def cmd_run(app: App) -> int:
         secrets=frozenset(target.task.env) - {"INTERACTIVE"},
         stdin=orchestrator.STDIN_INHERIT,
     )
+    command = task.command.replace(" </dev/null", "")
+    if getattr(app.args, "dry_run", False):
+        # R-SAFE-002: `-n` is a global flag, and this is the one command that used to
+        # execute the script while printing nothing that claimed otherwise. The argv is
+        # built above, so the plan it shows is exactly what the run would have done.
+        app.result = {"target": target.name, "command": command, "dry_run": True}
+        if not app.out.json:
+            app.out.action("dry run — nothing was executed")
+            app.out.result("    " + command)
+        return Exit.OK
     repo.ensure_work()
     with repoio.held(repo, float(getattr(app.args, "lock_timeout", 0) or 0)):
         outcome = runner.run_task(
@@ -1299,7 +1316,7 @@ def cmd_run(app: App) -> int:
     code, script_code = _map_task_exit(outcome.returncode)
     app.result = {
         "target": target.name,
-        "command": task.command.replace(" </dev/null", ""),
+        "command": command,
         "script_exit_code": script_code,
         "duration_ms": outcome.duration_ms,
     }
@@ -1512,7 +1529,10 @@ def _positional(name: str, help_text: str) -> tuple:
     """`[ARGS]…` takes everything after `--`; `[TARGET]` is optional; the rest is required."""
     dest = _dest_of(name)
     if name.startswith("[ARGS"):
-        return "rest", {"nargs": argparse.REMAINDER, "help": help_text}
+        # REMAINDER used to swallow every flag after the target, `--json` included; `*` keeps
+        # kwisatz's own flags parseable and still takes everything the operator meant for the
+        # script, which is everything after `--`.
+        return "rest", {"nargs": "*", "default": [], "help": help_text}
     if name.endswith("\u2026"):  # a list: dest pluralises, so `[TARGET]…` is `targets`
         return f"{dest}s", {"nargs": "*", "default": [], "help": help_text}
     if name.startswith("["):

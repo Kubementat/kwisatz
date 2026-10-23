@@ -164,7 +164,10 @@ belongs to the script.
 | 9 | another run holds `<repo>/.kwisatz/lock` | `--lock-timeout 30` |
 
 `kwisatz run` forwards the script's code, mapping its `2` to `1` and keeping it as
-`script_exit_code` (R-EXIT-001).
+`script_exit_code` (R-EXIT-001). Its arguments are split by `--`: kwisatz's own flags belong
+before the target, the script's after it (`kwisatz run traefik -- --force`). A script flag that
+arrives without `--` is a usage error rather than something the CLI guesses, and `-n` there
+prints the command and runs nothing (R-SAFE-002).
 
 `kwisatz` with no command is the help — the same text `--help` prints, exit `0` — and
 `kwisatz --json` on its own prints the command table as one document. A *wrong* command is still
@@ -233,5 +236,5 @@ machine it ships on.
 - `tests/unit/test_deploy_engine.py` — that a deploy ran the script (`--data select=`), that the
   script's own ancestor chain says so, and how the deploy interpreter is chosen.
 - `tests/unit/test_cli.py` — acceptance criteria A2…A10 against real subprocesses, the exit
-  code a `--timeout` run reports, `logs <t>` after a failed apply, and stdout purity under
-  `--json`.
+  code a `--timeout` run reports, `logs <t>` after a failed apply, the `--` pass-through and
+  `--dry-run` of `run`, and stdout purity under `--json`.

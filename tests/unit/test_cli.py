@@ -325,3 +325,57 @@ def test_doctor_prints_verdicts_on_stdout_and_lists_them_as_items(repo):
     items = record["result"]["items"]
     assert items and all(isinstance(item["ok"], bool) for item in items)
     assert record["result"]["doctor_exit_code"] == record["exit_code"]
+
+
+# ── `kwisatz run`: the pass-through contract (R-CMD-004 / R-EXIT-001 / R-SAFE-002) ──────────
+# The command an operator reaches for when a script needs a flag the CLI has never heard of,
+# so it is also the command whose parsing is most easily wrong. `run` had no test of its own
+# until this file grew these.
+
+
+def test_run_forwards_everything_after_the_double_dash(work):
+    """R-CMD-004: the script's own flags are its business — `--` hands them over verbatim."""
+    result = run_cli(
+        "run", "--repo", str(work.path), "stub-a", "--", "--force", "--check", repo=work.path
+    )
+    assert result.returncode == 0, result.stderr
+    assert work.read("stub-a")["argv"] == ["--force", "--check"]
+
+
+def test_a_script_flag_without_a_double_dash_is_usage(work):
+    """Guessing which side of `--` a flag was meant for is worse than refusing to guess."""
+    result = run_cli("run", "--repo", str(work.path), "stub-a", "--force", repo=work.path)
+    assert result.returncode == 2, result.stderr
+    assert not list(work.records.glob("*.txt")), "usage must not have run the script"
+
+
+def test_run_json_is_the_document_and_not_a_swallowed_flag(work):
+    """`--json` after the target used to be forwarded to the script, leaving no document.
+
+    A script that prints to stdout still writes onto that fd (R-JSON-001's documented
+    exception), so this asserts the parsing half only: the flag is the CLI's, and the
+    answer it asked for arrives.
+    """
+    result = run_cli("run", "--repo", str(work.path), "stub-a", "--json", repo=work.path)
+    assert result.returncode == 0, result.stderr
+    body = doc(result)
+    assert body["command"] == "run"
+    assert work.read("stub-a"), "the script ran, as it always does without --dry-run"
+
+
+def test_run_dry_run_runs_nothing(work):
+    """R-SAFE-002: `-n` is a global flag, and `run` was the command that quietly ignored it."""
+    result = run_cli("run", "--dry-run", "--repo", str(work.path), "stub-a", repo=work.path)
+    assert result.returncode == 0, result.stderr
+    assert "dry run" in result.stderr
+    assert not list(work.records.glob("*.txt")), "the script must not have been executed"
+    assert not (work.path / "logs").exists()
+    assert not (work.path / ".kwisatz" / "state.jsonl").exists()
+
+
+def test_run_reports_exit_1_and_keeps_the_script_code(work):
+    """R-EXIT-001: §9 owns the exit code; the script's own code survives under `result`."""
+    stub(work.path, "stub-a", code=2)
+    result = run_cli("run", "--repo", str(work.path), "stub-a", "--json", repo=work.path)
+    assert result.returncode == 1, result.stderr
+    assert doc(result)["result"]["script_exit_code"] == 2
