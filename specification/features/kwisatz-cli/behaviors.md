@@ -260,3 +260,7 @@ machine it ships on.
   code a `--timeout` run reports, that the budget is shared across the whole run and leaves the
   rest `not-run`, `logs <t>` after a failed apply, the `--` pass-through and
   `--dry-run` of `run`, and stdout purity under `--json`.
+- `tests/unit/test_cli_commands.py` — the four commands whose behaviour is only visible in a
+  subprocess: `install` (its dry run writes nothing, a box without `uv` is `4`, `--with-uv` needs
+  `--yes`), `models` (the catalog it reads, the catalog it cannot parse, sync's exit mapping),
+  `info` (its document, `last_apply`, the ordering advisory), and `doctor`'s item list.
