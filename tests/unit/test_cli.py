@@ -240,6 +240,47 @@ def test_a_timeout_exits_health_not_task_failed(work):
     ] == 5, "the history records the verdict the run actually got"
 
 
+def test_the_timeout_budget_is_the_commands_not_each_targets(work):
+    """§5.2 / ticket 1: `--timeout` bounded the whole command; the code handed every target the
+    whole number, so two 40 s scripts under `--timeout 50` needed 80 s and the flag lied.
+
+    With the budget shared the second target gets only the leftover, so it dies at the deadline
+    instead of starting a fresh one. Asserted on the wall clock and not on a message: a
+    per-target budget is *indistinguishable* in the document, only slower.
+    """
+    for name in ("slow-a", "slow-b"):
+        script = work.path / "tasks" / f"{name}.sh"
+        script.write_text("#!/usr/bin/env bash\nsleep 2\n")
+        script.chmod(0o755)
+    work.write_config("version: 1\nscripts:\n  slow-a:\n    enabled: true\n  slow-b:\n    enabled: true\n")
+    result = run_cli("apply", "--timeout", "4", "--json", "--repo", str(work.path), repo=work.path)
+    body = doc(result)
+    assert result.returncode == 5, result.stderr
+    assert body["result"]["items"][1]["status"] == "failed", body["result"]["items"]
+    assert "timed out" in body["errors"][-1]["message"]
+    # two per-target budgets would need ~2 × (2 s + deploy) ≥ 5 s; the command ends at 4 s
+    assert body["duration_ms"] < 4500, body["duration_ms"]
+
+
+def test_a_spent_budget_leaves_the_rest_not_run_and_exits_five(work):
+    """The deadline stops the run mid-way, which is exit `5` even with `--keep-going`.
+
+    That flag promises *it finished*; a budget that ran out between two targets says exactly the
+    opposite, so the untouched target is `not-run` rather than a skipped-but-finished run.
+    """
+    for name in ("slow-a", "slow-b"):
+        script = work.path / "tasks" / f"{name}.sh"
+        script.write_text("#!/usr/bin/env bash\nsleep 4\n")
+        script.chmod(0o755)
+    work.write_config("version: 1\nscripts:\n  slow-a:\n    enabled: true\n  slow-b:\n    enabled: true\n")
+    result = run_cli("apply", "--keep-going", "--timeout", "3", "--json", "--repo", str(work.path), repo=work.path)
+    assert result.returncode == 5, result.stderr
+    body = doc(result)
+    assert [i["status"] for i in body["result"]["items"]] == ["failed", "not-run"]
+    assert body["result"]["skipped"] == 1
+    assert any("budget ran out" in e["message"] for e in body["errors"]), body["errors"]
+
+
 def test_init_json_is_one_document_and_says_what_it_wrote(repo):
     """The bootstrap an agent runs first: `next: …` used to land in front of the document."""
     result = run_cli("init", "--from-example", "base", "--json", "--repo", str(repo.path), repo=repo.path)

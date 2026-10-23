@@ -441,10 +441,16 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
     keep_going = bool(getattr(app.args, "keep_going", False))
     started_at = now_iso()
     started = time.monotonic()
+    # §5.2: `--timeout` is the *command's* budget, not each target's. Handing every target the
+    # full number was the bug: 14 enabled targets under `--timeout 3600` could legitimately run
+    # 14 hours behind a flag that promises one. From here on each target gets only what is left
+    # of the deadline, and a target that cannot start inside it is `not-run`, not a fresh budget.
+    deadline = started + timeout
     items: list[dict] = []
     total = len(targets)
     failed = 0
     timed_out_any = False
+    budget_ran_out = False
 
     for index, target in enumerate(targets, 1):
         if target.task is None:  # a disabled entry with nothing runnable behind it
@@ -454,6 +460,20 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
                 target=target.name,
                 hint=f"kwisatz info {target.name}",
             )
+        budget = max(0.0, deadline - time.monotonic())
+        if budget <= 0:
+            # the deadline is not a target's problem, so `--keep-going` cannot answer it by
+            # running on: the run did not finish, which is exit 5 whatever the flag says.
+            budget_ran_out = True
+            # deliberately not counted as `failed`: the item keeps the honest `not-run` status,
+            # and budget_ran_out is what decides the exit code below.
+            app.fail(
+                Exit.HEALTH,
+                f"the command's --timeout {int(timeout)}s budget ran out before {target.name} ran",
+                target=target.name,
+                hint=f"kwisatz apply {target.name} --timeout <s>   ·   kwisatz logs {target.name}",
+            )
+            break
         header = f"[{index}/{total}] {target.name}" + (f" — {target.description}" if target.description else "")
         app.out.progress(header)
         app.out.action(f"running {target.name}")
@@ -468,7 +488,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
                 interactive=True,
                 extra_env=extra,
                 log_path=log,
-                timeout=timeout,
+                timeout=budget,
                 echo_stdout=not app.out.json,
                 heartbeat=3.0,
                 on_heartbeat=lambda elapsed, pid, name=target.name: app.out.progress(
@@ -483,7 +503,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
                 root=repo.path,
                 env=runner.deploy_env(repo.path),
                 log_path=log,
-                timeout=timeout,
+                timeout=budget,
                 echo_stdout=not app.out.json,
                 heartbeat=3.0,
                 on_heartbeat=lambda elapsed, pid, name=target.name: app.out.progress(
@@ -507,9 +527,14 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
             item["exit_code"] = None
             failed += 1
             timed_out_any = True
+            # name the slice this target actually got; `round`, so a 2.95 s allowance that the
+            # loop itself shaved does not report "2s", and say whose budget it was only when the
+            # difference is the deadline rather than the few milliseconds this loop costs.
+            spent = max(1, round(budget))
+            shared = "" if timeout - budget < 0.5 else f" of the command's {int(timeout)}s budget"
             app.fail(
                 Exit.HEALTH,
-                f"{target.name} timed out after {int(timeout)}s",
+                f"{target.name} timed out after {spent}s{shared}",
                 target=target.name,
                 hint=f"kwisatz apply {target.name} --timeout <s> · kwisatz logs {target.name}",
             )
@@ -550,7 +575,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
         "skipped": sum(1 for i in items if i["status"] == "not-run"),
         "items": items,
     }
-    code = _run_exit_code(app, failed, timed_out_any, keep_going)
+    code = _run_exit_code(app, failed, timed_out_any, keep_going, budget_ran_out)
     _summary(app, items)
     state.record(
         repo,
@@ -569,13 +594,19 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
     return code
 
 
-def _run_exit_code(app: App, failed: int, timed_out: bool, keep_going: bool) -> int:
+def _run_exit_code(app: App, failed: int, timed_out: bool, keep_going: bool, budget_ran_out: bool = False) -> int:
     """The run's verdict: a timeout is a HEALTH (R-AGE-002), not an ordinary script failure.
 
     They used to collapse into `1`, which made an agent retry a hung 20-minute stack as if the
     script had exited badly. `--keep-going` keeps `PARTIAL`, because that is what the flag's own
     contract says: it finished, and at least one thing failed.
+
+    A spent whole-command budget is the exception to that last sentence, so it is decided first:
+    the run did *not* finish, which is `5` even with `--keep-going`. The skipped target keeps its
+    `not-run` status instead of inflating `failed`, so this branch is the only thing that knows.
     """
+    if budget_ran_out:
+        return app.timed_out_code()
     if not failed:
         return Exit.OK
     if keep_going:

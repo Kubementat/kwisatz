@@ -68,6 +68,10 @@ targets, configured ones in config order, the rest in the order given. Per targe
   a stack that hung is not a script that failed, and retrying it as one costs the same twenty
   minutes again. The per-item `status` is `failed` either way, and `state.jsonl` records the
   verdict the run got. `--keep-going` keeps `8`, because that is what that flag promises.
+- the budget is the **command's**, shared in config order: two 40 s targets under `--timeout 50`
+  get 40 s and 10 s, and the second one never starts when the deadline is already spent. It is
+  then `not-run` (not `failed`, so the document's counts stay honest) and the run exits `5` even
+  with `--keep-going` — that flag says *it finished*, and a run the deadline stopped did not.
 - after the run, one line is appended to `.kwisatz/state.jsonl` with the per-target outcomes,
   the repo SHA, and the config's sha + enabled map.
 - nothing is written before the scripts have exited, so a crashed run cannot look like a
@@ -241,5 +245,6 @@ machine it ships on.
 - `tests/unit/test_deploy_engine.py` — that a deploy ran the script (`--data select=`), that the
   script's own ancestor chain says so, and how the deploy interpreter is chosen.
 - `tests/unit/test_cli.py` — acceptance criteria A2…A10 against real subprocesses, the exit
-  code a `--timeout` run reports, `logs <t>` after a failed apply, the `--` pass-through and
+  code a `--timeout` run reports, that the budget is shared across the whole run and leaves the
+  rest `not-run`, `logs <t>` after a failed apply, the `--` pass-through and
   `--dry-run` of `run`, and stdout purity under `--json`.

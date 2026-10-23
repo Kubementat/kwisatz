@@ -499,7 +499,9 @@ This section is normative for any agent integration.
 - **R-AGE-001 (MUST)** — With `--json` the CLI never prompts and never waits for input; anything
   that would prompt exits `6` with `{"hint": "rerun with --interactive"}`.
 - **R-AGE-002 (MUST)** — Long-running commands must not outlive `--timeout` (default 3600 s); on
-  timeout the process group is killed, exit `5`, `message: "timed out after <n>s"`.
+  timeout the process group is killed, exit `5`, `message: "timed out after <n>s"`. The budget is
+  one per command run, not one per target: a multi-target `apply` hands each target only what the
+  deadline still allows, and a target that cannot start inside it is `not-run`.
 - **R-AGE-003 (SHOULD)** — `kwisatz info <t> --json` includes `help_excerpt` (the script's `--help`)
   so the agent needs exactly one round trip per unknown target.
 - **R-AGE-004 (SHOULD)** — Add a `docs/features/kwisatz-cli-for-agents.md` cheat-sheet (or the
