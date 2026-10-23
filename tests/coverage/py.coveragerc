@@ -1,0 +1,10 @@
+# Coverage config for `tests/coverage.sh` — subprocess coverage of the CLI's own package.
+#
+# `parallel` because every test spawns its own python: without it the files collide and the
+# last writer wins, which is how "cli.py 0 %" becomes "cli.py 62 %" by accident. `source` names
+# the package rather than a path, so a fixture's checkout under /tmp contributes nothing and
+# every part file records the same absolute module path — no `[paths]` rewrite, which shows up
+# in the report as every line printed twice.
+[run]
+parallel = true
+source = kwisatz

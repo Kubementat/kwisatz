@@ -5,6 +5,7 @@
 | Static analysis | `shellcheck <file>` · `uv run ruff check src tests deploy.py` | seconds | the script parses and has no lint findings |
 | Repo guards | `tests/lint.sh` | ~1 s | template hardening + the orchestrator's config contract |
 | Unit / CLI / conformance | `uv run pytest` | ~12 s | the CLI: planning, `--json`, exit codes, and that `kwisatz apply` and `deploy.py` agree |
+| Coverage (opt-in) | `bash tests/coverage.sh` | ~40 s | which module the suite cannot reach — including the CLI's own `cli.py`, which a normal `pytest --cov` reports as 0 % |
 | Integration + idempotency | `tests/run-vm-tests.sh` | 15–30 min | every enabled script really provisions a clean Ubuntu VM, and re-running it converges |
 
 New here? The same content as a 20-slide walkthrough (Reveal.js, no build step):
@@ -22,6 +23,28 @@ uv run pytest                                     # unit + CLI + conformance (~1
 tests/run-vm-tests.sh                             # the full default suite (15–30 min)
 tests/run-vm-tests.sh --scripts setup-docker,setup-traefik   # just what you changed
 ```
+
+## Coverage (opt-in, not a gate)
+
+```console
+bash tests/coverage.sh                    # unit suite, then the per-module report
+bash tests/coverage.sh --fail-under 80    # the same, failing below the bar
+bash tests/coverage.sh tests/unit/test_plan.py
+```
+
+Every CLI test spawns a subprocess, so `pytest --cov` on its own reports `cli.py 0 %`: the parent
+process never executes it, and the number tells you nothing. This script layers `coverage` on the
+project venv with `uv run --with coverage` (nothing is added to `pyproject.toml`/`uv.lock`, and
+lint never needs PyPI), and `tests/coverage/sitecustomize.py` starts it inside every child
+python. `run_cli()` forwards `COVERAGE_PROCESS_START` for that, and `KWISATZ_COVERAGE_SITE` keeps
+the trigger directory out of the task scripts' `PYTHONPATH` — `test_conformance.py` asserts a task
+environment with none in it, so the leak is caught rather than assumed.
+
+It is not wired into `tests/lint.sh` on purpose: the run needs `coverage` fetched at run time, and
+the pre-commit gate must not depend on the network. What the report is good for is spotting an
+unreachable module; the exit codes and documents are proved by the subprocess tests, and no line
+count substitutes for those. The measured numbers and the verdict are in
+[`docs/research/2026-10-23-kwisatz-cli-coverage.md`](../docs/research/2026-10-23-kwisatz-cli-coverage.md).
 
 ## Pre-commit lint gate
 

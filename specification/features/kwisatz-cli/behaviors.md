@@ -264,3 +264,8 @@ machine it ships on.
   subprocess: `install` (its dry run writes nothing, a box without `uv` is `4`, `--with-uv` needs
   `--yes`), `models` (the catalog it reads, the catalog it cannot parse, sync's exit mapping),
   `info` (its document, `last_apply`, the ordering advisory), and `doctor`'s item list.
+
+Coverage is opt-in and not a gate: `bash tests/coverage.sh` runs the unit suite with the
+subprocesses measured (R-TEST-001 as amended, `docs/research/2026-10-23-kwisatz-cli-coverage.md`).
+A plain `pytest --cov` measures only the parent and reports `cli.py` at 0 %, because that is where
+the CLI actually runs.

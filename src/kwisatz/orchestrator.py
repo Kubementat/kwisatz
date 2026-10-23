@@ -107,8 +107,16 @@ def strip_venv_from_environ(environ: dict[str, str]) -> dict[str, str]:
     # repo's own modules into every task script's interpreter (observed on a VM: the probe
     # recorded PYTHONPATH=/home/ubuntu/kwisatz/src where pyinfra's run recorded nothing).
     own_src = str(Path(__file__).resolve().parent.parent)
+    # `tests/coverage.sh` puts its trigger directory on PYTHONPATH so every child starts
+    # coverage. That is the CLI's measuring apparatus, not the task's import path, so it is
+    # dropped here for the same reason: a script that runs while coverage is on must not
+    # suddenly start importing `sitecustomize`, and the conformance test asserts a task
+    # environment with no PYTHONPATH in it.
+    cli_only = {own_src}
+    if os.environ.get("KWISATZ_COVERAGE_SITE"):
+        cli_only.add(os.environ["KWISATZ_COVERAGE_SITE"])
     if "PYTHONPATH" in environ:
-        keep = [p for p in environ["PYTHONPATH"].split(os.pathsep) if p and p != own_src]
+        keep = [p for p in environ["PYTHONPATH"].split(os.pathsep) if p and p not in cli_only]
         if keep:
             environ["PYTHONPATH"] = os.pathsep.join(keep)
         else:

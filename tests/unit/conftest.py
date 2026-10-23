@@ -9,6 +9,7 @@ the pyinfra path.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+#: `sitecustomize.py` that starts coverage in a child process; see `tests/coverage.sh`
+SITECUSTOMIZE_DIR = REPO_ROOT / "tests" / "coverage"
 
 RECORD_KEYS = ("INTERACTIVE", "KEY", "SECRET", "PLAIN", "EXTRA", "VIRTUAL_ENV", "PYTHONPATH")
 
@@ -106,6 +109,7 @@ def run_cli(*args: str, repo: Path | None = None, env: dict | None = None, timeo
         "NO_COLOR": "1",
     }
     environ.update(env or {})
+    _forward_coverage(environ)
     return subprocess.run(
         [sys.executable, "-m", "kwisatz", *args],
         capture_output=True,
@@ -115,6 +119,24 @@ def run_cli(*args: str, repo: Path | None = None, env: dict | None = None, timeo
         cwd=str(repo or Path.cwd()),
         check=False,
     )
+
+
+def _forward_coverage(environ: dict) -> None:
+    """Pass the coverage hooks into every CLI child, but only when the runner asked for them.
+
+    `tests/coverage.sh` is the only thing that sets these, so the minimal environment above is
+    untouched in a normal run. Without it the subprocesses never start measuring, `cli.py` reads
+    0 %, and R-TEST-001 is a claim nobody can check.
+    """
+    start = os.environ.get("COVERAGE_PROCESS_START")
+    if not start:
+        return
+    environ["COVERAGE_PROCESS_START"] = start
+    for name in ("COVERAGE_FILE", "KWISATZ_COVERAGE_SITE"):
+        if os.environ.get(name):
+            environ[name] = os.environ[name]
+    site = os.environ.get("KWISATZ_COVERAGE_SITE", str(SITECUSTOMIZE_DIR))
+    environ["PYTHONPATH"] = os.pathsep.join([environ.get("PYTHONPATH", str(REPO_ROOT / "src")), site])
 
 
 def run_pyinfra(repo: Path, config: Path, *flags: str) -> subprocess.CompletedProcess:

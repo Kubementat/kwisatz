@@ -678,7 +678,16 @@ tests/unit/        pytest (uv run pytest)
 
 1. **Unit (pytest, fast, no root).** Target resolution, ambiguity, `enabled` spellings, plan
    ordering, masking, envelope schema, exit-code mapping, lock file, round-trip config edits.
-   **R-TEST-001 (MUST)** — 100 % of `plan.py`, `config.py`, `jsonio.py`, `exec.py` public functions.
+   **R-TEST-001 (MUST)** — every public function of `plan.py`, `config.py`, `jsonio.py` and
+   `exec.py` is executed by the suite. Measured, not assumed: `bash tests/coverage.sh` combines
+   the in-process runs with the subprocess runs, because a plain `pytest --cov` cannot see the CLI
+   at all — every CLI test spawns a child, which is why `cli.py` used to report 0 %. Count
+   *function bodies*, never the `def` line (an import is not a test). The line percentages are
+   reported and **not** gated: the CLI's contract is asserted by subprocess tests (layer 3), and a
+   threshold on 902 statements of error paths would cost more than it buys. Two functions in
+   `plan.py` are currently missed — `catalog()` (no test runs `kwisatz list`) and
+   `exit_for_script()` (no caller at all) — see
+   `docs/research/2026-10-23-kwisatz-cli-coverage.md` §3.
 2. **Conformance (R-ARCH-102).** Fixture config; assert CLI-vs-pyinfra triple equality, and that
    the task script's own ancestor chain proves the run came out of `deploy.py`.
    **R-TEST-002 (MUST).**

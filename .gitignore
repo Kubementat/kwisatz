@@ -24,3 +24,7 @@ models.yml.full
 dist/
 # pyinfra writes this into the checkout root when a deploy dies internally
 pyinfra-debug.log
+# tests/coverage.sh: the combined file and the per-process part files
+.coverage
+.coverage.*
+htmlcov/
