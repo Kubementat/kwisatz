@@ -48,9 +48,14 @@ source "${LIB_PATH}" || {
 # ---------------------------------------------------------------------------
 MUSIC_GEN_MODE="${MUSIC_GEN_MODE:-server}"
 MUSIC_GEN_PORT="${MUSIC_GEN_PORT:-9294}"
-# Pinned ACE-Step 1.5 release tag (git tag format used by the repo).
-ACESTEP_VERSION="${ACESTEP_VERSION:-v1.5}"
+# Pinned ACE-Step release tag. Upstream (ACE-Step/ACE-Step-1.5) publishes
+# git tags v0.1.0..v0.1.8 while the project itself is versioned 1.5.0 — there
+# is NO v1.5 tag; v0.1.8 is the current release of ACE-Step 1.5.
+ACESTEP_VERSION="${ACESTEP_VERSION:-v0.1.8}"
 ACESTEP_CHECKPOINTS_DIR="${ACESTEP_CHECKPOINTS_DIR:-/opt/ace-step/models}"
+# DiT checkpoint the acestep-api service loads at startup (its argparse has
+# no --config_path; the server reads ACESTEP_CONFIG_PATH from the environment).
+ACESTEP_CONFIG_PATH="${ACESTEP_CONFIG_PATH:-acestep-v15-xl-turbo}"
 MUSICGEN_MODEL_DIR="${MUSICGEN_MODEL_DIR:-$HOME/music-gen-preview/models}"
 # Interpreter the uv venv is seeded from (also an escape hatch for hosts
 # where the default system python is not what you want).
@@ -109,7 +114,12 @@ Environment variables (all optional):
   ROCM_TORCH_INDEX        ROCm wheel index on AMD hosts (default:
                           https://download.pytorch.org/whl/rocm7.1)
   MUSIC_GEN_PORT          acestep-api listen port (default: 9294)
-  ACESTEP_VERSION         Pinned ACE-Step 1.5 git tag (default: v1.5)
+  ACESTEP_VERSION         Pinned ACE-Step git tag (default: v0.1.8 — the
+                          latest upstream release of ACE-Step 1.5; the repo
+                          tags are v0.1.x, there is no v1.5 tag)
+  ACESTEP_CONFIG_PATH     DiT checkpoint the server loads at startup, passed
+                          to the service via its .env (default:
+                          acestep-v15-xl-turbo)
   ACESTEP_CHECKPOINTS_DIR Where model checkpoints live (default: /opt/ace-step/models)
   MUSICGEN_MODEL_DIR      HF cache dir the musicgen-small weights are
                           downloaded into (also the default output dir for
@@ -172,7 +182,7 @@ if [[ $(id -u) -ne 0 ]]; then
 else
   warn "Running as root — a regular user with sudo privileges is expected."
 fi
-for tool in curl git openssl; do
+for tool in curl git openssl jq; do
   command -v "$tool" &>/dev/null \
     || error "$tool is not installed — required by this task."
 done
@@ -305,6 +315,13 @@ setup_server() {
 
   # --- Clone (or reuse) the repo, pinned to ACESTEP_VERSION ---
   if [[ ! -d "${ACESTEP_DIR}/.git" ]]; then
+    # Fail fast with a clear message instead of a raw git-clone error when
+    # the configured tag does not exist upstream (e.g. the non-existent
+    # "v1.5" — the repo tags its ACE-Step 1.5 releases as v0.1.x).
+    step "Checking ${ACESTEP_VERSION} exists upstream"
+    if ! git ls-remote --exit-code "${ACESTEP_REPO_URL}" "refs/tags/${ACESTEP_VERSION}" >/dev/null 2>&1; then
+      error "ACESTEP_VERSION='${ACESTEP_VERSION}' is not a tag of ${ACESTEP_REPO_URL} — ACE-Step 1.5 is published under v0.1.x tags (v0.1.0..v0.1.8, project version 1.5.0; there is no v1.5 tag). Set ACESTEP_VERSION to a real tag, e.g. v0.1.8."
+    fi
     step "Cloning ${ACESTEP_REPO_URL} @ ${ACESTEP_VERSION}"
     git clone --branch "${ACESTEP_VERSION}" --depth 1 "${ACESTEP_REPO_URL}" "${ACESTEP_DIR}"
   else
@@ -361,6 +378,10 @@ MIOPEN_FIND_MODE=FAST
 ACESTEP_CHECKPOINTS_DIR=${ACESTEP_CHECKPOINTS_DIR}
 ACESTEP_API_KEY=${api_key}
 ACESTEP_OFFLOAD_TO_CPU=false
+# DiT checkpoint loaded at startup. acestep-api has NO --config_path CLI
+# flag (argparse would exit 2) — the checkpoint is read from this env var
+# (acestep/api/lifespan_runtime.py; default acestep-v15-turbo).
+ACESTEP_CONFIG_PATH=${ACESTEP_CONFIG_PATH}
 EOF
   success "Environment file in place at ${ENV_FILE}"
 
@@ -427,14 +448,21 @@ render_and_install_unit() {
     fi
   fi
 
-  # ExecStart target. `uv venv` does NOT put a uv binary inside .venv/bin, so
+  # ExecStart arguments. acestep-api's argparse (acestep/api/server_cli.py)
+  # accepts ONLY --host/--port/--api-key/--download-source/--init-llm/
+  # --lm-model-path/--no-init: `--config_path` does not exist and the
+  # underscored `--lm_model_path` is the gradio pipeline's spelling, not the
+  # API server's — either would exit 2 and crash-loop the unit. The DiT
+  # checkpoint therefore travels as ACESTEP_CONFIG_PATH in the EnvironmentFile
+  # (.env), not as a CLI flag.
+  local exec_start="--host 0.0.0.0 --port ${MUSIC_GEN_PORT} --lm-model-path acestep-5Hz-lm-1.7B"
+  # ExecStart target: `uv venv` does NOT put a uv binary inside .venv/bin, so
   # the unit must never reference .venv/bin/uv — systemd would fail the start
   # with 203/EXEC. Use the console script that `uv sync` installs from
   # ACE-Step's [project.scripts] (acestep-api = acestep.api_server:main); fall
   # back to the real uv binary, and keep --no-sync there so a boot-time start
   # cannot sync the project and replace the vendor torch wheels with the CUDA
   # build pinned in the repo's [tool.uv.sources].
-  local exec_start="--host 0.0.0.0 --port ${MUSIC_GEN_PORT} --config_path acestep-v15-xl-turbo --lm_model_path acestep-5Hz-lm-1.7B"
   if [[ -x "${ACESTEP_DIR}/.venv/bin/acestep-api" ]]; then
     exec_start="${ACESTEP_DIR}/.venv/bin/acestep-api ${exec_start}"
   else
@@ -572,7 +600,7 @@ run_smoke_test() {
   while (( gen_waited < 600 )); do
     result="$(curl -fsS -X POST "${base_url}/query_result" \
       -H "Authorization: Bearer ${api_key}" -H 'Content-Type: application/json' \
-      -d "{\"task_ids\":[\"${task}\"]}")"
+      -d "{\"task_id_list\":[\"${task}\"]}")"
     status="$(jq -r '.data[0].status // empty' <<<"${result}")"
     if [[ "$status" == "1" || "$status" == "2" ]]; then
       break
@@ -584,8 +612,12 @@ run_smoke_test() {
   if [[ "$status" != "1" ]]; then
     error "Generation finished with status '${status:-timeout}' (expected 1) — check: sudo journalctl -u ${SERVICE_NAME}.service -n 50"
   fi
+  # A /query_result item is {task_id, result, status, progress_text} where
+  # `result` is a JSON *string* whose elements carry `file` (a
+  # /v1/audio?path=... URL). There is no top-level `audio` field — reading one
+  # here would always come back empty on a perfectly healthy service.
   local audio
-  audio="$(jq -r '.data[0].audio // empty' <<<"${result}")"
+  audio="$(jq -r '.data[0].result | fromjson | .[0].file // empty' <<<"${result}")"
   [[ -n "${audio}" ]] || error "Generation succeeded but returned no audio URL."
 
   local audio_path
