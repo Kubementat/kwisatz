@@ -111,8 +111,9 @@ Environment variables (all optional):
   MUSIC_GEN_PORT          acestep-api listen port (default: 9294)
   ACESTEP_VERSION         Pinned ACE-Step 1.5 git tag (default: v1.5)
   ACESTEP_CHECKPOINTS_DIR Where model checkpoints live (default: /opt/ace-step/models)
-  MUSICGEN_MODEL_DIR      musicgen-small local_dir for preview mode
-                          (default: ~/music-gen-preview/models)
+  MUSICGEN_MODEL_DIR      HF cache dir the musicgen-small weights are
+                          downloaded into (also the default output dir for
+                          generated WAVs, default: ~/music-gen-preview/models)
   MUSIC_GEN_PYTHON        Interpreter the preview uv venv is seeded from
                           (default: /usr/bin/python3)
   MUSIC_GEN_OPEN_LAN      'true' = open MUSIC_GEN_PORT/tcp to the lab LAN
@@ -372,7 +373,10 @@ EOF
   gpu_check_file="$(mktemp -t acestep-gpu-check.XXXX)"
   if ! (
     cd "${ACESTEP_DIR}"
-    uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+    # --no-sync: plain `uv run` syncs the project first, which reinstalls torch
+    # from the index pinned in the repo's [tool.uv.sources] (CUDA) and clobbers
+    # the ROCm/CUDA vendor wheels installed above.
+    uv run --no-sync python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
   ) > "${gpu_check_file}"; then
     rm -f "${gpu_check_file}"
     error "GPU smoke test failed to run (uv run python / import torch) — check the ${TORCH_FLAVOR} driver stack (ROCm: /dev/kfd, /dev/dri, render+video groups; NVIDIA: nvidia-smi) for ${SERVICE_USER}."
@@ -395,7 +399,7 @@ EOF
   fi
 
   success "ACE-Step 1.5 is running (${TORCH_FLAVOR} wheels) at http://127.0.0.1:${MUSIC_GEN_PORT} (API key in ${ENV_FILE}, mode 600)"
-  info "Gradio UI on demand: cd ${ACESTEP_DIR} && uv run acestep"
+  info "Gradio UI on demand: cd ${ACESTEP_DIR} && uv run --no-sync acestep"
   if [[ "$MUSIC_GEN_OPEN_LAN" != "true" ]]; then
     info "Port ${MUSIC_GEN_PORT} is not exposed to the LAN (MUSIC_GEN_OPEN_LAN=false). Reach it via a tunnel or set MUSIC_GEN_OPEN_LAN=true."
   fi
@@ -407,7 +411,10 @@ EOF
 render_and_install_unit() {
   step "Rendering ${SERVICE_FILE}"
 
-  # PYTORCH_HIP_ALLOC_CONF must be UNSET for ACE-Step (Environment=- line).
+  # PYTORCH_HIP_ALLOC_CONF must be UNSET for ACE-Step (UnsetEnvironment= line;
+  # `Environment=-VAR` is NOT a thing — systemd logs "Invalid environment
+  # assignment, ignoring" for it, and the variable stays set. UnsetEnvironment=
+  # exists since systemd 235, i.e. on every supported Ubuntu).
   # LD_PRELOAD of the host HSA runtime is an AMD/ROCm-only fix, added only
   # when the torch smoke test segfaults (vault ROCm pitfall #2,
   # ACESTEP_LD_PRELOAD=true). It has no meaning on NVIDIA hosts.
@@ -420,11 +427,29 @@ render_and_install_unit() {
     fi
   fi
 
+  # ExecStart target. `uv venv` does NOT put a uv binary inside .venv/bin, so
+  # the unit must never reference .venv/bin/uv — systemd would fail the start
+  # with 203/EXEC. Use the console script that `uv sync` installs from
+  # ACE-Step's [project.scripts] (acestep-api = acestep.api_server:main); fall
+  # back to the real uv binary, and keep --no-sync there so a boot-time start
+  # cannot sync the project and replace the vendor torch wheels with the CUDA
+  # build pinned in the repo's [tool.uv.sources].
+  local exec_start="--host 0.0.0.0 --port ${MUSIC_GEN_PORT} --config_path acestep-v15-xl-turbo --lm_model_path acestep-5Hz-lm-1.7B"
+  if [[ -x "${ACESTEP_DIR}/.venv/bin/acestep-api" ]]; then
+    exec_start="${ACESTEP_DIR}/.venv/bin/acestep-api ${exec_start}"
+  else
+    local uv_bin
+    uv_bin="$(command -v uv || true)"
+    [[ -n "${uv_bin}" ]] \
+      || error "Cannot render ExecStart: no ${ACESTEP_DIR}/.venv/bin/acestep-api and uv is not on PATH — re-run the install (or use --force)."
+    exec_start="${uv_bin} run --no-sync acestep-api ${exec_start}"
+  fi
+
   local unit_tmp
   unit_tmp="$(mktempfile "${SERVICE_NAME}.service")"
   cat > "${unit_tmp}" <<EOF
 # Managed by setup-music-gen.sh — do not edit by hand (re-run the script).
-# PYTORCH_HIP_ALLOC_CONF is unset (Environment=- line); the LD_PRELOAD of
+# PYTORCH_HIP_ALLOC_CONF is unset via UnsetEnvironment=; the LD_PRELOAD of
 # the host HSA runtime appears only when the torch smoke test segfaults
 # (vault ROCm pitfall #2, ACESTEP_LD_PRELOAD=true).
 [Unit]
@@ -439,9 +464,9 @@ SupplementaryGroups=render video
 WorkingDirectory=${ACESTEP_DIR}
 EnvironmentFile=${ENV_FILE}
 Environment=ACESTEP_LM_BACKEND=pt
-Environment=-PYTORCH_HIP_ALLOC_CONF
+UnsetEnvironment=PYTORCH_HIP_ALLOC_CONF
 ${ld_preload_line}
-ExecStart=${ACESTEP_DIR}/.venv/bin/uv run acestep-api --host 0.0.0.0 --port ${MUSIC_GEN_PORT} --config_path acestep-v15-xl-turbo --lm_model_path acestep-5Hz-lm-1.7B
+ExecStart=${exec_start}
 Restart=on-failure
 RestartSec=10
 
@@ -667,21 +692,24 @@ import os
 import sys
 
 import soundfile as sf
-import torch
-from transformers import AudioGenerator
+from transformers import pipeline
 
 prompt, length, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 
-# local_dir: the model is downloaded once (first run) and reused afterwards,
-# so re-runs never hit the network for weights.
-generator = AudioGenerator.from_pretrained(
-    "facebook/musicgen-small",
+# cache_dir: the weights are downloaded once (first run) into
+# MUSICGEN_MODEL_DIR and reused afterwards, so re-runs never hit the network.
+# NOTE: `AudioGenerator` (and from_pretrained's local_dir kwargs) were removed
+# from transformers — the supported entry point for musicgen is the
+# "text-to-audio" pipeline.
+pipe = pipeline(
+    task="text-to-audio",
+    model="facebook/musicgen-small",
     device="cpu",
-    local_dir=os.environ["MUSICGEN_MODEL_DIR"],
-    local_dir_use_symlinks=False,
+    cache_dir=os.environ["MUSICGEN_MODEL_DIR"],
 )
-audio = generator.generate(prompt, duration=length)
-sf.write(out, audio[0].cpu().numpy(), samplerate=generator.config.sample_rate)
+# MusicGen produces 50 tokens per second of audio.
+audio = pipe(prompt, forward_params={"max_new_tokens": length * 50})
+sf.write(out, audio["audio"], samplerate=audio["sampling_rate"])
 print(f"Wrote {out}")
 PY
 PYEOF
