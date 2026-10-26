@@ -154,12 +154,38 @@ def test_stream_argv_uses_each_tool_s_dialect():
 
     journal = logsio.LogSource(logsio.JOURNAL, ["journalctl", "-u", "x.service"], "unit")
     compose = logsio.LogSource(logsio.DOCKER, ["docker", "compose", "-f", "f", "logs"], "stack")
-    assert logsio.stream_argv(journal, tail=50, since="10m", follow=True) == [
-        "journalctl", "-u", "x.service", "--since", "10m", "-n", "50", "-f",
+    assert logsio.stream_argv(journal, tail=50, since="2026-10-01 08:00:00", follow=True) == [
+        "journalctl", "-u", "x.service", "--since", "2026-10-01 08:00:00", "-n", "50", "-f",
     ]
     assert logsio.stream_argv(compose, tail=50, since=None, follow=False) == [
         "docker", "compose", "-f", "f", "logs", "--tail", "50",
     ]
+
+
+def test_a_relative_since_survives_the_trip_to_journalctl():
+    """The spec's own `--since 10m` worked on a stack and died on a unit (R-OPS-005).
+
+    compose takes `10m` untouched; `journalctl` parses no relative shorthand at all and
+    answered `Failed to parse timestamp: 10m` with exit 1. So the duration is rewritten into
+    the phrasing systemd does parse — probed on this box against systemd 255 — while compose,
+    and an absolute timestamp in either tool, keep exactly what the operator typed.
+    """
+    from kwisatz import logs as logsio
+
+    journal = logsio.LogSource(logsio.JOURNAL, ["journalctl", "-u", "x.service"], "unit")
+    compose = logsio.LogSource(logsio.DOCKER, ["docker", "compose", "-f", "f", "logs"], "stack")
+
+    assert logsio.stream_argv(compose, tail=None, since="10m", follow=False) == [
+        "docker", "compose", "-f", "f", "logs", "--since", "10m",
+    ], "compose's dialect is left alone — that value already works there"
+
+    converted = logsio.stream_argv(journal, tail=None, since="10m", follow=False)
+    assert converted == ["journalctl", "-u", "x.service", "--since", "10 minutes ago"], converted
+    assert "10m" not in converted, "journalctl rejects the bare duration"
+    # compose accepts both spellings, so both have to arrive as a timestamp journalctl reads
+    assert logsio.stream_argv(journal, tail=None, since="1h30m", follow=False)[-1] == "90 minutes ago"
+    for untouched in ("2026-10-01 08:00:00", "2026-10-01T08:00:00", "now"):
+        assert logsio.stream_argv(journal, tail=None, since=untouched, follow=False)[-1] == untouched
 
 
 def test_capture_drops_follow_without_losing_the_compose_file(tmp_path):

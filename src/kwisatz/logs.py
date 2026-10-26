@@ -12,6 +12,7 @@ the implementation, and their stdout is already captured there (R-SAFE-007, mode
 
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,11 @@ from . import services as serviceio
 DOCKER = "docker"
 JOURNAL = "journal"
 APPLY_LOG = "apply-log"
+
+#: The units both log tools agree on, in seconds (`1d` is what a compose `--since` accepts too).
+_DURATION_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+_DURATION = re.compile(r"^(?:\d+[smhd])+$", re.IGNORECASE)
+_DURATION_TOKEN = re.compile(r"(\d+)([smhd])", re.IGNORECASE)
 
 
 @dataclass
@@ -99,6 +105,29 @@ def stream(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess(argv, returncode=None)
 
 
+def journal_since(value: str) -> str:
+    """`10m` → `10 minutes ago`; any other spelling is passed through untouched.
+
+    `--since 10m` is compose's dialect and the spec's own example, so the same command works on
+    a stack and dies on a unit: `journalctl` parses no relative shorthand and answers
+    `Failed to parse timestamp: 10m` with exit 1. What systemd 255 does parse is the human
+    phrasing below, so a bare duration becomes that, and an ISO timestamp (or `now`, which
+    means the same thing to both tools) is handed on unchanged.
+    """
+    text = value.strip()
+    if not _DURATION.match(text):
+        return value
+    total = sum(int(count) * _DURATION_UNITS[unit.lower()] for count, unit in _DURATION_TOKEN.findall(text))
+    for unit, seconds in (("day", 86400), ("hour", 3600), ("minute", 60)):
+        if total and total % seconds == 0:
+            return _ago(total // seconds, unit)
+    return _ago(total, "second")
+
+
+def _ago(count: int, unit: str) -> str:
+    return f"{count} {unit}{'s' if count != 1 else ''} ago"
+
+
 def stream_argv(source: LogSource, *, tail: int | None, since: str | None, follow: bool) -> list[str]:
     """The same request in each tool's dialect: `journalctl -n`, `compose --tail`, `-f`/`--follow`.
 
@@ -110,7 +139,7 @@ def stream_argv(source: LogSource, *, tail: int | None, since: str | None, follo
         return argv
     if source.kind == JOURNAL:
         if since:
-            argv = [*argv, "--since", str(since)]
+            argv = [*argv, "--since", journal_since(str(since))]
         if tail:
             argv = [*argv, "-n", str(tail)]
         if follow:
