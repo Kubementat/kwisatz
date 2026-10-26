@@ -47,13 +47,21 @@ measured against the stored name *or* its prefix-free spelling, for commands and
 `plan.similar()` owns that gate, so no caller can reimplement it differently.
 
 Resolution is not only `apply`'s: `info`, `run` and `config enable|disable|set|args` already
-routed the typed name through `planner.resolve_target`, and `state [TARGET]` now does the same.
-A typo is therefore exit `3` with `closest:` wherever a name is typed, and the prefix-free
-spelling (`traefik` for `setup-traefik`) reads the same history. `kwisatz state <typo>` used to
-be exit `0` with `count: 0` — byte-for-byte what a *known* target that never ran answers, so
-"did we ever install this?" could only be answered by guessing. The history of a known target,
-including one with no records yet, still answers `0`, and `kwisatz state` with no argument is
-unchanged (every record).
+routed the typed name through `planner.resolve_target`, and `state [TARGET]` and `logs [TARGET]`
+now do the same. A typo is therefore exit `3` with `closest:` wherever a name is typed, and the
+prefix-free spelling (`traefik` for `setup-traefik`) reads the same history and the same logs.
+Two commands answered from the raw string, so they could not tell "not one of ours" from "ran,
+produced nothing":
+
+- `kwisatz state <typo>` was exit `0` with `count: 0` — byte-for-byte what a *known* target that
+  never ran answers, so "did we ever install this?" could only be answered by guessing. The
+  history of a known target, including one with no records yet, still answers `0`, and
+  `kwisatz state` with no argument is unchanged (every record).
+- `kwisatz logs <typo>` printed `no logs for '<typo>': no stack, no unit, no apply log`, the same
+  bytes a valid target that logged nothing prints. The name is resolved before the source is
+  chosen, so the typo is the exit `3` + `closest:` every other command gives; a valid target with
+  no stack, no unit and no apply log keeps that sentence and exit `3`, and `kwisatz logs` with no
+  argument keeps exit `2`.
 
 ## Behavior 2 — apply
 
@@ -268,8 +276,8 @@ machine it ships on.
 - `tests/unit/test_cli.py` — acceptance criteria A2…A10 against real subprocesses, the exit
   code a `--timeout` run reports, that the budget is shared across the whole run and leaves the
   rest `not-run`, `logs <t>` after a failed apply, the `--` pass-through and
-  `--dry-run` of `run`, that `state` resolves its argument so a typo is exit `3` and not a zero,
-  and stdout purity under `--json`.
+  `--dry-run` of `run`, that `state`/`logs` resolve their argument so a typo is exit `3` and not
+  a zero or a plausible-looking "no logs", and stdout purity under `--json`.
 - `tests/unit/test_cli_commands.py` — the four commands whose behaviour is only visible in a
   subprocess: `install` (its dry run writes nothing, a box without `uv` is `4`, `--with-uv` needs
   `--yes`), `models` (the catalog it reads, the catalog it cannot parse, sync's exit mapping),

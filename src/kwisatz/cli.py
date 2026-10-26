@@ -1164,8 +1164,13 @@ def cmd_services(app: App) -> int:
 def cmd_logs(app: App) -> int:
     """R-OPS-005: the logs of a stack, a unit, or the last apply, by what exists."""
     repo = app.repo_dir()
-    names = [item.name for item in _load_plan_or_none(app)]
     target = getattr(app.args, "target", None) or ""
+    if target:
+        # R-OPS-005: "no logs" has to mean *this* target logged nothing, not "that name is not
+        # one of ours". Resolve it first — the same seam `info`/`run`/`config` use — so a
+        # misspelling answers with the suggestion instead of the sentence a stackless target gets.
+        target = planner.resolve_target(target, *_plan_pair(app)).name
+    names = [item.name for item in _load_plan_or_none(app)]
     found = serviceio.discover(names)
     service = serviceio.find(found, target) if target else None
     source = logsio.source_for(service, target, repo.logs)

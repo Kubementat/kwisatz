@@ -363,8 +363,10 @@ comments is the most error-prone thing in the current workflow.
   themselves kwisatz tasks (`uv`, `setup-docker`), never a bespoke fix.
 - **R-OPS-005 (MUST)** — `kwisatz logs [TARGET] [--since 10m] [--tail 200] [-f]`: compose logs for
   a docker stack at `/srv/<service>/docker-compose.yml`, `journalctl -u` for a systemd target,
-  the last stored apply log otherwise. `-f` is bounded by `--timeout`, and the bound is the end of
-  a successful request, not a failure: exit `0`, one line on stderr, and never a traceback
+  the last stored apply log otherwise. `[TARGET]` is resolved first (§6.2.1), so an unknown name
+  is exit `3` with the candidate list instead of the "no stack, no unit, no apply log" sentence a
+  valid target with nothing to read gets; that sentence keeps exit `3`, and no target keeps `2`.
+  `-f` is bounded by `--timeout`, and the bound is the end of a successful request, not a failure: exit `0`, one line on stderr, and never a traceback
   (`5` means a *run* was killed or a stack is unhealthy, which neither is here).
 
 ### 6.8 `kwisatz models`

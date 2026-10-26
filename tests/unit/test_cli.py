@@ -295,6 +295,29 @@ def test_a_failed_apply_leaves_the_output_in_the_log(work):
     assert "port 9292 already in use" in "\n".join(doc(shown)["result"]["lines"])
 
 
+def test_logs_tells_an_unknown_target_apart_from_one_that_never_logged(work):
+    """R-OPS-005: "no stack, no unit, no apply log" was also the answer to a typo.
+
+    The sentence describing a target with nothing to read is byte-identical to the one a name that
+    is not a target gets, so "never heard of it" looked exactly like "ran, produced nothing". The
+    name is resolved before any source is chosen — the same seam `info` uses — so the typo gets
+    exit 3 with `closest:`, while a valid target that logged nothing keeps its empty answer and
+    its 3.
+    """
+    typo = run_cli("logs", "stub-x", "--json", "--repo", str(work.path), repo=work.path)
+    assert typo.returncode == 3, typo.stderr
+    body = doc(typo)
+    assert body["errors"][0]["target"] == "stub-x"
+    assert "closest" in body["errors"][0]["hint"]
+    assert "no stack" not in typo.stdout, "the empty message must never describe an unknown name"
+
+    quiet = run_cli("logs", "stub-b", "--json", "--repo", str(work.path), repo=work.path)
+    assert quiet.returncode == 3, quiet.stderr
+    assert "no stack, no unit, no apply log" in doc(quiet)["errors"][0]["message"]
+
+    assert run_cli("logs", "--json", "--repo", str(work.path), repo=work.path).returncode == 2
+
+
 def test_logs_follow_is_bounded_by_timeout_and_never_prints_a_traceback(work):
     """R-OPS-005: `-f` is bounded by `--timeout`. Bounded is not the same thing as crashed.
 
