@@ -381,6 +381,9 @@ comments is the most error-prone thing in the current workflow.
   `duration_s`, `exit_code`, `command`, `config path`, `state file hashes of /srv/<svc>/.env`.
   Written **after** the run, never before (a crashed run must not look like a success).
 - **R-STA-101 (SHOULD)** — `kwisatz state [TARGET]` renders it; `--json` returns the array.
+  `[TARGET]` is resolved first (§6.2.1): an unknown name is exit `3` with the candidate list,
+  because an empty array must mean "this target never ran", not "that name is not one of ours".
+  No `[TARGET]` means every record, unchanged.
   Rationale: today there is no answer to "did we ever install this, and with what version?".
 
 ### 6.10 `kwisatz install`, `init`, `upgrade`, `uninstall`

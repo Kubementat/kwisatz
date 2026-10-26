@@ -1212,6 +1212,12 @@ def cmd_state(app: App) -> int:
     """§6.9: the answer to "did we ever install this, and with what?"."""
     repo = app.repo_dir()
     target = getattr(app.args, "target", None)
+    if target:
+        # §6.9: a typo and a target that never ran used to be the same answer (count 0, exit 0).
+        # Resolve the name through the plan — the way `info` does when it reads `state.read(repo,
+        # target.name)` — so an unknown name exits 3 with the existing `closest:` hint, and a
+        # misspelling cannot be mistaken for history that was never written.
+        target = planner.resolve_target(target, *_plan_pair(app)).name
     records = state.read(repo, target, 50)
     # `items` is the key every other command uses; `records` stays for anyone already reading it
     app.result = {"path": str(state.path(repo)), "count": len(records), "records": records, "items": records}

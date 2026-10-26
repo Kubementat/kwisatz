@@ -234,6 +234,49 @@ def test_state_json_answers_under_items_like_every_other_command(work):
     assert body["result"]["records"] == body["result"]["items"], "the old key keeps working"
 
 
+def _state_lines(work, groups: list[list[str]]) -> None:
+    """Apply history without running anything: one JSON line per run, oldest first (§6.9)."""
+    (work.path / ".kwisatz").mkdir(exist_ok=True)
+    (work.path / ".kwisatz" / "state.jsonl").write_text(
+        "".join(
+            json.dumps(
+                {
+                    "command": "apply",
+                    "exit_code": 0,
+                    "items": [{"target": name, "status": "applied"} for name in group],
+                }
+            )
+            + "\n"
+            for group in groups
+        )
+    )
+
+
+def test_state_resolves_the_target_so_a_typo_is_not_no_history(work):
+    """§6.9: `state <target>` must not answer a misspelling like a target that never ran.
+
+    The same records read `count 0, exit 0` for a name that is not a target and for a target that
+    really was never applied — indistinguishable, and the 0 invites the caller to move on. The fix
+    is the existing `planner.resolve_target` seam (the one `info` and `run` use), so an unknown
+    name is exit 3 with the `closest:` suggestion. An absent argument still means "every run".
+    """
+    _state_lines(work, [["stub-a", "stub-c"], ["stub-a"], ["stub-b"]])
+
+    filtered = doc(run_cli("state", "stub-a", "--json", "--repo", str(work.path), repo=work.path))
+    assert filtered["result"]["count"] == 2
+    one = doc(run_cli("state", "stub-b", "--json", "--repo", str(work.path), repo=work.path))
+    assert one["result"]["count"] == 1
+
+    typo = run_cli("state", "stub-x", "--json", "--repo", str(work.path), repo=work.path)
+    assert typo.returncode == 3, typo.stderr
+    body = doc(typo)
+    assert body["errors"][0]["target"] == "stub-x"
+    assert "closest" in body["errors"][0]["hint"]
+
+    everything = doc(run_cli("state", "--json", "--repo", str(work.path), repo=work.path))
+    assert everything["result"]["count"] == 3, "no argument still means every record"
+
+
 def test_a_failed_apply_leaves_the_output_in_the_log(work):
     """The recovery path for exit 1: `kwisatz logs <target>` must have something to say.
 

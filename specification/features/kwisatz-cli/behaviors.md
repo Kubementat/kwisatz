@@ -46,6 +46,15 @@ The `did you mean` list is distance-gated (R-CMD-002): at most two edits from wh
 measured against the stored name *or* its prefix-free spelling, for commands and targets alike.
 `plan.similar()` owns that gate, so no caller can reimplement it differently.
 
+Resolution is not only `apply`'s: `info`, `run` and `config enable|disable|set|args` already
+routed the typed name through `planner.resolve_target`, and `state [TARGET]` now does the same.
+A typo is therefore exit `3` with `closest:` wherever a name is typed, and the prefix-free
+spelling (`traefik` for `setup-traefik`) reads the same history. `kwisatz state <typo>` used to
+be exit `0` with `count: 0` — byte-for-byte what a *known* target that never ran answers, so
+"did we ever install this?" could only be answered by guessing. The history of a known target,
+including one with no records yet, still answers `0`, and `kwisatz state` with no argument is
+unchanged (every record).
+
 ## Behavior 2 — apply
 
 `kwisatz apply` takes every enabled entry, in config order. `kwisatz apply a b c` takes those
@@ -259,7 +268,8 @@ machine it ships on.
 - `tests/unit/test_cli.py` — acceptance criteria A2…A10 against real subprocesses, the exit
   code a `--timeout` run reports, that the budget is shared across the whole run and leaves the
   rest `not-run`, `logs <t>` after a failed apply, the `--` pass-through and
-  `--dry-run` of `run`, and stdout purity under `--json`.
+  `--dry-run` of `run`, that `state` resolves its argument so a typo is exit `3` and not a zero,
+  and stdout purity under `--json`.
 - `tests/unit/test_cli_commands.py` — the four commands whose behaviour is only visible in a
   subprocess: `install` (its dry run writes nothing, a box without `uv` is `4`, `--with-uv` needs
   `--yes`), `models` (the catalog it reads, the catalog it cannot parse, sync's exit mapping),
