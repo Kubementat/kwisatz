@@ -749,7 +749,7 @@ def cmd_info(app: App) -> int:
     }
     if not app.out.json:
         app.out.result(target.name)
-        app.out.result(f"  script     {script}")
+        app.out.result(f"  script     {script or '(none)'}")
         app.out.result(
             f"  config     {'enabled' if target.enabled else 'disabled'}"
             if target.configured

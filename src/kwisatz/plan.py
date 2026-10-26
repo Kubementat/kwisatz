@@ -33,6 +33,11 @@ class Target:
     kind: str
     configured: bool
     enabled: bool
+    #: the `tasks/<name>.<ext>` that `kind` was read from, `""` when there is none. It is
+    #: recorded with `kind` and not derived from `task`, because a *disabled* entry has no
+    #: task to derive it from and still has a file to report (`script: null` in `info --json`
+    #: said the file was not found, one line after `kind: "sh"` said it was).
+    path: str = ""
     description: str = ""
     args: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
@@ -40,7 +45,7 @@ class Target:
 
     @property
     def script(self) -> str:
-        return next((a for a in (self.task.argv[1:] if self.task else [])), "")
+        return self.path
 
     def echo(self) -> str:
         return self.task.echo() if self.task else ""
@@ -82,6 +87,7 @@ def targets_from_plan(config: Config, plan: Plan) -> dict[str, Target]:
         out[item.name] = Target(
             name=item.name,
             kind=kind,
+            path=str(path) if path else "",
             configured=True,
             enabled=item.enabled,
             description=item.description,
@@ -110,6 +116,7 @@ def catalog(config: Config, plan: Plan) -> list[Target]:
         targets[stem] = Target(
             name=stem,
             kind=kind,
+            path=str(path),
             configured=False,
             enabled=False,
             description="",
@@ -179,6 +186,7 @@ def unconfigured_target(name: str, config: Config, *, warn=orchestrator.warn) ->
     return Target(
         name=name,
         kind=path.suffix.lstrip("."),
+        path=str(path),
         configured=False,
         enabled=False,
         description="",

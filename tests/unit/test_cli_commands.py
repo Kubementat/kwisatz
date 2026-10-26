@@ -231,6 +231,32 @@ def test_info_json_is_the_whole_answer_about_one_target(work):
     assert body["last_apply"] == {}, "nothing has run yet, and `info` says so instead of guessing"
 
 
+def test_a_disabled_target_still_names_the_script_it_was_found_from(work):
+    """A switched-off entry was still located on disk, and `kind` is the proof of that.
+
+    `script` was derived from the task, and a disabled config entry has no task, so `info
+    --json` answered `"script": null` on the same line it answered `"kind": "sh"`, and the
+    human view printed the literal `script  None`. The path belongs with the `kind` that had
+    to find the file to know it, so it is reported whether or not the entry is enabled.
+    """
+    stub(work.path, "stub-b")
+    work.write_config(
+        "version: 1\nscripts:\n  stub-a:\n    enabled: true\n  stub-b:\n    enabled: false\n  stub-z:\n"
+    )
+
+    body = doc(run_cli("info", "stub-b", "--json", "--repo", str(work.path), repo=work.path))["result"]
+    assert (body["enabled"], body["kind"]) == (False, "sh")
+    assert body["script"] == str(work.path / "tasks" / "stub-b.sh")
+
+    plain = run_cli("info", "stub-b", "--repo", str(work.path), repo=work.path)
+    assert plain.returncode == 0, plain.stderr
+    assert "None" not in plain.stdout, "a human-facing line never prints a bare None"
+
+    listed = doc(run_cli("list", "--all", "--json", "--repo", str(work.path), repo=work.path))["result"]
+    blank = sorted(i["target"] for i in listed["items"] if not i["script"])
+    assert blank == ["stub-z"], "only a name with no file at all reports no script"
+
+
 def test_info_shows_the_last_apply_that_touched_the_target(work):
     run_cli("apply", "stub-a", "--json", "--repo", str(work.path), repo=work.path)
     body = doc(run_cli("info", "stub-a", "--json", "--repo", str(work.path), repo=work.path))["result"]
