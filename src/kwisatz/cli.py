@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -436,7 +437,9 @@ def _deploy_argv(app: App, repo: Repo, names: list[str], extra: dict[str, str]) 
     whatever it inherits), so it travels as `--data env=` and lands inside the same
     `build_task()` that computes the command. pyinfra parses the JSON back into a dict.
     """
-    argv = repoio.deploy_argv(repo, app.config.path, names)
+    # `-v` is a count, so it belongs in the deploy: pyinfra reads its own `-v`s as a count too
+    # (`-y -vvv -v`), which is what lets the operator's `apply -v` mean "say more" downstream.
+    argv = repoio.deploy_argv(repo, app.config.path, names, verbosity=app.out.verbosity)
     if extra:
         argv += ["--data", "env=" + json.dumps(extra, separators=(",", ":"))]
     return argv
@@ -490,6 +493,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
             # the one path that is not a deploy: an interactive run is the operator
             # running the script on their own terminal, which is what `--interactive`
             # has always meant, and pyinfra cannot attach a TTY (R-APP-013).
+            app.out.verbose("  script " + shlex.join(target.task.argv))
             outcome = runner.run_task(
                 target.task,
                 root=repo.path,
@@ -506,8 +510,12 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
         else:
             # R-APP-001/§11.3: the task runs inside a pyinfra deploy of this checkout, so
             # the command, the env and the stdin are deploy.py's, not the CLI's.
+            deploy = _deploy_argv(app, repo, [target.name], extra)
+            # `-v` names the command it is running, on stderr, before it runs: the same detail is
+            # what makes `-v` worth typing when a deploy is about to write to the machine.
+            app.out.verbose("  deploy " + shlex.join(deploy))
             outcome = runner.run_deploy(
-                argv=_deploy_argv(app, repo, [target.name], extra),
+                argv=deploy,
                 root=repo.path,
                 env=runner.deploy_env(repo.path),
                 log_path=log,
@@ -1385,6 +1393,7 @@ def cmd_run(app: App) -> int:
             app.out.result("    " + command)
         return Exit.OK
     repo.ensure_work()
+    app.out.verbose("  script " + command)
     timeout = float(getattr(app.args, "timeout", 3600) or 3600)
     with repoio.held(repo, float(getattr(app.args, "lock_timeout", 0) or 0)):
         outcome = runner.run_task(
@@ -1689,7 +1698,7 @@ def _make_app(args: argparse.Namespace) -> App:
         args=args,
         out=Out(
             quiet=getattr(args, "quiet", False),
-            verbose=bool(getattr(args, "verbose", 0)),
+            verbosity=int(getattr(args, "verbose", 0) or 0),
             json=getattr(args, "json", False),
             color=False if getattr(args, "no_color", False) else None,
         ),

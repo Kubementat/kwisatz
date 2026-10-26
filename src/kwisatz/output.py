@@ -24,12 +24,13 @@ class Out:
         self,
         *,
         quiet: bool = False,
-        verbose: bool = False,
+        verbosity: int = 0,
         json: bool = False,
         color: bool | None = None,
     ) -> None:
         self.quiet = quiet
-        self.verbose = verbose
+        #: the `-v` count, not a bool: a command that can dial something up needs the number
+        self.verbosity = int(verbosity)
         self.json = json
         self.color = self._default_color() if color is None else color
 
@@ -65,6 +66,16 @@ class Out:
 
     def note(self, message: str) -> None:
         self._err(self.paint(f"--> note: {message}", CYAN))
+
+    def verbose(self, message: str) -> None:
+        """Detail only `-v` asked for: stderr, because a result still belongs on stdout.
+
+        The count otherwise travels into the deploy command and nowhere else, so without this
+        channel `-v` is detail the operator never gets to see. Both callers name what is about
+        to *run*, which is what more output is asked for in the first place.
+        """
+        if self.verbosity:
+            self._err(message)
 
     def action(self, message: str) -> None:
         self.progress(self.paint(f"→ {message}", BOLD))

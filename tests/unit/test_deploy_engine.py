@@ -10,6 +10,7 @@ printed — plus the `--data select=` contract `deploy.py` now has to honour.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 from conftest import REPO_ROOT, run_cli, run_pyinfra, stub
@@ -171,3 +172,39 @@ def test_the_repo_carries_deploy_py_into_the_deploy(repo):
     assert "--data" in argv and "select=stub-a" in argv
     assert "-y" in argv and "-vvv" in argv
     assert (REPO_ROOT / "deploy.py").is_file()
+
+
+def deploy_tokens(root: Path, name: str) -> list[str]:
+    """The tokens of the `deploy.py` line that ran the script, and of that line alone.
+
+    The ancestor chain also carries the CLI's own process line, and that one holds whatever `-v`
+    flags the operator typed — which is exactly what "did the CLI forward them" must not count.
+    """
+    for line in (root / "records" / f"{name}.txt").read_text().splitlines():
+        if "deploy.py" in line:
+            return line.split()
+    return []
+
+
+def test_the_deploy_command_carries_the_verbosity_it_is_given(repo):
+    """`-v` is a count, so it belongs in the deploy command — pyinfra counts `-v` the same way."""
+    argv = repoio.deploy_argv(repo, repo.path / "machine-config.yml", ["stub-a"], verbosity=2)
+    after = argv.index("-vvv") + 1
+    assert argv[after : after + 2] == ["-v", "-v"]
+    assert argv.index("-vvv") == argv.index("-y") + 1, "the base every deploy already needs"
+
+
+@pytest.mark.parametrize("flags,expected", [((), 0), (("-v",), 1), (("-vv",), 2)])
+def test_the_operators_verbosity_reaches_the_deploy(repo, flags, expected):
+    """`-v` promises more deploy detail, so the count has to survive the CLI's own parsing.
+
+    The evidence is the child's command line, not what kwisatz printed about it: the script walks
+    its ancestors, so the number of `-v`s pyinfra was handed is read off the deploy process.
+    """
+    tracing_stub(repo.path, "stub-a")
+    repo.write_config("version: 1\nscripts:\n  stub-a:\n    enabled: true\n")
+
+    result = run_cli(*flags, "apply", "stub-a", "--repo", str(repo.path), repo=repo.path)
+    assert result.returncode == 0, result.stderr
+
+    assert deploy_tokens(repo.path, "stub-a").count("-v") == expected

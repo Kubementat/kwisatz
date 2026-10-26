@@ -496,6 +496,46 @@ def test_quiet_prints_a_single_line(work):
     assert result.stdout.count("\n") == 1
 
 
+def test_verbose_raises_the_output_level_quiet_lowers(work):
+    """`-v` was advertised in `--help` and in `commands --json`, parsed, and read by nobody.
+
+    `apply`, `apply -v` and `apply -vv` came out byte-identical because the count landed on the
+    output policy and stopped there. It now says what is about to run, on stderr: the detail has
+    to arrive somewhere an operator can see, and stdout already belongs to the result.
+    """
+    plain = run_cli("apply", "stub-a", "--repo", str(work.path), repo=work.path)
+    assert plain.returncode == 0, plain.stderr
+    verbose = run_cli("-v", "apply", "stub-a", "--repo", str(work.path), repo=work.path)
+    assert verbose.returncode == 0, verbose.stderr
+    assert verbose.stdout == plain.stdout, "verbosity is not a second result"
+    assert verbose.stderr != plain.stderr, "-v changed nothing"
+    assert "deploy.py" in verbose.stderr, verbose.stderr
+    assert "-y -vvv -v --data" in verbose.stderr, verbose.stderr
+    assert "-y -vvv" not in plain.stderr, "the deploy command line belongs to -v, not to every run"
+
+
+def test_repeating_verbose_repeats_the_deploy_detail(work):
+    """`-vv` is a count of two, so it asks for more than `-v` did: the deploy line says so."""
+    loud = run_cli("-v", "apply", "stub-a", "--repo", str(work.path), repo=work.path)
+    louder = run_cli("-vv", "apply", "stub-a", "--repo", str(work.path), repo=work.path)
+    assert louder.returncode == 0, louder.stderr
+    assert "-y -vvv -v -v --data" in louder.stderr, louder.stderr
+    assert "-y -vvv -v -v --data" not in loud.stderr, "-v and -vv ran the same command"
+
+
+def test_json_is_one_document_at_every_verbosity(work):
+    """R-JSON-001: `-v` adds stderr detail, never a second line on stdout.
+
+    A `-v` debug session that breaks the document is the bug that only shows up while debugging,
+    so all three levels answer with exactly one JSON document.
+    """
+    for flags in ([], ["-v"], ["-vv"]):
+        body = doc(
+            run_cli(*flags, "apply", "stub-a", "--json", "--repo", str(work.path), repo=work.path)
+        )
+        assert body["ok"] is True, body
+
+
 def test_version_and_help_exit_zero(work):
     assert run_cli("--version", "--repo", str(work.path), repo=work.path).returncode == 0
     assert run_cli("--help", repo=work.path).returncode == 0

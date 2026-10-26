@@ -153,15 +153,28 @@ def pyinfra_command(repo: Repo) -> list[str]:
     )
 
 
-def deploy_argv(repo: Repo, config_path: Path, names: Sequence[str] | None = None) -> list[str]:
+def deploy_argv(
+    repo: Repo, config_path: Path, names: Sequence[str] | None = None, *, verbosity: int = 0
+) -> list[str]:
     """The command line of one deploy of `names` (all enabled entries when None).
 
     `-y -vvv` is what `run-setup.sh apply` passes, and `--data config=` is passed every
     time so a config outside the checkout is honoured; `--data select=` is what narrows
     the deploy to exactly the named targets. Keep it one place — the VM suite and every
     agent read this command out of the logs.
+
+    `verbosity` is the operator's `-v` count, added as that many more `-v`s. pyinfra reads
+    `-v` as a count too, so the two flags add up instead of fighting; the base `-vvv` is
+    what every deploy already needs, so a `-v` lands on top of it.
     """
-    argv = [*pyinfra_command(repo), "@local", str(repo.path / "deploy.py"), "-y", "-vvv"]
+    argv = [
+        *pyinfra_command(repo),
+        "@local",
+        str(repo.path / "deploy.py"),
+        "-y",
+        "-vvv",
+        *["-v" for _ in range(max(0, verbosity))],
+    ]
     argv += ["--data", f"config={config_path}"]
     if names is not None:
         argv += ["--data", f"select={','.join(names)}"]
