@@ -195,6 +195,27 @@ def test_models_sync_maps_the_preflight_code_onto_the_work_codes(work, script_co
     assert body["result"]["script_exit_code"] == script_code
 
 
+def test_models_sync_reports_a_spent_timeout_as_health(work):
+    """R-AGE-002 / §9: the same verdict `apply` gives, on the command that never got it.
+
+    `_map_models_exit(None)` answered `Exit.OK` — "no code, no failure" — so `models sync
+    --timeout` exited 0 with `ok: true` about a child the CLI had just killed, and (without
+    `--json`) said nothing at all, because `if outcome.returncode:` was false for the missing code.
+    """
+    script = work.path / "tasks" / "sync-models.py"
+    script.write_text("import time\ntime.sleep(30)\n")
+    script.chmod(0o755)
+    result = run_cli("models", "sync", "--timeout", "2", "--json", "--repo", str(work.path), repo=work.path)
+    assert result.returncode == 5, (result.stdout, result.stderr)
+    body = doc(result)
+    assert body["ok"] is False, body
+    assert body["result"]["script_exit_code"] is None, "nothing was observed, so nothing is quoted"
+    assert "timed out" in body["errors"][0]["message"], body["errors"]
+    plain = run_cli("models", "sync", "--timeout", "2", "--repo", str(work.path), repo=work.path)
+    assert plain.returncode == 5, plain.stderr
+    assert "timed out" in plain.stderr, plain.stderr
+
+
 # ── info: R-AGE-003, the one round trip ─────────────────────────────────────────────────────
 
 

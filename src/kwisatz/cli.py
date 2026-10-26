@@ -1244,15 +1244,16 @@ def _models_sync(app: App) -> int:
             app.out.result("    " + " ".join(argv))
         return Exit.OK
     task = orchestrator.Task(name="sync-models", argv=argv, env={"INTERACTIVE": "false"}, secrets=frozenset())
+    timeout = float(getattr(app.args, "timeout", 3600) or 3600)
     outcome = runner.run_task(
         task,
         root=repo.path,
         log_path=repo.logs / f"kwisatz-{now_iso().replace(':', '')}-sync-models.log",
-        timeout=float(getattr(app.args, "timeout", 3600) or 3600),
+        timeout=timeout,
         echo_stdout=not app.out.json,
         on_heartbeat=lambda elapsed, pid: app.out.progress(f"  … sync-models still running {elapsed}s · pid {pid}"),
     )
-    code, script_code = _map_models_exit(outcome.returncode)
+    code, script_code = _map_models_exit(outcome.returncode, outcome.timed_out)
     app.result = {
         "command": " ".join(argv),
         "exit_code": outcome.returncode,
@@ -1260,7 +1261,15 @@ def _models_sync(app: App) -> int:
         "log_path": outcome.log_path,
         "stdout_tail": outcome.stdout_tail,
     }
-    if outcome.returncode:
+    if outcome.timed_out:
+        # R-AGE-002: the deadline was spent, so the child never reported a code and there is
+        # nothing to quote. Say what stopped it, and exit 5 the way `apply` does.
+        app.fail(
+            code,
+            f"sync-models timed out after {max(1, round(timeout))}s",
+            hint="kwisatz models sync --timeout <s>   ·   kwisatz logs sync-models",
+        )
+    elif outcome.returncode:
         app.fail(
             code,
             f"sync-models.py exited {outcome.returncode}"
@@ -1270,11 +1279,18 @@ def _models_sync(app: App) -> int:
     return code
 
 
-def _map_models_exit(code: int | None) -> tuple[int, int | None]:
-    """sync-models.py's 0/1/2 onto §9, keeping its own code for the caller (R-EXIT-001)."""
-    if code in (None, 0):
-        return Exit.OK, code
-    return (Exit.PREREQUISITE, code) if code == 1 else (Exit.TASK_FAILED, code)
+def _map_models_exit(code: int | None, timed_out: bool = False) -> tuple[int, int | None]:
+    """sync-models.py's 0/1/2 onto §9, keeping its own code for the caller (R-EXIT-001).
+
+    The timeout is decided *before* the code, because it is the reason the code is missing:
+    a killed child reported nothing, and `None` used to read as "no failure", so `models sync
+    --timeout` answered 0 / `ok: true` about a script the CLI had just stopped.
+    """
+    if timed_out:
+        return Exit.HEALTH, None
+    if code:
+        return (Exit.PREREQUISITE, code) if code == 1 else (Exit.TASK_FAILED, code)
+    return Exit.OK, code
 
 
 def _models_status(app: App, sync: bool) -> int:
@@ -1351,16 +1367,17 @@ def cmd_run(app: App) -> int:
             app.out.result("    " + command)
         return Exit.OK
     repo.ensure_work()
+    timeout = float(getattr(app.args, "timeout", 3600) or 3600)
     with repoio.held(repo, float(getattr(app.args, "lock_timeout", 0) or 0)):
         outcome = runner.run_task(
             task,
             root=repo.path,
             extra_env=_env_overrides(app),
             log_path=None,
-            timeout=float(getattr(app.args, "timeout", 3600) or 3600),
+            timeout=timeout,
             inherit_stdio=True,
         )
-    code, script_code = _map_task_exit(outcome.returncode)
+    code, script_code = _map_task_exit(outcome.returncode, outcome.timed_out)
     app.result = {
         "target": target.name,
         "command": command,
@@ -1368,15 +1385,37 @@ def cmd_run(app: App) -> int:
         "duration_ms": outcome.duration_ms,
     }
     if code:
-        app.fail(code, f"{target.name} exited {script_code}", target=target.name, hint=f"kwisatz logs {target.name}")
+        # A killed script has no code to name, so the message has to say what stopped it —
+        # `run` shares apply's wording (§5.2) so one answer covers both commands.
+        if outcome.timed_out:
+            app.fail(
+                code,
+                f"{target.name} timed out after {max(1, round(timeout))}s",
+                target=target.name,
+                hint=f"kwisatz run {target.name} --timeout <s> · kwisatz logs {target.name}",
+            )
+        else:
+            app.fail(
+                code,
+                f"{target.name} exited {script_code}",
+                target=target.name,
+                hint=f"kwisatz logs {target.name}",
+            )
     return code
 
 
-def _map_task_exit(code: int | None) -> tuple[int, int | None]:
-    """A script's 0/1/2 onto §9, with 2 surfaced as 1 + `script_exit_code` (R-EXIT-001)."""
-    if code in (None, 0):
-        return Exit.OK, code
-    return Exit.TASK_FAILED, code
+def _map_task_exit(code: int | None, timed_out: bool = False) -> tuple[int, int | None]:
+    """A script's 0/1/2 onto §9, with 2 surfaced as 1 + `script_exit_code` (R-EXIT-001).
+
+    A spent deadline is checked first for the same reason `apply` checks it first (R-AGE-002):
+    the process group is gone without a status, and `None` is not "exited fine", it is "never
+    told us". `run` answered 0 and `ok: true` for a script it had just killed.
+    """
+    if timed_out:
+        return Exit.HEALTH, None
+    if code:
+        return Exit.TASK_FAILED, code
+    return Exit.OK, code
 
 
 def _none():

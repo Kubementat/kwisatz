@@ -487,6 +487,31 @@ def test_run_reports_exit_1_and_keeps_the_script_code(work):
     assert doc(result)["result"]["script_exit_code"] == 2
 
 
+def test_run_reports_a_spent_timeout_as_health(work):
+    """R-AGE-002 / §5.2: `--timeout` killed the script, so `run` answers 5 exactly like `apply`.
+
+    `run_task` returns `returncode=None` with `timed_out=True`, and `_map_task_exit` read the
+    missing code as "no failure": `run slow --timeout 3` exited 0 with `ok: true` and a null
+    `script_exit_code`, for a process group the CLI had just killed. `apply` got this verdict in
+    4f33a43; the same check never reached this command.
+    """
+    script = work.path / "tasks" / "slow-run.sh"
+    script.write_text("#!/usr/bin/env bash\nsleep 30\n")
+    script.chmod(0o755)
+    result = run_cli(
+        "run", "slow-run", "--timeout", "2", "--json", "--repo", str(work.path), repo=work.path
+    )
+    assert result.returncode == 5, (result.stdout, result.stderr)
+    body = doc(result)
+    assert body["ok"] is False, body
+    assert body["result"]["script_exit_code"] is None, "the script never got to report a code"
+    assert "timed out" in body["errors"][0]["message"], body["errors"]
+    # the same verdict without --json: `app.fail` is what keeps exit 5 from leaving a silence
+    plain = run_cli("run", "slow-run", "--timeout", "2", "--repo", str(work.path), repo=work.path)
+    assert plain.returncode == 5, plain.stderr
+    assert "timed out" in plain.stderr, plain.stderr
+
+
 def test_a_single_failing_target_says_nothing_about_remaining_scripts(work):
     """The last target in the run has nothing after it; "remaining 0" was pure noise."""
     stub(work.path, "stub-a", code=1)
