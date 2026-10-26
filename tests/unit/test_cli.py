@@ -252,6 +252,52 @@ def test_a_failed_apply_leaves_the_output_in_the_log(work):
     assert "port 9292 already in use" in "\n".join(doc(shown)["result"]["lines"])
 
 
+def test_logs_follow_is_bounded_by_timeout_and_never_prints_a_traceback(work):
+    """R-OPS-005: `-f` is bounded by `--timeout`. Bounded is not the same thing as crashed.
+
+    `logsio.stream()` passed the follow to `subprocess.run(timeout=…)` and nobody caught the
+    `TimeoutExpired`, so a follow that reached its deadline ended in a Python traceback and exit
+    `1`. Only the non-JSON path was affected, because `capture()` swallows the same exception.
+
+    The fake `docker` is what makes a compose source exist without a daemon: discovery asks for
+    `info --format`, `compose ls` and `ps -a`, and every other call — the follow is one — sleeps,
+    exactly as `compose logs --follow` does while a stack is quiet.
+    """
+    stack = work.path / "srv" / "stub-a"
+    stack.mkdir(parents=True)
+    compose = stack / "docker-compose.yml"
+    compose.write_text("services: {}\n")
+    shim = work.path / "bin"
+    shim.mkdir()
+    docker = shim / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1 $2" in\n'
+        '  "info --format") echo 29.0 ;;\n'
+        '  "compose ls") echo \'[{"Name":"stub-a","ConfigFiles":"__COMPOSE__"}]\' ;;\n'
+        '  "ps -a") echo \'{}\' ;;\n'
+        # exec, so the sleeping process *is* the child: subprocess.run kills it at the bound
+        # instead of leaving an orphaned `sleep` behind in the test session
+        "  *) exec sleep 30 ;;\n"
+        "esac\n".replace("__COMPOSE__", str(compose))
+    )
+    docker.chmod(0o755)
+    result = run_cli(
+        "logs",
+        "stub-a",
+        "--follow",
+        "--timeout",
+        "2",
+        "--repo",
+        str(work.path),
+        repo=work.path,
+        env={"PATH": f"{shim}:/usr/bin:/bin"},
+    )
+    assert "Traceback" not in result.stderr, result.stderr[-500:]
+    assert result.returncode == 0, result.stderr
+    assert "--timeout" in result.stderr, "the human answer must say the bound ended the follow"
+
+
 def test_a_timeout_exits_health_not_task_failed(work):
     """R-AGE-002: a killed run is 5, so a caller does not retry it as a script bug."""
     script = work.path / "tasks" / "stub-sleep.sh"

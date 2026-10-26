@@ -1198,6 +1198,13 @@ def cmd_logs(app: App) -> int:
         return Exit.OK
     app.out.progress(source.description)
     done = logsio.stream(argv, timeout)
+    if done.returncode is None:
+        # R-OPS-005: the deadline is how a bounded follow is *meant* to end — the operator got
+        # the stream they asked for and it stopped. `--json` already answers 0 for this same
+        # request (`capture()` swallows the timeout), and 5 would call a healthy stack unhealthy
+        # because nobody wanted a verdict. Say it on stderr, where progress lines belong.
+        app.out.warning(f"stopped after {max(1, round(timeout))}s — --timeout bounds a follow")
+        return Exit.OK
     return Exit.OK if done.returncode == 0 else Exit.TASK_FAILED
 
 

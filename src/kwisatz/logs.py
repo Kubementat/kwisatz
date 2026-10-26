@@ -85,8 +85,18 @@ def tail(path: Path, lines: int) -> list[str]:
 
 
 def stream(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
-    """Pass the log tool's stdout straight through (R-OUT-004: do not re-format logs)."""
-    return subprocess.run(argv, timeout=timeout, check=False)
+    """Pass the log tool's stdout straight through (R-OUT-004: do not re-format logs).
+
+    `subprocess.run` answers a spent deadline by raising, and nobody caught it: the follow the
+    spec promises (R-OPS-005: "`-f` is bounded by `--timeout`") ended in a traceback. The bound
+    is reported the same way `exec.RunResult` reports it — a process that finished without ever
+    handing us a code (`returncode=None`) — because that is the truth, and `cmd_logs` decides
+    what it means for the exit code.
+    """
+    try:
+        return subprocess.run(argv, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(argv, returncode=None)
 
 
 def stream_argv(source: LogSource, *, tail: int | None, since: str | None, follow: bool) -> list[str]:
