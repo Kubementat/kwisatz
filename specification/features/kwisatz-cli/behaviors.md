@@ -178,7 +178,10 @@ compose stack or a unit.
 `status` ∈ `applied | skipped | failed | blocked | needs-attention | not-run`. Env values are
 masked (`***`) unless `--reveal` is passed, which is itself announced. `--events` prefixes the
 document with NDJSON step lines; `kwisatz run` is the documented exception whose stdout
-belongs to the script.
+belongs to the script. `run` writes the same per-target file `apply` does
+(`logs/kwisatz-<ts>-<target>.log`) and reports it in `log_path`, so its own failure hint
+(`kwisatz logs <target>`) has something to read — an escape hatch that leaves no trace makes
+the next command a dead end.
 
 ## Behavior 7 — exit codes
 

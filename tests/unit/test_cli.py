@@ -639,6 +639,33 @@ def test_run_reports_exit_1_and_keeps_the_script_code(work):
     assert doc(result)["result"]["script_exit_code"] == 2
 
 
+def test_a_failed_run_leaves_the_output_in_the_log(work):
+    """Ticket 4: `run`'s own hint points at `kwisatz logs <target>`, so that file has to exist.
+
+    `cmd_run` passed `log_path=None`, so a run left nothing behind and the documented recovery
+    path answered "no logs for 'stub-d': no stack, no unit, no apply log" — a dead end at exactly
+    the moment it matters. `run` now writes the file `apply` already writes, named the same way
+    (`logs/kwisatz-<ts>-<target>.log`), so the hint the operator was given resolves.
+    """
+    script = work.path / "tasks" / "stub-d.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\necho 'doing work'\necho 'port 9292 already in use' >&2\nexit 1\n"
+    )
+    script.chmod(0o755)
+    failed = run_cli("run", "stub-d", "--repo", str(work.path), repo=work.path)
+    assert failed.returncode == 1, failed.stderr
+    shown = run_cli("logs", "stub-d", "--json", "--repo", str(work.path), repo=work.path)
+    assert shown.returncode == 0, shown.stderr
+    assert "port 9292 already in use" in "\n".join(doc(shown)["result"]["lines"]), shown.stdout
+    # and say where that file is: apply and `models sync` both report log_path, so `run` may not
+    # write a log and then hide the only field that would point a JSON caller at it
+    reported = run_cli("run", "stub-d", "--json", "--repo", str(work.path), repo=work.path)
+    assert reported.returncode == 1, reported.stdout
+    logged = Path(doc(reported)["result"]["log_path"])
+    assert logged.is_file(), doc(reported)["result"]
+    assert logged.name.startswith("kwisatz-") and logged.parent == work.path / "logs", logged
+
+
 def test_run_reports_a_spent_timeout_as_health(work):
     """R-AGE-002 / §5.2: `--timeout` killed the script, so `run` answers 5 exactly like `apply`.
 

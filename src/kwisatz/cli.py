@@ -1395,14 +1395,16 @@ def cmd_run(app: App) -> int:
     repo.ensure_work()
     app.out.verbose("  script " + command)
     timeout = float(getattr(app.args, "timeout", 3600) or 3600)
+    log = repo.logs / f"kwisatz-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{target.name}.log"
     with repoio.held(repo, float(getattr(app.args, "lock_timeout", 0) or 0)):
         outcome = runner.run_task(
             task,
             root=repo.path,
             extra_env=_env_overrides(app),
-            log_path=None,
+            log_path=log,
             timeout=timeout,
-            inherit_stdio=True,
+            echo_stdout=not app.out.json,
+            inherit_stdio=False,
         )
     code, script_code = _map_task_exit(outcome.returncode, outcome.timed_out)
     app.result = {
@@ -1410,6 +1412,9 @@ def cmd_run(app: App) -> int:
         "command": command,
         "script_exit_code": script_code,
         "duration_ms": outcome.duration_ms,
+        # the log `run` now writes, in the same place `apply` puts it, so the failure hint's
+        # `kwisatz logs <target>` has something to read and a JSON caller can go straight to it
+        "log_path": outcome.log_path,
     }
     if code:
         # A killed script has no code to name, so the message has to say what stopped it —
