@@ -1093,6 +1093,7 @@ _strix_assert_rendered() {
   done
   leftover="$(grep -oE '\$\{[A-Z_][A-Z0-9_]*_DEFAULT\}' "$rendered" 2>/dev/null | sort -u || true)"
   if [[ -n "$leftover" ]]; then
+    # shellcheck disable=SC2016  # the single quotes are the point: strip the literal ${ } characters
     err_msg "render: $(tr -d '${}\n' <<<"$leftover") survived rendering — the template uses a key"
     err_msg "  the render list does not name. The wrapper would hand the engine that literal"
     err_msg "  instead of the number. Reconcile the template name with the task's export."
