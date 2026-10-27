@@ -9,6 +9,11 @@ To install one of them, prefer the CLI over the bare script — it applies the c
 resolves `setup-basics`). `kwisatz info <name>` shows the same `--help` text plus the target's
 resolved command, env keys and last apply.
 
+Because a task script cannot answer a password prompt (`stdin` is `/dev/null`), `kwisatz apply`
+settles sudo before the first script runs: your password once, up front, and the ticket held open
+for the rest of the run. `--no-sudo-warmup` opts out of both; see *Using the `kwisatz` CLI* in
+README.md.
+
 ### System & Infrastructure
 
 #### `setup-basics.sh`

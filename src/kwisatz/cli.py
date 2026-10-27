@@ -127,7 +127,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
         args=(("[TARGET]…", "target names; `traefik` resolves `setup-traefik`"),),
         flags=(
             Flag(("--keep-going",), "run every target, not only up to the first failure (exit 8)"),
-            Flag(("--no-sudo-warmup",), "do not refresh the sudo ticket before a multi-target run"),
+            Flag(("--no-sudo-warmup",), "do not prime or keep the sudo ticket alive"),
             Flag(("--events",), "NDJSON progress lines on stdout before the final document"),
         ),
         mutates=True,
@@ -405,16 +405,18 @@ def cmd_apply(app: App) -> int:
         if not wanted:
             for message in _config_changed(repo, config):
                 app.warn(message)
-        # §9: a box that cannot sudo without a prompt is a prerequisite, so say `4` before the
+        # §9: a box that cannot sudo without a prompt is a prerequisite, so settle it before the
         # first script runs instead of letting the deploy discover it. R-APP-013 hands the child
         # /dev/null stdin, where sudo falls back to getpass and dies with `termios.error` /
         # `EOFError` inside gevent: exit 1, a traceback on stderr, and a hint that says "retry
-        # this one target" about a box that can never do it. Answering those prompts is what
-        # `--interactive` is for, so that path stays exempt.
-        if not interactive:
-            _require_passwordless_sudo(app, targets, table)
-        if len(targets) > 1 and not getattr(app.args, "no_sudo_warmup", False):
-            _sudo_warmup(app)
+        # this one target" about a box that can never do it.
+        #
+        # This runs in *both* modes. `--interactive` is not exempt: it does not hand the deploy a
+        # way to answer a prompt either. The scripts get `/dev/null` on stdin and `sudo` reads a
+        # password from the controlling terminal, not from stdin — a script's own `read` prompt
+        # works over the inherited stdin, `sudo`'s does not. So priming is what makes the scripts
+        # able to escalate, whichever mode asked. Their other prompts still land on that stdin.
+        _prepare_sudo(app)
 
     for message in app.warnings:
         app.out.warning(message)
@@ -1510,43 +1512,118 @@ def _config_changed(repo: Repo, config) -> list[str]:
     ]
 
 
-def _require_passwordless_sudo(app: App, targets: list[planner.Target], table: dict) -> None:
-    """Stop a sudo-needing apply on a box that cannot sudo without a prompt (exit `4`).
+# a `sudo -v` prompt waits for a human, so it gets its own generous cap rather than the run's
+# `--timeout` — and it happens before the lock is taken, so an unanswered prompt cannot hold it
+SUDO_PRIMING_TIMEOUT = 300.0
 
-    Only the §6.5 host facts decide this, and the probe is not a policy: a cached `sudo -v`
-    ticket makes the same probe answer true, so the operator who did the documented thing is not
-    stopped. Everywhere else the `_sudo_warmup` warning stays the honest answer, because a target
-    that never calls sudo should not be held hostage by this box's sudoers.
+SUDO_HINT = (
+    "run it from your own login terminal, the one you primed with `sudo -v`"
+    "   ·   or make the ticket session-independent: `Defaults timestamp_type=global` in /etc/sudoers.d"
+)
+
+
+#: the daemon thread below is per-process, and one apply may call this more than once
+_keepalive_lock = threading.Lock()
+_keepalive_running = False
+
+
+def _prepare_sudo(app: App) -> None:
+    """§9 + R-SAFE-006: kwisatz needs sudo, so get the ticket now and hold it open.
+
+    No task script can ask for the password itself: `exec.py` runs them with `/dev/null` on stdin,
+    and sudo reads a password from the controlling terminal rather than from stdin. Every task
+    script escalates (50 of 58 call `sudo` directly, the rest through `lib/helpers.sh`), so sudo
+    is a *prerequisite of the run* rather than a fact to declare per target — that is why nothing
+    here consults the §6.5 table. The CLI asks the operator once, on this terminal; a
+    `SUDO_ASKPASS` they export answers *this* prompt, and `--json` never blocks a machine consumer
+    on a human.
+
+    Then the probe is repeated the way a script would make it (`checks.child_sudo_works`), because
+    sudo keys the ticket on the terminal and the session id and the deploy is spawned in its own
+    process group — a ticket this process can see is not automatically one a script can use, and
+    that is the one failure asking again cannot fix, so it gets its own message.
     """
-    if not checks.requires_sudo(targets, table) or checks.has_sudo():
+    off = bool(getattr(app.args, "no_sudo_warmup", False))
+    if checks.sudo_ticket_for_scripts():
+        if not off:
+            _keep_sudo_alive()
         return
-    names = [t.name for t in targets if checks.facts_of(table, t.name).get("sudo")]
-    where = "sudo is not installed" if shutil.which("sudo") is None else "`sudo -n true` fails here"
+
+    if shutil.which("sudo") is None:
+        why = "sudo is not installed"
+    elif checks.has_sudo():
+        why = (
+            "this session already holds a ticket but a task script still has to ask for the password"
+            " — sudo keys the ticket on the terminal and the session id, and this apply is running"
+            " in neither"
+        )
+    elif off:
+        why = "sudo was left untouched (--no-sudo-warmup)"
+    else:
+        why = _sudo_prime(app)
+        if checks.sudo_ticket_for_scripts():
+            _keep_sudo_alive()
+            return
+        if why is None:
+            why = (
+                "sudo accepted the password for this session, but a task script started the way the"
+                " deploy starts them still has to ask for it"
+            )
     raise CliError(
         Exit.PREREQUISITE,
-        f"{', '.join(names)} needs passwordless sudo and {where} — its scripts get /dev/null "
-        f"stdin, so there is nowhere to ask for the password",
-        target=names[0],
-        hint="run `sudo -v` in this shell first   ·   kwisatz apply <t> --interactive",
+        f"kwisatz needs sudo and {why} — the task scripts get /dev/null stdin, so there is nowhere "
+        f"for them to answer a prompt",
+        hint=SUDO_HINT,
     )
 
 
-def _sudo_warmup(app: App) -> None:
-    """R-SAFE-006: refresh the ticket once, then keep it alive for a long apply.
+def _sudo_prime(app: App) -> str | None:
+    """Ask for the password once, through sudo's own prompt, and return why that failed.
 
-    The CLI asks `sudo` nothing more than this — the task scripts remain the only thing that
-    mutates the machine (R-SAFE-003). A 20-minute apply must not die on an expired credential
-    in script 14, so the keep-alive is a daemon thread that exits with the process.
+    The password goes from that prompt to sudo: it never enters this process, a pipe, or argv, and
+    nothing is written to disk. A `SUDO_ASKPASS` the operator exports is honoured, because that is
+    the only way to answer without a terminal. `--json` never prompts — a consumer that gets `4`
+    and the documented hint is better served than a run that blocks on a human.
     """
+    if shutil.which("sudo") is None:
+        return "sudo is not installed"
+    askpass = bool(os.environ.get("SUDO_ASKPASS"))
+    if not askpass and (app.out.json or not sys.stdin.isatty()):
+        return "no terminal is attached to ask on"
+    argv = ["sudo", "-A", "-v"] if askpass else ["sudo", "-v"]
+    try:
+        done = subprocess.run(
+            argv,
+            capture_output=askpass,
+            text=True,
+            timeout=SUDO_PRIMING_TIMEOUT,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return "the sudo prompt timed out"
+    except OSError:
+        return "sudo could not be run"
+    if done.returncode == 0:
+        return None
+    if askpass:
+        return "SUDO_ASKPASS did not yield a password sudo accepted"
+    return "sudo rejected the password"
+
+
+def _keep_sudo_alive() -> None:
+    """R-SAFE-006: keep the ticket alive while this apply runs — `sudo -n true`, no privilege use.
+
+    It starts whenever the run has a usable ticket, so a single `setup-docker` cannot pass sudo's
+    `timestamp_timeout` in the middle of its own script. It is a daemon thread and dies with the
+    process; the CLI still asks sudo for nothing else (R-SAFE-003).
+    """
+    global _keepalive_running
     if not shutil.which("sudo"):
         return
-    probe = subprocess.run(["sudo", "-n", "true"], capture_output=True, text=True, timeout=15, check=False)
-    if probe.returncode != 0:
-        app.warn(
-            "sudo needs a password — run `sudo -v` in this shell first, "
-            "or scripts that call sudo will fail on a closed stdin"
-        )
-        return
+    with _keepalive_lock:
+        if _keepalive_running:
+            return
+        _keepalive_running = True
     threading.Thread(target=_sudo_keepalive, daemon=True).start()
 
 

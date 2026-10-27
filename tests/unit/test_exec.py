@@ -7,6 +7,7 @@ log file with a real mode.
 
 from __future__ import annotations
 
+import os
 import stat
 import sys
 
@@ -94,6 +95,25 @@ def test_echo_stdout_false_keeps_the_output_out_of_stdout(capsys, tmp_path):
         task([sys.executable, "-c", "print('quietly')"]), root=tmp_path, echo_stdout=False, timeout=30
     )
     assert "quietly" not in capsys.readouterr().out
+
+
+def test_a_task_script_stays_in_the_session_that_primed_sudo(tmp_path):
+    """sudo caches the ticket per session, so leaving the session silently costs the run its password.
+
+    `exec.OWN_PGID` must give the child its own process group — the timeout below depends on it —
+    without calling `setsid()`.
+    """
+    result = runner.run_task(
+        task([sys.executable, "-c", "import os;print(os.getsid(0))"]), root=tmp_path, timeout=30
+    )
+    assert int(result.stdout_tail[-1]) == os.getsid(0)
+
+
+def test_a_task_script_gets_its_own_process_group(tmp_path):
+    result = runner.run_task(
+        task([sys.executable, "-c", "import os;print(os.getpgid(0))"]), root=tmp_path, timeout=30
+    )
+    assert int(result.stdout_tail[-1]) != os.getpgid(0)
 
 
 def test_timeout_kills_the_whole_process_group(tmp_path):

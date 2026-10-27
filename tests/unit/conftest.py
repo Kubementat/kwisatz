@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -101,8 +102,10 @@ def stub(repo: Path, name: str, *, kind: str = "sh", code: int = 0) -> Path:
 
 def run_cli(*args: str, repo: Path | None = None, env: dict | None = None, timeout: int = 60) -> subprocess.CompletedProcess:
     """The CLI, as an operator runs it: real process, real exit code."""
+    stub = _stub_sudo_dir()
     environ = {
-        "PATH": f"/usr/bin:/bin:/usr/sbin:/sbin:{Path.home() / '.local' / 'bin'}",
+        # the stub comes first so no verdict here depends on the sudoers of the machine running it
+        "PATH": f"{stub}:/usr/bin:/bin:/usr/sbin:/sbin:{Path.home() / '.local' / 'bin'}",
         "HOME": str(repo or Path.cwd()),
         "PYTHONPATH": str(REPO_ROOT / "src"),
         "PYTHONUTF8": "1",
@@ -119,6 +122,22 @@ def run_cli(*args: str, repo: Path | None = None, env: dict | None = None, timeo
         cwd=str(repo or Path.cwd()),
         check=False,
     )
+
+
+def _stub_sudo_dir() -> Path:
+    """A `sudo` that already has its ticket, so an apply never depends on this box's sudoers.
+
+    §9 made sudo a prerequisite of every apply (R-SAFE-006), so a developer whose `sudo` wants a
+    password would otherwise watch unrelated apply tests exit 4. One test wants the opposite
+    verdict; it writes its own `sudo` and puts that directory first on PATH.
+    """
+    stub = Path(tempfile.gettempdir()) / "kwisatz-unit-sudo"
+    stub.mkdir(exist_ok=True)
+    script = stub / "sudo"
+    if not script.is_file():
+        script.write_text("#!/bin/sh\nexit 0\n")
+        script.chmod(0o755)
+    return stub
 
 
 def _forward_coverage(environ: dict) -> None:

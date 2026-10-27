@@ -35,5 +35,5 @@ host:
   setup-tensorfold-spark-qwen38-27b: {gpu: true, docker: true}
   setup-nvidia-container: {gpu: true}
   setup-traefik: {docker: true}
-  setup-docker: {sudo: true}
-  configure-firewall: {sudo: true}
+  # sudo is deliberately absent: every task script escalates, so it is a prerequisite of the
+  # run (R-SAFE-006) and not something to declare per target.

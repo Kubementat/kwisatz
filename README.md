@@ -66,7 +66,7 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    git clone https://github.com/Kubementat/kwisatz.git
    cd kwisatz
    ```
-2. **Make sure you have sudo rights** - all scripts call `sudo` where required. Install [uv](https://docs.astral.sh/uv/) (the only prerequisite of the orchestrator): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+2. **Make sure you have sudo rights** - all scripts call `sudo` where required, and `kwisatz apply` asks for the password once up front when your `sudo` needs one. Install [uv](https://docs.astral.sh/uv/) (the only prerequisite of the orchestrator): `curl -LsSf https://astral.sh/uv/install.sh | sh`
 3. **Copy the example configurations** and edit it to enable the services and models you want:
    ```bash
    cp machine-config.yml.example machine-config.yml
@@ -265,9 +265,29 @@ uv run pyinfra @local deploy.py -y -vvv --data select=traefik  # = ./kwisatz app
 - No log file is written — append `2>&1 | tee apply.log` when you want one.
 - **`apply` echoes every command line** (it runs pyinfra at `-vvv`, the only level that streams task output). Configured `env:` values are printed as `export KEY=*MASKED*` — pyinfra masks them and executes the real value — but script names, `args:` and all task output are echoed verbatim. Treat `machine-config.yml` as a public file anyway: it is read as plain text by anything on the box, so keep credentials in the `/srv/<service>/.env` files the task scripts manage, not in an `env:` block.
 - Every task runs with `INTERACTIVE=false` and `stdin=/dev/null`, so a stray prompt fails fast instead of hanging. When a script must prompt, ask for it explicitly: `./kwisatz apply forgejo --interactive` hands the script your terminal (it needs a TTY) and keeps the rest of the contract. Running the script by hand — `INTERACTIVE=true tasks/setup-forgejo.sh` — still works, but it skips the config's `env:`/`args:` and the ordering, which is why the CLI exists. A per-script `env:` entry `INTERACTIVE: "true"` also overrides the default, with stdin left as `/dev/null`.
+- **Sudo is settled once, before the first script.** Every task script escalates with `sudo`, and it
+  cannot ask you for the password: the deploy runs with `stdin=/dev/null`, and `sudo` reads a
+  password from the controlling terminal rather than from stdin. `apply` therefore checks the ticket
+  the same way a script would and, if it is missing, asks you once with `sudo -v`, on your own
+  terminal — then holds it open for the rest of the run (`sudo -n true` every 3 minutes, because a
+  long single install used to expire mid-script). Nothing is stored: the password goes from sudo's
+  prompt into sudo, never into a
+  process, a pipe, `argv`, or a file. `--json` runs never prompt (they get the verdict),
+  `--no-sudo-warmup` leaves sudo alone, and an exported `SUDO_ASKPASS` answers this prompt when no
+  terminal is attached. The scripts run in their own *process group* but the *same session* as your
+  terminal — the group is what the timeout kills, and the session is what lets the ticket you
+  primed reach them. If no ticket can be had the run stops with exit `4` and the reason — no
+  terminal to ask
+  on, a refused password, or sudo holding a ticket the scripts cannot see. That last one is not
+  fixed by `sudo -v` again: run `apply` from the login terminal that primed it, or make the ticket
+  session-independent with `Defaults timestamp_type=global` in `/etc/sudoers.d`. `--interactive`
+  does not change any of this: it gives a script your stdin, which is enough for its own `read`
+  prompt but not for `sudo`'s.
 - **What the task script sees in its environment**: pyinfra exports *only* `INTERACTIVE=false` plus that script's `env:` block (`export KEY=value && bash tasks/<name>.sh` — `python tasks/<name>.py` for a Python task), and it does not merge `os.environ` into that list — but the command still runs as a child of the shell that started the run, so the script also inherits the ambient environment (`PATH`, `HOME`, anything you export yourself). `deploy.py` drops `VIRTUAL_ENV` and the venv's `bin` from `PATH` before handing off, so tasks use the system `python3`/`pip` instead of the orchestrator's venv. A per-script `env:` therefore adds and overrides variables; it never hides the ambient ones, and it always wins over `INTERACTIVE=false`.
 
 An unparsable `machine-config.yml` makes `kwisatz status` exit `3`, where the raw pyinfra deploy
+exited `1`. The CLI's exit codes are a contract — script against `./kwisatz <cmd> --json`, and see
+`specification/features/kwisatz-cli/behaviors.md` § Behavior 7.
 
 ---
 
@@ -481,7 +501,7 @@ There are two ways to customize the setup:
 ---
 
 ## Troubleshooting & FAQ
-1. **`sudo: command not found`** - Ensure you run the scripts on a system where `sudo` is installed (Ubuntu default). You must have a user with sudo privileges.
+1. **`sudo: command not found`** - Ensure you run the scripts on a system where `sudo` is installed (Ubuntu default). You must have a user with sudo privileges. If `apply` exits `4` on the sudo prerequisite, run `sudo -v` in this shell and repeat it. The password itself is asked for once by `apply` before the first script runs. If `apply` says the ticket it found is not one the scripts can use, `sudo -v` here cannot fix that: run it from your login terminal, or set `Defaults timestamp_type=global` in `/etc/sudoers.d` so sudo stops keying the ticket on one session.
 2. **Docker fails to start** - After `setup-docker.sh`, verify group membership:
    ```bash
    groups $USER | grep docker && echo "User is in docker group"

@@ -404,18 +404,18 @@ def test_the_timeout_budget_is_the_commands_not_each_targets(work):
 
 
 def test_apply_needing_sudo_stops_at_four_instead_of_prompting(work):
-    """§9: a missing prerequisite is `4`. Before this, the deploy asked getpass on /dev/null.
+    """§9: a missing prerequisite is `4`, and it is about the box, not about the target.
 
-    The §6.5 table says `setup-docker` wants sudo, so the box either has passwordless sudo or the
-    operator cached a ticket. Neither is true here — and the only honest answer is to stop before
-    running anything, because pyinfra's stdin is /dev/null and `sudo` answers that with a getpass
-    that dies inside gevent (exit 1, a traceback, and a "retry this target" hint).
+    Before this the deploy asked getpass on `/dev/null`, inside a new session: exit 1, a traceback,
+    and a "retry this one target" hint for a box that can never do it. Now it is stopped up front,
+    with the reason, and nothing runs. The error names no target because every task script
+    escalates — sudo is a prerequisite of the run (R-SAFE-006).
     """
     script = work.path / "tasks" / "setup-docker.sh"
     script.write_text("#!/usr/bin/env bash\nsudo apt-get install -y docker.io\n")
     script.chmod(0o755)
     # a `sudo` that always asks for a password, first on PATH, so the verdict does not depend on
-    # the sudoers of the machine running this test
+    # the sudoers of the machine running this test (the fixture's stub would say the opposite)
     bindir = work.path / "bin"
     bindir.mkdir()
     fake = bindir / "sudo"
@@ -427,8 +427,8 @@ def test_apply_needing_sudo_stops_at_four_instead_of_prompting(work):
     )
     assert result.returncode == 4, result.stderr
     body = doc(result)
-    assert body["errors"][0]["target"] == "setup-docker"
-    assert "--interactive" in body["errors"][0]["hint"]
+    assert "sudo" in body["errors"][0]["message"]
+    assert "sudo -v" in body["errors"][0]["hint"]
     assert "Traceback" not in result.stderr and "gevent" not in result.stderr, result.stderr
     assert not list(work.records.glob("*.txt")), "nothing may run on a box that cannot sudo"
     assert not (work.path / ".kwisatz" / "state.jsonl").exists()

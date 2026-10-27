@@ -445,6 +445,13 @@ Details: README "Backups" section, AUTOMATIONS.md → *Backup*, spec
 
 - **`uv not found`**: Install uv: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - **`yq not found`** (from a task script): Run `setup-basics` first — it installs `yq`
+- **`apply` exits `4` on "kwisatz needs sudo"**: the task scripts cannot answer a password prompt
+  (`stdin` is `/dev/null`), so `apply` asks you once with `sudo -v` before the first script
+  and keeps the ticket alive for the run. If it could not ask — no terminal, or `--json` — run
+  `sudo -v` here and repeat. `--interactive` does not help with sudo: it hands the script your
+  stdin, not the controlling terminal `sudo` reads from. When the message instead says the ticket it
+  found is not one the scripts can use, repeating `sudo -v` cannot help: run `apply` from the login
+  terminal that primed it, or set `Defaults timestamp_type=global` in `/etc/sudoers.d`.
 - **Config file not found**: Copy `machine-config.yml.example` to `machine-config.yml`
 - **Docker group not active after install**: Run `newgrp docker` or log out/in
 - **Port conflict**: Change the port in `machine-config.yml` env vars for the affected service

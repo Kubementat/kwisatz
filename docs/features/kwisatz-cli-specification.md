@@ -571,9 +571,16 @@ Stable, documented, asserted in tests. Agents branch on these, not on message te
   (28 of the 58 task scripts implement it), never an invented tear-down.
 - **R-SAFE-005 (SHOULD)** — Before a full apply, warn when `machine-config.yml` changed since the
   last apply record and show the diff of keys.
-- **R-SAFE-006 (SHOULD)** — `sudo` warm-up: for a run of > 1 target, call `sudo -v` once and keep
-  the ticket alive, so a 20-minute apply does not die on an expired credential in script 14.
-  `--no-sudo-warmup` disables.
+- **R-SAFE-006 (SHOULD)** — `sudo` ticket: every task script escalates, so the ticket is a
+  prerequisite of the *run*, not a fact to declare per target (the §6.5 table carries no `sudo:`
+  entry). `apply` probes it under the conditions a script runs under (own process group, same
+  session, `/dev/null` stdin), primes one `sudo -v` — or `sudo -A -v` with `SUDO_ASKPASS` — when it
+  is missing, and keeps it alive for the whole run so a 20-minute apply does not die on an expired
+  credential. `--json` never prompts, `--no-sudo-warmup` leaves sudo untouched, a ticket this
+  session holds that a task script still cannot use is its own failure (and is not answered by
+  asking again), and `--interactive` primes too, because a script never gets the controlling
+  terminal `sudo` reads from.
+
 - **R-SAFE-007 (MUST)** — Logs and state files under `logs/` and `.kwisatz/` (both gitignored) get
   mode `0600` / dir `0700`.
 

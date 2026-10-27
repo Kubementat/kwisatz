@@ -11,8 +11,11 @@ through a live docker daemon.
 
 from __future__ import annotations
 
+import subprocess
+from types import SimpleNamespace
+
 from kwisatz import checks
-from kwisatz import plan as planner
+from kwisatz import exec as runner
 
 
 def os_release(tmp_path, pretty: str, id_: str = "ubuntu", version: str = "26.04"):
@@ -105,12 +108,37 @@ def test_a_disabled_entry_cannot_conflict_and_a_non_port_env_cannot_either(tmp_p
     assert checks.port_conflicts(config, [Service("whatever", [8080])]) == []
 
 
-def test_requires_sudo_reads_only_the_host_map_it_is_given():
-    """Only the §6.5 map may stop a run, so only the map is consulted — even for a missing one."""
-    docker = planner.Target(name="setup-docker", kind="sh", configured=True, enabled=True)
-    quiet = planner.Target(name="setup-traefik", kind="sh", configured=True, enabled=True)
-    table = {"host": {"setup-docker": {"sudo": True}, "setup-traefik": {"docker": True}}}
-    assert checks.requires_sudo([docker, quiet], table) is True
-    assert checks.requires_sudo([quiet], table) is False
-    assert checks.requires_sudo([docker], {}) is False, "no table is no advice, not a guess"
-    assert checks.requires_sudo([docker], {"host": {"setup-docker": {"sudo": False}}}) is False
+def test_the_child_probe_copies_the_conditions_a_task_script_runs_under(monkeypatch):
+    """A ticket that reads valid here can be worthless there, so the probe must not be the same.
+
+    The assertion is written against `exec.OWN_PGID` rather than against a flag of its own, so the
+    probe cannot drift from how a deploy is actually spawned: that drift is what used to let the
+    check report a usable sudo that the scripts then could not use.
+    """
+    seen = {}
+
+    def run(argv, **kwargs):  # noqa: ANN001
+        seen["argv"] = list(argv)
+        seen.update(kwargs)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(checks.subprocess, "run", run)
+    assert checks.child_sudo_works() is True
+    assert seen["argv"] == ["sudo", "-n", "true"]
+    assert seen["stdin"] == subprocess.DEVNULL, seen
+    assert "start_new_session" not in seen, "a new session throws the primed ticket away"
+    assert {k: v for k, v in seen.items() if k not in ("argv", "timeout", "capture_output", "check")} == {
+        "stdin": subprocess.DEVNULL,
+        **runner.OWN_PGID,
+    }, seen
+
+
+def test_a_ticket_that_only_this_terminal_can_use_is_no_ticket_for_an_apply(monkeypatch):
+    """Ticket keyed to this session, and sudo still asks there: the doctor must not call that usable."""
+    monkeypatch.setattr(checks, "has_sudo", lambda: True)
+    monkeypatch.setattr(checks, "child_sudo_works", lambda: False)
+    assert checks.sudo_ticket_for_scripts() is False
+    sudo = next(c for c in checks.host_checks() if c.name == "sudo")
+    assert sudo.ok is False, "doctor must not call this a usable sudo"
+    assert "session" in sudo.detail
+

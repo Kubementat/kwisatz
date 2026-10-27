@@ -94,16 +94,31 @@ targets, configured ones in config order, the rest in the order given. Per targe
   get 40 s and 10 s, and the second one never starts when the deadline is already spent. It is
   then `not-run` (not `failed`, so the document's counts stay honest) and the run exits `5` even
   with `--keep-going` — that flag says *it finished*, and a run the deadline stopped did not.
-- a target the §6.5 table says needs sudo is stopped **before** the first script runs, with exit
-  `4`, when `sudo -n true` fails: the deploy gives its scripts `/dev/null` stdin, so `sudo` there
-  answers `getpass`, dies with `termios.error` → `EOFError` inside gevent, and leaves behind exit
-  `1` plus a "retry this one target" hint for a box that can never do it. A cached `sudo -v`
-  ticket makes the same probe pass. `--interactive` is exempt — answering the prompt is the point
-  of that flag — and a target the table does not mention is a warning, not a stop.
-- after the run, one line is appended to `.kwisatz/state.jsonl` with the per-target outcomes,
-  the repo SHA, and the config's sha + enabled map.
-- nothing is written before the scripts have exited, so a crashed run cannot look like a
-  success.
+- `sudo` is a prerequisite of every apply, declared nowhere and checked everywhere: 50 of the 58
+  task scripts call `sudo` directly and the rest reach it through `lib/helpers.sh`, so the §6.5
+  table carries **no** `sudo:` fact and the run does not wait for a target to need it. Before the
+  first script runs, `apply` verifies the ticket the way a script would and, when it is missing,
+  asks the operator once — `sudo -v` on this terminal, or `sudo -A -v` with `SUDO_ASKPASS`
+  exported — then holds it open with `sudo -n true` every 3 min for the rest of the run, one target
+  or twenty, because a long single install used to expire mid-script. The password travels from
+  sudo's own prompt into sudo — no process, pipe, `argv`, or file holds it. `--json` never prompts (a
+  machine consumer gets the verdict, not a blocked run), `--no-sudo-warmup` leaves sudo untouched,
+  and `--interactive` is *not* exempt: the child gets `/dev/null` on stdin, which is enough for a
+  script's own `read` prompt but not for `sudo`, which reads the password from the controlling
+  terminal — so priming is what makes either mode work. What `exec.py` does give the child is its
+  **own process group in the same session** (`OWN_PGID`): the process group is what the timeout
+  kills, and staying in the session is what lets `sudo`'s ticket — keyed on the terminal *and* the
+  session id — reach the scripts. It used to spawn a new session instead, and that silently spent
+  the operator's password on a shell that could never use it.
+- when no usable ticket exists the run stops **before** the first script with exit `4`. Letting it
+  run instead is what produced the old failure: `sudo` answers `getpass` on `/dev/null` stdin, dies
+  with `termios.error` → `EOFError` inside gevent, and leaves behind exit `1` plus a "retry this
+  one target" hint about a box that can never do it. The message says which answer applies — no
+  terminal to ask on, a refused password, sudo not installed, or sudo holding a ticket that the
+  scripts cannot see (`checks.child_sudo_works` is what catches that case rather than assuming it).
+  The last one is not fixable by asking again: run the apply from the login terminal that primed
+  the ticket, or make the ticket session-independent with `Defaults timestamp_type=global`.
+  `kwisatz doctor`'s `sudo` check reports the same two probes.
 
 ## Behavior 3 — the environment of a task
 

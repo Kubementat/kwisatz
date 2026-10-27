@@ -34,6 +34,21 @@ from . import orchestrator
 from .jsonio import TAIL_BYTES, TAIL_LINES
 from .orchestrator import Task
 
+#: How the deploy, and every task script under it, is spawned: **its own process group, in the
+#: same session**. Both halves matter, and they used to be one flag.
+#:
+#: The new process group is what lets the wall-clock timeout kill the whole tree, a
+#: `docker compose up` included (R-AGE-002), because `_kill()` below kills by process group.
+#: Staying in the session is the half that sudo cares about: a timestamp record stores the
+#: session id of whoever authenticated, and a record from another session is `TS_OLD`, so
+#: `start_new_session=True` threw the operator's primed ticket away and the scripts then failed
+#: with "a password is required" on a box that had just been unlocked. `checks.child_sudo_works()`
+#: probes this exact shape, which is why it imports this constant instead of re-describing it.
+if sys.version_info >= (3, 11):
+    OWN_PGID: dict[str, object] = {"process_group": 0}
+else:  # pragma: no cover — `process_group=` landed in 3.11, this repo still installs on 3.10
+    OWN_PGID = {"preexec_fn": os.setpgrp}
+
 
 @dataclass
 class RunResult:
@@ -184,7 +199,7 @@ def _execute(
             stderr=stderr,
             text=True,
             bufsize=1,
-            start_new_session=True,
+            **OWN_PGID,
         )
     except OSError:  # tasks/<name>.sh not executable, bash missing, …
         if handle:

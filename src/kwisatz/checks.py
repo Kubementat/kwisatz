@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from . import orchestrator
+from .exec import OWN_PGID
 
 DATA = Path(__file__).resolve().parent / "data"
 
@@ -77,6 +78,34 @@ def has_sudo() -> bool:
         return False
 
 
+def child_sudo_works() -> bool:
+    """Whether sudo answers without a prompt *under a task script's conditions*.
+
+    `has_sudo()` asks from this process, holding this terminal. A task script is spawned by
+    `exec.OWN_PGID` — its own process group, `/dev/null` on stdin, still the same session — and
+    sudo keys its ticket on the terminal *and* the session, so a ticket that reads valid here can
+    still be invisible there. The probe reuses that constant rather than describing the shape
+    again: if the two drift, the check stops meaning what the run does.
+    """
+    try:
+        done = subprocess.run(
+            ["sudo", "-n", "true"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            timeout=10,
+            **OWN_PGID,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
+def sudo_ticket_for_scripts() -> bool:
+    """The only sudo question that matters before an apply: can the scripts sudo unasked?"""
+    return has_sudo() and child_sudo_works()
+
+
 # The Ubuntu releases this repo's own VM suite boots, plus the one it used to run: a release
 # we have not tested is a warning, never a stop, because refusing would call our own green
 # matrix a failure (found on a `--release resolute` test VM, where `doctor` exited 4 while
@@ -107,8 +136,6 @@ def host_fact(name: str) -> tuple[bool, str]:
         return has_gpu(), "nvidia driver / nvidia-smi"
     if name == "docker":
         return has_docker(), "docker daemon reachable"
-    if name == "sudo":
-        return has_sudo(), "passwordless sudo"
     if name == "disk":
         free = shutil.disk_usage("/").free / 1e9
         return free > 20, f"{free:.0f} GB free on /"
@@ -116,7 +143,11 @@ def host_fact(name: str) -> tuple[bool, str]:
 
 
 def fact_advisories(targets, table: dict) -> list[str]:
-    """Host facts the §6.5 table says a target needs — warnings, never aborts."""
+    """Host facts the §6.5 table says a target needs — warnings, never aborts.
+
+    There is no `sudo:` fact here: every task script escalates, so sudo is a prerequisite of the
+    whole run (R-SAFE-006) rather than something to warn about per target.
+    """
     messages: list[str] = []
     for target in targets:
         for fact, want in facts_of(table, target.name).items():
@@ -131,21 +162,30 @@ def fact_advisories(targets, table: dict) -> list[str]:
     return messages
 
 
-def requires_sudo(targets, table: dict) -> bool:
-    """Whether the §6.5 `host:` map says these targets will call sudo on this machine.
+_SUDO_HINT = (
+    "run `sudo -v` in this shell — kwisatz apply primes the ticket itself when it can"
+    "   ·   if this apply has no terminal, run it from a login shell, or set"
+    " `Defaults timestamp_type=global` so the ticket stops being keyed to one session"
+)
 
-    The map is the only place that declaration exists, so it is the only thing that may stop a
-    run for it: a script that never touches `sudo` must not be held hostage by a box whose sudo
-    needs a password.
-    """
-    return any(bool(facts_of(table, target.name).get("sudo")) for target in targets)
+
+def _sudo_detail() -> str:
+    """Name the real cause: a ticket keyed to someone else is the failure the operator cannot see."""
+    if not has_sudo():
+        return "sudo -n true"
+    if not child_sudo_works():
+        return (
+            "sudo holds a ticket for this session, but not for the task scripts — it keys one on"
+            " the terminal and the session id, and this apply is running in neither"
+        )
+    return "sudo -n true"
 
 
 def host_checks() -> list[Check]:
     """The doctor's host set: OS, sudo, uv, python, docker, GPU, free disk, free `/srv`."""
     found = [
         os_check(),
-        Check("sudo", has_sudo(), "sudo -n true", "grant sudo, or run with a sudo-capable user", True),
+        Check("sudo", sudo_ticket_for_scripts(), _sudo_detail(), _SUDO_HINT, True),
         Check("python", _python_ok(), platform.python_version(), "kwisatz needs Python >= 3.10", True),
         Check("uv", shutil.which("uv") is not None, str(shutil.which("uv") or "not found"),
               "curl -LsSf https://astral.sh/uv/install.sh | sh", True),
