@@ -654,7 +654,7 @@ def config_of(app: App) -> str:
 
 
 def cmd_status(app: App) -> int:
-    """§6.3: a read-only superset of `run-setup.sh status`. Never runs a script."""
+    """§6.3: the read-only plan view. Never runs a script."""
     _, config, pl = app.load_plan()
     targets = planner.order_targets(list(planner.targets_from_plan(config, pl).values()), config)
     enabled = [t for t in targets if t.enabled]

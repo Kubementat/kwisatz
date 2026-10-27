@@ -322,7 +322,7 @@ Step by step:
    before giving up.
 3. **Copy.** The whole repository is copied with `scp -r` to
    `/home/<user>/kwisatz` on the VM (including `tasks/`, `lib/`, `templates/`,
-   `src/kwisatz/`, `kwisatz`, `run-setup.sh`, `deploy.py`), plus the active test config to
+   `src/kwisatz/`, `kwisatz`, `deploy.py`), plus the active test config to
    `/tmp/test-config.yml` (also covers generated/custom configs outside the
    repo).
 4. **Bootstrap.** `sudo apt-get install -y yq jq curl` on the VM (idempotent, a
@@ -332,8 +332,8 @@ Step by step:
 5. **Remote test run.** The in-VM runner
    ([`remote/run-tests.sh`](remote/run-tests.sh)) executes, in **config
    order**:
-   1. the **precheck** (`./kwisatz status --config <config>`; `run-setup.sh status` in
-      `--mode script`),
+   1. the **precheck** (`./kwisatz status --config <config>`, in both modes — the CLI is the
+      only entry point, and script mode differs only in what it runs afterwards),
    2. **phase `integration`** — every enabled target once,
    3. **phase `idempotency`** — every enabled target a second time.
 

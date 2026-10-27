@@ -276,8 +276,8 @@ fi
 # ── 1. Pre-flight ─────────────────────────────────────────────────────────────
 # Privilege arrives through sudo, so this script's normal invocation is a
 # sudo-capable user rather than a root shell. The one thing that must not happen
-# is a password prompt appearing in the middle of a run — that would hang a
-# run-setup.sh pass with nobody at the keyboard. So the credential is acquired
+# is a password prompt appearing in the middle of a run — that would hang an apply with
+# nobody at the keyboard. So the credential is acquired
 # here, once, before anything is written, and only when a terminal is attached:
 #   root already             → nothing to ask
 #   credential still valid   → nothing to ask

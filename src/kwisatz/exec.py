@@ -114,12 +114,11 @@ def run_deploy(
 ) -> RunResult:
     """One pyinfra deploy of one or more targets (`deploy.py -y -vvv --data select=…`).
 
-    This is how `kwisatz apply` runs a task: the same deploy `run-setup.sh apply` runs,
-    so the command, the environment and the `/dev/null` stdin are pyinfra's, not the
-    CLI's. pyinfra writes its whole report — including what the task script printed — to
-    *stderr*, which is what `run-setup.sh` does today: a piped `kwisatz apply` gets no
-    task output on stdout. The log copy under `log_path` is what makes that recoverable
-    (R-OUT-004), and `kwisatz logs <target>` reads it.
+    This is how `kwisatz apply` runs a task: it starts the pyinfra deploy, so the command,
+    the environment and the `/dev/null` stdin are pyinfra's, not the CLI's. pyinfra writes its
+    whole report — including what the task script printed — to *stderr*: a piped
+    `kwisatz apply` gets no task output on stdout. The log copy under `log_path` is what makes
+    that recoverable (R-OUT-004), and `kwisatz logs <target>` reads it.
     """
     return _execute(
         argv,
@@ -234,7 +233,7 @@ def _drain(proc, streams, handle, echo: bool, tail: deque[str], started: float, 
 
     A line goes to the terminal stream it arrived on — stdout to stdout (only when `echo`
     says the run is interactive enough to want it, R-JSON-001's stdout belongs to the
-    document otherwise), stderr to stderr, which is where `run-setup.sh` always put progress
+    document otherwise), stderr to stderr, which is where pyinfra has always put progress
     (R-OUT-002). The log gets both, which is what lets `kwisatz logs <target>` answer a failed
     deploy instead of printing nothing.
     """

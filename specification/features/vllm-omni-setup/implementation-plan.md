@@ -684,7 +684,7 @@ git commit -m "feat: add setup-vllm-omni.sh (Docker-based vLLM-Omni server)"
 - Modify: `machine-config.yml.example`
 
 **Interfaces:**
-- Consumes: the orchestrator (`run-setup.sh`) reads `.scripts.<name>.enabled/env/args`. Script key is `setup-vllm-omni` (filename without `.sh`).
+- Consumes: the orchestrator (`kwisatz` + `deploy.py`) reads `.scripts.<name>.enabled/env/args`. Script key is `setup-vllm-omni` (filename without `.sh`).
 - Produces: nothing consumed by later tasks.
 
 - [ ] **Step 1: Add the config entry**
@@ -711,7 +711,7 @@ Expected: no errors (warnings pre-existing in the file are acceptable; introduce
 Run:
 ```bash
 cp machine-config.yml.example /tmp/mc-omni.yml
-./run-setup.sh status --data config=/tmp/mc-omni.yml
+./kwisatz status --config /tmp/mc-omni.yml
 ```
 Expected: exit 0 and no `--> WARNING:` lines (requires `uv`; the orchestrator is a pyinfra deploy and no longer reads the config with `yq`). `status` lists **enabled** scripts only, so the `setup-vllm-omni` row shows up only after flipping `enabled: true` in the copy — the shipped example keeps it disabled.
 

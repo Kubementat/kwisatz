@@ -2,8 +2,8 @@
 
 Two entry points, one contract. The assertion is made where it matters: on what the
 *task script* receives in each path (argv, environment, stdin), plus the masked echo
-each path shows the operator. If a future change makes `kwisatz apply` install
-something subtly different from `run-setup.sh apply`, this file fails.
+each path shows the operator. If a future change makes the CLI path install something subtly
+different from the pyinfra path, this file fails.
 """
 
 from __future__ import annotations

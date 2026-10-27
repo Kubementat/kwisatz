@@ -253,7 +253,7 @@ max-model-len (when set), config path, and the API URL (`http://localhost:${VLLM
 ### Edge Cases
 
 - The orchestrator runs what the config lists: the script must be present in `tasks/` **and**
-  have a `.scripts.setup-vllm-omni` entry there; `./run-setup.sh status` lists the enabled entries
+  have a `.scripts.setup-vllm-omni` entry there; `./kwisatz status` lists the enabled entries
   (without the `.sh` suffix), so the config entry — not discovery — is what makes it appear.
 
 ---
@@ -264,7 +264,7 @@ max-model-len (when set), config path, and the API URL (`http://localhost:${VLLM
 2. `yamllint` passes on the edited `machine-config.yml.example`.
 3. `bash tasks/setup-vllm-omni.sh --help` prints usage and exits 0 (no Docker interaction).
 4. `bash tasks/setup-vllm-omni.sh --check` reports install status and exits 0.
-5. `./run-setup.sh status` lists `setup-vllm-omni` (with `enabled: true` in the config used).
+5. `./kwisatz status` lists `setup-vllm-omni` (with `enabled: true` in the config used).
 6. With no `VLLM_OMNI_MODEL`, a run generates `.env` + `docker-compose.yml`, pulls the image, and prints
    next-steps **without** starting a container.
 7. Idempotency: a second run without `--force` makes no changes and exits 0.

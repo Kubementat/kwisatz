@@ -11,7 +11,6 @@
 ```text
 repository root
 ├── kwisatz               # Entrypoint: `./kwisatz apply traefik`, `./kwisatz apply`, `status`…
-├── run-setup.sh          # DEPRECATED shim for one release: translates apply/status into the CLI
 ├── deploy.py             # pyinfra adapter: the engine — one operation per target, in config order
 ├── src/kwisatz/          # The CLI package: command table, plan, exec, checks, config, services
 │   ├── cli.py            # `kwisatz <command>` — dispatch, flags, exit codes, the JSON envelope
@@ -37,9 +36,9 @@ repository root
 The architecture follows a simple **linear model**:
 
 1. The user runs **the CLI**: `kwisatz apply` (everything enabled, in config order) or
-   `kwisatz apply <target>` (one service). `run-setup.sh apply/status` and
-   `uv run pyinfra @local deploy.py -y -vvv` still work — the first is a deprecated shim, the
-   second is pyinfra itself — but the CLI is the documented way in.
+   `kwisatz apply <target>` (one service). The only way past it is pyinfra itself
+   (`uv run pyinfra @local deploy.py -y -vvv`) — that is the engine, not a second entry point,
+   and the CLI is the documented way in.
 2. Both halves read the same `kwisatz.orchestrator` module, which decides *what* runs and
    *how*: the `.scripts.<name>` contract, the `enabled` spellings, `tasks/<name>.sh` versus
    `tasks/<name>.py`, and each task's command, env and stdin.
@@ -75,10 +74,10 @@ Two decisions worth knowing before you change something here:
   those two names collide, so the checkout keeps the executable at the root and the package
   under `src/`, which is also what lets `./kwisatz` work with `PYTHONPATH=src` before
   anything is installed.
-- **`run-setup.sh` is a deprecated shim** (R-ARCH-103): it translates `apply`/`status` and
-  `--data config=<file>` into the CLI's calls and execs `./kwisatz`, printing one DEPRECATED
-  line. It is deleted one release after this change, so anything still calling it keeps working
-  until then — and its exit codes become the CLI's, so `status` on a broken config exits `3`.
+- **The CLI is the only wrapper** (R-ARCH-103): there is no script in front of it. The old
+  `run-setup.sh` shim was translated away and deleted, so `apply`/`status` have one implementation
+  and one set of exit codes (`behaviors.md` §7) — `status` on a broken config exits `3`, where a
+  bare pyinfra run exited `1`.
 
 ## Components
 
@@ -88,11 +87,10 @@ Two decisions worth knowing before you change something here:
   Specification: `docs/features/kwisatz-cli-specification.md`; behaviors:
   `specification/features/kwisatz-cli/behaviors.md`.
 - **`deploy.py`** — the pyinfra deploy that actually executes the tasks. `kwisatz apply` starts
-  it per target (`-y -vvv --data select=`); `run-setup.sh` (and CI, or a bare
-  `uv run pyinfra @local deploy.py -y -vvv`) starts it once for the whole config. Which task
+  it per target (`-y -vvv --data select=`); a bare
+  `uv run pyinfra @local deploy.py -y -vvv` (or CI) starts it once for the whole config. Which task
   scripts run, and in what order, is defined by `machine-config.yml`; the contract itself lives
   in `kwisatz/orchestrator.py`, so the CLI and the deploy cannot drift.
-- **`run-setup.sh`** — DEPRECATED shim, `apply`/`status` → the CLI. Stays one release, then goes.
 
 ### Task Scripts
 - Each script is responsible for exactly one component.

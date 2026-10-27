@@ -627,7 +627,7 @@ Running `sync-models.py` twice in a row with an unchanged catalog:
 
 - Installing/updating llama-swap, pi, opencode, or the `hf` CLI (existing tasks).
 - Installing Python 3, PyYAML, or `ruff`.
-- Orchestrator (`run-setup.sh`) dispatch of the `.py` entrypoint — `run-setup.sh` currently
+- Orchestrator (the `kwisatz` CLI through `deploy.py`) dispatch of the `.py` entrypoint — that path currently
   maps task names to `tasks/<name>.sh`; adapting it (or providing a wrapper) is a separate
   follow-up and explicitly out of focus for this spec.
 - Managing llama-swap `matrix:`/`hooks:`/`apiKeys:` or any global llama-swap settings.

@@ -5,8 +5,8 @@
 > so a bug report can be settled without reading `src/`.
 >
 > Engine note: `kwisatz apply` runs `deploy.py`, one pyinfra deploy per target
-> (`--data select=<name>`). What the task script then receives is byte-for-byte what
-> `run-setup.sh apply` / `deploy.py` would give it, because it *is* `deploy.py` — enforced by
+> (`--data select=<name>`). What the task script then receives is byte-for-byte what a bare
+> `deploy.py` run gives it, because it *is* `deploy.py` — enforced by
 > `tests/unit/test_conformance.py` and `tests/unit/test_deploy_engine.py`. The direct script
 > run survives only for `--interactive` and `kwisatz run` (R-ARCH-101).
 
@@ -15,7 +15,7 @@
 `kwisatz` is a front end over the orchestrator that already installs the machine. It changes
 the interface, never the implementation: the task scripts under `tasks/` remain the only
 thing that mutates the box (R-SAFE-003), and `apply` reaches them through `deploy.py`, the same
-pyinfra deploy `run-setup.sh` used.
+pyinfra deploy a bare `uv run pyinfra @local deploy.py` run is.
 
 Two things make it useful rather than merely convenient:
 
@@ -77,7 +77,7 @@ targets, configured ones in config order, the rest in the order given. Per targe
 
 - each target is one pyinfra deploy of the checkout, so the command, the `env`, the `args`
   and the `/dev/null` stdin are `deploy.py`'s. pyinfra reports that deploy on **stderr**
-  (`-vvv`), which is what `run-setup.sh apply` always did — and that is why the log copy keeps
+  (`-vvv`), which is where pyinfra has always put it — and that is why the log copy keeps
   *both* streams of the child: `logs/kwisatz-<UTC-ts>-<target>.log` (mode `0600`, directory
   `0700`) is what `kwisatz logs <target>` reads after an exit `1`, and it would have nothing
   to say if only stdout were copied. What reaches your terminal is not crossed over: stdout on
@@ -259,7 +259,8 @@ machine it ships on.
    visible trade: pyinfra is a run-time prerequisite (`uv`, or the checkout's venv — otherwise
    exit `4`), a target costs ~1 s of deploy startup, and the script's output arrives on stderr.
    The gain: single-target and full-run apply cannot diverge, because they are the same deploy.
-   `run-setup.sh` is a deprecated shim for one release, then it goes.
+   The CLI is the only wrapper (R-ARCH-103): the `run-setup.sh` shim that used to front it has been
+   deleted, so nothing but pyinfra sits underneath.
 
 ## Verification
 

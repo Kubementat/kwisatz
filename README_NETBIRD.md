@@ -77,8 +77,8 @@ The script is idempotent and converges, but keep secrets out of `machine-config.
 ```
 
 ```bash
-./run-setup.sh status        # preview
-./run-setup.sh apply
+./kwisatz status        # preview
+./kwisatz apply
 ```
 
 For the routing peer, run the task directly — the setup key is a secret and must not

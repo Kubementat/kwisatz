@@ -23,9 +23,9 @@ This repo uses **two YAML configuration files**, each governing a different conc
 | `models.yml` | Which **LLMs** to download, serve, and wire into coding agents (model catalog) |
 
 The **orchestrator** — the `kwisatz` CLI planning `src/kwisatz/orchestrator.py`, executing it
-with the pyinfra deploy `deploy.py` — manages `machine-config.yml`. (`run-setup.sh` is a
-deprecated shim that just calls the CLI.) The
-**sync tool** (`tasks/sync-models.py`) manages `models.yml`. Together they turn a fresh Ubuntu
+with the pyinfra deploy `deploy.py` — manages `machine-config.yml`; the CLI is the only entry
+point.
+The **sync tool** (`tasks/sync-models.py`) manages `models.yml`. Together they turn a fresh Ubuntu
 box into a working local-LLM inference server.
 
 ## Workflow
@@ -110,8 +110,7 @@ kwisatz services               # what is running now, and whether it is healthy
 ```
 
 Prefer the CLI, and there is nothing to hedge: `apply` runs each target *through* `deploy.py`
-(`-y -vvv --data select=<target>`), which is exactly what `run-setup.sh apply` used to do — that
-shim is deprecated and prints a one-line pointer. The CLI and pyinfra read the same
+(`-y -vvv --data select=<target>`). The CLI and pyinfra read the same
 `src/kwisatz/orchestrator.py`, and a conformance test fails if the `(command, env, stdin)` triple
 ever diverges, so "run one service" and "provision the box" cannot install different things.
 The manual fallback is still `tasks/<name>.sh` (see `kwisatz run`).

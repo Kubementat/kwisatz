@@ -80,8 +80,7 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
    ./kwisatz status   # preview what's enabled, in run order
    ./kwisatz apply    # install all enabled services
    ```
-   Run `./kwisatz` without arguments to see the command map. `./run-setup.sh` still works and is
-   what an old CI job will call — it is a deprecated shim onto the CLI.
+   Run `./kwisatz` without arguments to see the command map.
 5. **Install one service only** — this is what the CLI is for, and it is the same code path,
    so you are not editing the config and hoping nothing else moved:
    ```bash
@@ -103,7 +102,7 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
 `kwisatz` is one command over the same orchestrator: it discovers what you can install, runs
 exactly one service through the sanctioned code path, and prints every result as JSON when an
 agent is asking. Nothing here is a second implementation of `apply`: each target is executed by
-`deploy.py`, the very pyinfra deploy `./run-setup.sh` used to drive — the CLI plans the run and
+`deploy.py`, the pyinfra deploy the CLI starts — the CLI plans the run and
 then starts the deploy, so a single-target apply cannot install something different from a full
 one (a conformance test asserts the `(command, env, stdin)` triple either way).
 
@@ -151,8 +150,8 @@ always used. When a script needs arguments the CLI cannot know, send them throug
 - **Orchestrator** — one engine. `kwisatz apply` / `./kwisatz apply <target>` plans the run, then
   executes each target with a pyinfra deploy of the checkout
   (`deploy.py -y -vvv --data select=<name>`), so the command, the environment and the stdin of
-  every task are the ones `[pyinfra](https://docs.pyinfra.com/en/3.x/) defines — the same deploy
-  `./run-setup.sh apply` drives. Both read `src/kwisatz/orchestrator.py`, which defines what runs,
+  every task are the ones [pyinfra](https://docs.pyinfra.com/en/3.x/) defines. Both read
+  `src/kwisatz/orchestrator.py`, which defines what runs,
   in what order, and with which environment, so nothing can drift. `kwisatz status` previews the
   plan; task output is streamed live and written whole to `logs/kwisatz-<ts>-<target>.log`
   (mode 0600).
@@ -249,21 +248,10 @@ default-deny around a port sshd is not listening on and the next reconnect
 cuts you off the machine. (`machine-config.yml.example` ships in this order —
 keep it when copying to `machine-config.yml`.)
 
-### Running the orchestrator by hand
+### Running the deploy by hand
 
-Use the CLI (`./kwisatz status` / `./kwisatz apply`). The commands below are what is under the
-hood: `run-setup.sh` is a deprecated shim that translates them into the CLI and will be deleted
-one release after this change; pyinfra itself stays, because it *is* the engine.
-
-```bash
-./run-setup.sh status   # List the enabled scripts, in run order (runs nothing)
-./run-setup.sh apply    # Install or update all enabled services
-./run-setup.sh apply --data config=path/to/other-config.yml  # Use a custom config file
-```
-
-It needs [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) and,
-on the first run, downloads pyinfra into `.venv/`. Everything after the subcommand goes to
-pyinfra, which can also be called directly:
+Use the CLI (`./kwisatz status` / `./kwisatz apply`). What is under the hood is pyinfra itself,
+called directly:
 
 ```bash
 uv run pyinfra @local deploy.py --dry                          # the whole plan, nothing executed
@@ -279,7 +267,7 @@ uv run pyinfra @local deploy.py -y -vvv --data select=traefik  # = ./kwisatz app
 - Every task runs with `INTERACTIVE=false` and `stdin=/dev/null`, so a stray prompt fails fast instead of hanging. When a script must prompt, ask for it explicitly: `./kwisatz apply forgejo --interactive` hands the script your terminal (it needs a TTY) and keeps the rest of the contract. Running the script by hand — `INTERACTIVE=true tasks/setup-forgejo.sh` — still works, but it skips the config's `env:`/`args:` and the ordering, which is why the CLI exists. A per-script `env:` entry `INTERACTIVE: "true"` also overrides the default, with stdin left as `/dev/null`.
 - **What the task script sees in its environment**: pyinfra exports *only* `INTERACTIVE=false` plus that script's `env:` block (`export KEY=value && bash tasks/<name>.sh` — `python tasks/<name>.py` for a Python task), and it does not merge `os.environ` into that list — but the command still runs as a child of the shell that started the run, so the script also inherits the ambient environment (`PATH`, `HOME`, anything you export yourself). `deploy.py` drops `VIRTUAL_ENV` and the venv's `bin` from `PATH` before handing off, so tasks use the system `python3`/`pip` instead of the orchestrator's venv. A per-script `env:` therefore adds and overrides variables; it never hides the ambient ones, and it always wins over `INTERACTIVE=false`.
 
-Called without a subcommand (or with an unknown one), `run-setup.sh` prints its usage to stderr and exits `2`; `-h`/`--help` prints it and exits `0`. Because it now execs the CLI, its exit codes are the CLI's — `status` on an unparsable config exits `3`, where plain pyinfra exited `1`. The same holds for `kwisatz`: see `specification/features/kwisatz-cli/behaviors.md` § Behavior 7.
+An unparsable `machine-config.yml` makes `kwisatz status` exit `3`, where the raw pyinfra deploy
 
 ---
 

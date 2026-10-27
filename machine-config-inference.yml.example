@@ -16,8 +16,8 @@
 #  10. setup-vllm.sh         — vLLM (OpenAI-compatible inference server, Docker)
 #  11. setup-monitoring.sh   — Monitoring stack (Prometheus + Grafana + Node Exporter + cAdvisor, Docker)
 #
-# NOTE: The orchestrator (run-setup.sh, a wrapper around the pyinfra deploy
-# deploy.py) executes the enabled scripts in the order they are listed in the
+# NOTE: `kwisatz apply` runs the enabled scripts through the pyinfra deploy
+# deploy.py, in the order they are listed in the
 # .scripts mapping of this file, and stops at the first failing script.
 #
 # `enabled` is a YAML boolean: `true` runs the script, `false` (or no `enabled`

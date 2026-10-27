@@ -1,7 +1,7 @@
 """`apply` runs its targets through `deploy.py`, not through a bare script run.
 
 That is the whole point of routing the CLI through pyinfra (§11.3, as revised): there is
-one execution engine, so `kwisatz apply traefik` and `run-setup.sh apply` cannot install
+one execution engine, so `kwisatz apply traefik` and the full `kwisatz apply` cannot install
 something subtly different. The assertions are evidence-shaped — the *task script* records
 its own ancestor chain, so the test reads who ran it instead of trusting what the CLI
 printed — plus the `--data select=` contract `deploy.py` now has to honour.

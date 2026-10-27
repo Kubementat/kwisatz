@@ -9,14 +9,14 @@ Automation scripts for installing and configuring a server or developer machine 
 - asks to understand, explain, or describe the repository
 - asks what services are available or which to install
 - asks how to configure or set up a machine
-- asks about the orchestrator, the `kwisatz` CLI, `run-setup.sh`, `deploy.py`, or `machine-config.yml`
+- asks about the orchestrator, the `kwisatz` CLI, `deploy.py`, or `machine-config.yml`
 - says anything like "help me", "what does this do", "show me", "guide me"
 
 For any request about using, understanding, explaining, configuring, or setting up this repo — including the `kwisatz` CLI, `machine-config.yml`, or which services exist — read and follow `skills/kwisatz-assistant/SKILL.md`. Do not answer from your own knowledge.
 
 ## Core Facts
 
-- entry point: the `kwisatz` CLI (`./kwisatz apply [target]`, `status`, `list`, `info`, `doctor`, `config`, `services`, `logs`, `run`, `commands --json`); it executes its targets **through** the pyinfra deploy `deploy.py` (`uv run pyinfra @local deploy.py -y -vvv [--data select=<name>]`), so there is one engine, not two. `run-setup.sh apply|status` is a deprecated shim onto the CLI (one release, then deleted); running `tasks/<name>.sh` by hand stays the manual fallback
+- entry point: the `kwisatz` CLI (`./kwisatz apply [target]`, `status`, `list`, `info`, `doctor`, `config`, `services`, `logs`, `run`, `commands --json`); it executes its targets **through** the pyinfra deploy `deploy.py` (`uv run pyinfra @local deploy.py -y -vvv [--data select=<name>]`), so there is one engine, not two. Running `tasks/<name>.sh` by hand stays the manual fallback
 - use `./kwisatz <cmd> --json` rather than scraping human output; the exit codes are a contract (`specification/features/kwisatz-cli/behaviors.md` §7)
 - systemd-based unix deployments and docker-based deployments; setup scripts generate `docker-compose.yml` for each service
 - `ufw` is the firewall on the target ubuntu server; `traefik` is the reverse proxy — integration examples: [setup-forgejo.sh](tasks/setup-forgejo.sh) and [setup-openwebui.sh](tasks/setup-openwebui.sh)

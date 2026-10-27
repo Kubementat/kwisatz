@@ -168,7 +168,7 @@ strix_kernel_release() {
 # behind. Better to fail with a message that names the missing thing.
 strix_require_docker() {
   command -v docker &>/dev/null \
-    || { error "docker is required — install it first (enable setup-docker in machine-config.yml, then ./run-setup.sh apply)"; return 1; }
+    || { error "docker is required — install it first (enable setup-docker in machine-config.yml, then ./kwisatz apply)"; return 1; }
   docker info &>/dev/null \
     || { error "Cannot reach the docker daemon — is it running? (systemctl status docker)"; return 1; }
 }

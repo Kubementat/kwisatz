@@ -251,7 +251,7 @@ fi
 info "Installer env overrides: ${INSTALLER_ENV_ARGS[*]}"
 
 # Run the installer — use `set +e` around it because the installer may prompt
-# for confirmation; under the orchestrator (run-setup.sh -> deploy.py) stdin is
+# for confirmation; under the deploy (`kwisatz apply` -> deploy.py) stdin is
 # /dev/null and INTERACTIVE=false, so a prompt hits EOF and fails fast instead of
 # hanging the run — and a missing tty is what makes the installer take its default.
 set +e

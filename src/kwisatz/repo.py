@@ -158,7 +158,7 @@ def deploy_argv(
 ) -> list[str]:
     """The command line of one deploy of `names` (all enabled entries when None).
 
-    `-y -vvv` is what `run-setup.sh apply` passes, and `--data config=` is passed every
+    `-y -vvv` is what every deploy needs, and `--data config=` is passed every
     time so a config outside the checkout is honoured; `--data select=` is what narrows
     the deploy to exactly the named targets. Keep it one place — the VM suite and every
     agent read this command out of the logs.

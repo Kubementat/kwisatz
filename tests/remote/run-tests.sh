@@ -142,18 +142,12 @@ jq -cn \
 echo "run-tests.sh: testing ${#SCRIPTS[@]} script(s) x 2 phases (timeout ${TIMEOUT_MIN}m each, mode=$MODE)"
 
 # ---------------------------------------------------------------------------
-# Precheck: the entry point must be able to read the test config
+# Precheck: the entry point must be able to read the test config. There is one entry
+# point in both modes — `kwisatz status` — script mode only differs in what it runs after.
 # ---------------------------------------------------------------------------
-
-if [[ "$MODE" == "cli" ]]; then
-  PRE_NAME="kwisatz status"
-  PRE_LOG="$OUT/logs/precheck-kwisatz-status.log"
-  ( cd "$WORKDIR" && ./kwisatz status --config "$CONFIG" ) > "$PRE_LOG" 2>&1
-else
-  PRE_NAME="run-setup.sh status"
-  PRE_LOG="$OUT/logs/precheck-run-setup-status.log"
-  ( cd "$WORKDIR" && ./run-setup.sh status --data config="$CONFIG" ) > "$PRE_LOG" 2>&1
-fi
+PRE_NAME="kwisatz status"
+PRE_LOG="$OUT/logs/precheck-kwisatz-status.log"
+( cd "$WORKDIR" && ./kwisatz status --config "$CONFIG" ) > "$PRE_LOG" 2>&1
 PRE_RC=$?
 record "$PRE_NAME" "precheck" "$PRE_RC" 0 "$PRE_LOG"
 echo "run-tests.sh: [PRECHECK] $PRE_NAME rc=$PRE_RC"
@@ -223,7 +217,7 @@ for phase in integration idempotency; do
           continue
         fi
 
-        # Env vars and args from the config (same values run-setup.sh would apply)
+        # Env vars and args from the config (same values `kwisatz apply` would hand the script)
         # shellcheck disable=SC2016  # $n is a yq variable, not bash
         mapfile -t envp < <(yq -r --arg n "$name" \
           '.scripts[$n].env // {} | to_entries[] | "\(.key)=\(.value)"' "$CONFIG" 2>/dev/null \

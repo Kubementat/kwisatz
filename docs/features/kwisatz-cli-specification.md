@@ -5,7 +5,7 @@
 | **Status** | Draft for review |
 | **Component** | `kwisatz` CLI (new) — Python entrypoint over the existing orchestrator |
 | **Audience** | Repo maintainers, implementers, operators of a kwisatz-managed machine, AI coding agents |
-| **Related** | `README.md`, `AUTOMATIONS.md`, `specification/project/architecture.md`, `specification/project/conventions.md`, `CONTEXT.md`, `deploy.py`, `run-setup.sh`, `skills/kwisatz-assistant/SKILL.md` |
+| **Related** | `README.md`, `AUTOMATIONS.md`, `specification/project/architecture.md`, `specification/project/conventions.md`, `CONTEXT.md`, `deploy.py`, `skills/kwisatz-assistant/SKILL.md` |
 | **Terminology** | *task* / *target* / *script* — per `CONTEXT.md` § Automation |
 
 ---
@@ -21,7 +21,7 @@ To install Traefik today an operator must:
 2. know that the right way to run it is not `./tasks/setup-traefik.sh` during a managed setup,
    but to set `enabled: true` for it in `machine-config.yml` so it runs in config order;
 3. hand-edit `machine-config.yml` — YAML with comments that carry real operational warnings;
-4. run `./run-setup.sh apply`, which runs **every** enabled script, not just Traefik;
+4. run `./kwisatz apply`, which runs **every** enabled script, not just Traefik;
 5. or bypass the orchestrator entirely and run the script by hand, losing the env contract, the
    config ordering, and the record of what is configured.
 
@@ -37,13 +37,13 @@ full apply, and machine-readable output.
 
 ### 1.1 Current vs. target workflow
 
-| Need | Today | With `kwisatz` |
+| Need | Before `kwisatz` | With `kwisatz` |
 |---|---|---|
-| Install the tool on a new machine | clone repo, install uv, `./run-setup.sh status` | `kwisatz install` → `kwisatz init` |
-| Full provisioning run | `./run-setup.sh apply` | `kwisatz apply` |
-| Install **one** service | edit config → `run-setup.sh apply`, or hand-run the script | `kwisatz apply traefik` |
+| Install the tool on a new machine | clone repo, install uv, `uv run pyinfra @local deploy.py --dry` to see the plan | `kwisatz install` → `kwisatz init` |
+| Full provisioning run | `uv run pyinfra @local deploy.py -y -vvv` | `kwisatz apply` |
+| Install **one** service | edit config → run the whole deploy, or hand-run the script | `kwisatz apply traefik` |
 | Update one service | hand-run `./tasks/setup-traefik.sh` | `kwisatz apply traefik` (converges, with config env applied) |
-| What will this run do? | `./run-setup.sh status` (enabled scripts only) | `kwisatz status` (order, env keys, preconditions) |
+| What will this run do? | `uv run pyinfra @local deploy.py --dry` (enabled scripts only) | `kwisatz status` (order, env keys, preconditions) |
 | What is available? | `ls tasks/` + `AUTOMATIONS.md` | `kwisatz list [--all]` |
 | How does this target work? | `bash tasks/setup-traefik.sh --help` | `kwisatz info traefik` |
 | Enable/disable a service | `$EDITOR machine-config.yml` | `kwisatz config enable traefik` |
@@ -64,12 +64,12 @@ full apply, and machine-readable output.
 - **G2 — Agent usability.** Every command is non-interactive by default, has a stable exit code,
   and exposes the same result as JSON on stdout. An agent can discover the whole CLI surface
   without reading a document.
-- **G3 — Parity.** There is exactly one execution contract. `kwisatz apply` (full),
-  `kwisatz apply <target>` and `run-setup.sh apply` must produce the identical command line and
-  identical environment for the same config.
+- **G3 — Parity.** There is exactly one execution contract. `kwisatz apply` (full) and
+  `kwisatz apply <target>` must produce the identical command line and identical environment for
+  the same config — and both are that contract, not a second one: they start the same `deploy.py`.
 - **G4 — Safety.** Re-runnable, no destructive surprises, one writer at a time, secrets never
   printed.
-- **G5 — No regression.** `run-setup.sh`, `deploy.py`, `tasks/*.sh`, `tests/run-vm-tests.sh` and
+- **G5 — No regression.** `deploy.py`, `tasks/*.sh`, `tests/run-vm-tests.sh` and
   the existing docs keep working. The CLI is additive.
 
 ### 2.2 Success metrics
@@ -209,7 +209,8 @@ must not grow new behaviour.
 
 ### 6.1 `kwisatz apply` (no target)
 
-Full-machine run, identical semantics to `./run-setup.sh apply`.
+Full-machine run: every enabled target, in config order — the same semantics a bare
+`deploy.py` run of the whole config has.
 
 - **R-APP-001 (MUST)** — Load `<repo>/machine-config.yml` (or `--config`), take the `.scripts`
   mapping, filter `enabled: true`, execute in config order — by running `deploy.py` (R-ARCH-101),
@@ -281,7 +282,7 @@ manually a lot").
 
 ### 6.3 `kwisatz status`
 
-Read-only plan preview, strictly a superset of `./run-setup.sh status`.
+Read-only plan preview, a superset of what `deploy.py --dry` lists.
 
 - **R-STA-001 (MUST)** — Print the ordered enabled plan: index, target name, `description:`, the
   resolved command with env values masked (§8.4), the config `args:`.
@@ -356,7 +357,8 @@ comments is the most error-prone thing in the current workflow.
   wait_for_healthy` uses (container `health: starting|unhealthy|restarting`), so CLI and task
   script never disagree about "is it up".
 - **R-OPS-003 (MUST)** — `kwisatz doctor` checks at minimum: OS/Ubuntu version, sudo
-  availability (`sudo -n true`), `uv`, python, docker daemon, GPU presence for GPU-only targets,
+  availability (both halves of R-SAFE-006: `sudo -n true` here and the same call a task script
+  would make), `uv`, python, docker daemon, GPU presence for GPU-only targets,
   port collisions for configured `*_PORT` values, disk space under `/srv`, and the §6.5 table.
   Exit `0` = all good, `4` = missing prerequisite, `5` = a running stack is unhealthy.
 - **R-OPS-004 (SHOULD)** — `kwisatz doctor --fix` (MAY, M3) applies only the actions that are
@@ -432,7 +434,7 @@ comments is the most error-prone thing in the current workflow.
   One documented consequence of R-ARCH-101: the script's output arrives through pyinfra's `-vvv`
   report, which pyinfra writes to **stderr**, so `kwisatz apply x > f` captures the plan and the
   summary while the script's own output lands in `f` only if stderr is redirected too — the same
-  behaviour `run-setup.sh apply` has always had. What the CLI guarantees instead is that the full
+  behaviour a bare pyinfra deploy has always had. What the CLI guarantees instead is that the full
   output is on disk in the per-target `log_path`, and that `kwisatz logs <target>` reads it.
   `--interactive` (and `kwisatz run`) is the path where the script's stdout is stdout.
 - **R-OUT-005 (SHOULD)** — A 3-second minimum cadence "still working" heartbeat for steps without
@@ -635,8 +637,8 @@ tests/unit/        pytest (uv run pytest)
 - **R-ARCH-101 (MUST, decided 2026-10-22)** — `kwisatz apply` runs its targets **through
   `deploy.py`**: one pyinfra deploy per resolved target
   (`<pyinfra> @local <repo>/deploy.py -y -vvv --data config=<file> --data select=<name>`), so the
-  command, the environment, the `/dev/null` stdin and the masking are pyinfra's, exactly as in
-  `run-setup.sh apply`. The CLI never `exec`s a task script itself, and it needs pyinfra to run
+  command, the environment, the `/dev/null` stdin and the masking are pyinfra's, exactly as in a
+  bare `deploy.py` run. The CLI never `exec`s a task script itself, and it needs pyinfra to run
   (`repo.py:pyinfra_command()` → the current interpreter, the checkout venv, `uv`, or exit `4`).
   Two consequences are intentional: pyinfra is a run-time prerequisite, and `--interactive` is the
   only apply path that stays a direct script run, because a deploy cannot attach a TTY
@@ -647,11 +649,11 @@ tests/unit/        pytest (uv run pytest)
   echoed plan, the venv `PATH` stripping, and `sys.executable` for `.py` tasks. It is a
   one-engine test now: the evidence is what the *task script* records — its argv, its environment,
   and the ancestor chain that started it — so a change that quietly runs the script itself fails.
-- **R-ARCH-103 (MUST)** — `run-setup.sh` is a deprecated shim: it prints one DEPRECATED line,
-  translates `apply`/`status` and `--data config=<file>` into the CLI's `apply`/`status`/`--config`,
-  and execs `./kwisatz`. Delete it one release after deprecation; until then it keeps old docs, CI
-  jobs and muscle memory working. The exit-code change that follows from it is documented: `status`
-  on an unparsable config exits `3` (CONFIG, §9) where pyinfra exited `1`.
+- **R-ARCH-103 (MUST)** — There is **no wrapper in front of the CLI**. The `run-setup.sh` shim that
+  used to translate `apply`/`status` and `--data config=<file>` into CLI calls was deleted one
+  release after it was deprecated, so the two commands have exactly one implementation and one set
+  of exit codes. The consequence documented when it was deprecated still stands: `status` on an
+  unparsable config exits `3` (CONFIG, §9) where a bare pyinfra run exits `1`.
 - **R-ARCH-104 (SHOULD)** — Deprecate, but do not delete, the "run the script by hand" advice:
   every README sentence that tells the user to `INTERACTIVE=true tasks/…` gets a `kwisatz
   apply <t> --interactive` companion.
@@ -669,7 +671,7 @@ tests/unit/        pytest (uv run pytest)
 
 | Surface | Requirement |
 |---|---|
-| `run-setup.sh apply/status` | deprecated shim for one release, then deleted; it exits with the CLI's codes (§9), so `status` on a broken config exits `3`, not `1` |
+| `run-setup.sh apply/status` | **deleted** (R-ARCH-103) — one release after deprecation, as promised. Old docs and CI jobs call `kwisatz`; `status` on a broken config exits `3`, not `1` (§9), which is what the shim would have exited |
 | `deploy.py` CLI flags | unchanged (`--dry`, `-y -vvv`, `--data config=`); `--data select=` and `--data env={…}` added, both additive |
 | `machine-config.yml` format | v1 format, additive optional keys only (`requires:`, `group:`) |
 | `tasks/*.sh` scripts | unchanged; no new flag requirement |
@@ -723,7 +725,7 @@ tests/unit/        pytest (uv run pytest)
 | A6 | two kwisatz shells | concurrent `apply` | second exits `9`, or waits for `--lock-timeout` |
 | A7 | agent shell, non-TTY | `kwisatz services --json` | one document, valid `schema_version`, no prompt, exit 0 |
 | A8 | config with 20 comments | `kwisatz config enable traefik` | exactly the `enabled:` line changes, comments byte-identical |
-| A9 | same fixture config | CLI plan vs `run-setup.sh status` | same commands, same order, same masked env |
+| A9 | same fixture config | CLI plan vs the bare `deploy.py --dry` plan | same commands, same order, same masked env |
 | A10 | `tasks/setup-unsloth.sh` not in config | `kwisatz apply unsloth` | runs with defaults + warning + `config enable` hint |
 | A11 | `vllm` requires GPU absent | `kwisatz apply vllm` | warning (R-ORD-002) or exit `4` when the check is hard; documented per check |
 | A12 | task script prints secrets in its own output | `--json` apply | `stdout_tail` may contain them; **documented** in README as the operator's caveat, and `--redact-stdout` (MAY) filters `KEY=` patterns |
@@ -736,9 +738,9 @@ tests/unit/        pytest (uv run pytest)
 - **R-DOC-002 (MUST)** — `README.md`: new "Using the `kwisatz` CLI" section before
   "Running the Orchestrator", plus a "single service" example in Quick Start; keep the existing
   pyinfra section as "under the hood".
-- **R-DOC-003 (MUST)** — `specification/project/architecture.md`: add the CLI to the system
-  structure diagram and the entrypoint table (the diagram currently claims `run-setup.sh` is
-  *the* entrypoint).
+- **R-DOC-003 (MUST)** — `specification/project/architecture.md`: keep the CLI in the system
+  structure diagram and the entrypoint table (the diagram used to claim the wrapper was
+  *the* entrypoint; the wrapper is gone, so this is now a plain statement of fact).
 - **R-DOC-004 (SHOULD)** — `specification/features/kwisatz-cli/` (behaviors + exit codes) so the
   spec lives where the repo's other per-feature specs live.
 - **R-DOC-005 (MUST)** — `skills/kwisatz-assistant/SKILL.md`: replace the
@@ -792,8 +794,9 @@ test, unit tests.
    target as a deploy of the checkout (`deploy.py --data select=<name>`), because staying on the
    pyinfra framework outweighs the ~1 s startup per target and the < 200 ms single-target start.
    Direct exec survives only for `--interactive` and `kwisatz run`.
-2. **`run-setup.sh`** — *Resolved 2026-10-22: shim, then delete.* The CLI is the documented
-   entrypoint (§11.3 R-ARCH-103); the wrapper lives one release longer for old docs and CI jobs.
+2. **`run-setup.sh`** — *Resolved 2026-10-22: shim, then delete; deleted.* The CLI is the documented
+   entrypoint (§11.3 R-ARCH-103) and the wrapper is no longer in the checkout, so there is exactly
+   one way in. A bare pyinfra deploy stays available as the engine.
 3. Should `kwisatz list --group` parse `AUTOMATIONS.md` (single source of truth, prose-shaped) or
    should the grouping move into a data file the docs generate?
 4. Is `.kwisatz/` (repo-local) or `${XDG_STATE_HOME}/kwisatz/` (per-user, survives repo moves) the
