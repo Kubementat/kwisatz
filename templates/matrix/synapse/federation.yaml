@@ -1,0 +1,5 @@
+# MATRIX_FEDERATION=true
+trusted_key_servers:
+  - server_name: "matrix.org"
+media_retention:
+  remote_media_lifetime: 14d

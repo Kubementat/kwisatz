@@ -1,0 +1,57 @@
+# Matrix Authentication Service config — rendered by tasks/setup-matrix.sh,
+# do not edit. No secrets in here: the DB password comes from PGPASSWORD in
+# the container env, the shared Synapse secret, the cookie encryption secret
+# and the signing keys are files under /secrets (${MATRIX_HOME}/secrets/mas,
+# mode 700, owned by the image's nonroot UID).
+---
+http:
+  public_base: "https://${MATRIX_AUTH_DOMAIN}/"
+  listeners:
+    - name: web
+      resources:
+        - name: discovery
+        - name: human
+        - name: oauth
+        - name: compat
+        - name: graphql
+        - name: assets
+      binds:
+        - address: "[::]:8080"
+    - name: internal
+      resources:
+        - name: health
+      binds:
+        - address: "[::]:8081"
+
+database:
+  host: db
+  username: mas
+  database: mas
+
+matrix:
+  kind: synapse
+  homeserver: "${MATRIX_SERVER_NAME}"
+  endpoint: "http://synapse:8008/"
+  secret_file: /secrets/mas_secret
+
+secrets:
+  encryption_file: /secrets/encryption
+  keys:
+    - key_file: /secrets/keys/rsa.pem
+    - key_file: /secrets/keys/ec.pem
+
+passwords:
+  enabled: true
+  schemes:
+    - version: 1
+      algorithm: argon2id
+  minimum_complexity: 3
+
+# Invite-only team server: accounts are created with mas-cli (or a
+# registration token), and recovery needs email, which v1 does not configure.
+account:
+  password_registration_enabled: false
+  password_recovery_enabled: false
+
+email:
+  transport: blackhole

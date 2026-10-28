@@ -1,0 +1,9 @@
+listeners:
+  - port: 8008
+    type: http
+    tls: false
+    x_forwarded: true
+    bind_addresses: ["0.0.0.0"]
+    resources:
+      - names: ${SYNAPSE_LISTENER_RESOURCES}
+        compress: false

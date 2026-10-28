@@ -42,3 +42,9 @@
 - **n8n** — workflow automation tool
 - **workflow** — n8n automations
 - **netbird** — self-hosted WireGuard-based mesh VPN (management + signal + relay + embedded STUN + dashboard)
+- **homeserver** — the Matrix server that stores a team's accounts, rooms and messages; here Synapse (`setup-matrix.sh`)
+- **server_name** — the Matrix server name, the part after the colon in `@alice:example.com` (`MATRIX_SERVER_NAME`); immutable once the homeserver exists
+- **MAS** — Matrix Authentication Service: the OAuth 2.0/OIDC login, registration and session service Synapse delegates to
+- **Element / Element X** — the Matrix clients: Element Web (browser, self-hosted at `chat.<server_name>`) and Element X (iOS/Android)
+- **MatrixRTC / LiveKit / lk-jwt-service** — Matrix voice/video calls: MatrixRTC is the call protocol, LiveKit the media server (SFU), lk-jwt-service issues LiveKit tokens to authenticated Matrix users
+- **well-known delegation** — `https://<server_name>/.well-known/matrix/{client,server}` documents that point clients and other servers at the real homeserver host

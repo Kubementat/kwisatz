@@ -1,0 +1,16 @@
+# MATRIX_METRICS=true: replaces listeners.yaml (one 'listeners' key only).
+# 9000 is neither published nor routed; Prometheus scrapes it on the docker
+# network via the prometheus.scrape/prometheus.port container labels.
+enable_metrics: true
+listeners:
+  - port: 8008
+    type: http
+    tls: false
+    x_forwarded: true
+    bind_addresses: ["0.0.0.0"]
+    resources:
+      - names: ${SYNAPSE_LISTENER_RESOURCES}
+        compress: false
+  - port: 9000
+    type: metrics
+    bind_addresses: ["0.0.0.0"]

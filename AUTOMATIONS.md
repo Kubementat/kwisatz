@@ -404,6 +404,21 @@ Deploys **Postiz** (self-hosted social-media scheduler, 28+ platforms) via Docke
 
 ---
 
+### Communication
+
+#### `setup-matrix.sh`
+Deploys a private, self-hosted **Matrix** team chat behind the shared Traefik proxy: Synapse + PostgreSQL 17 + Matrix Authentication Service (MAS) + Element Web + `.well-known` delegation. Operator and team guide: [README_MATRIX.md](README_MATRIX.md).
+
+**Features:**
+- `MATRIX_SERVER_NAME` (required, **immutable** after the first run — a different value is a hard error) → hosts `matrix.` (Synapse), `auth.` (MAS), `chat.` (Element Web), `rtc.` (calls), `admin.` (admin UI) under it by default
+- MAS always on: Element X login/QR login, invite-only accounts (`mas-cli manage register-user`), first admin created at first install
+- Private by default (`MATRIX_FEDERATION=false`, no port 8448); `true` federates via `.well-known` delegation on :443
+- Optional components as compose profiles (stored in `.env`): `MATRIX_RTC=true` (voice/video calls: LiveKit SFU + lk-jwt-service, publishes 7881/tcp + 7882/udp, UFW rules), `MATRIX_ADMIN_UI=true` (Ketesa, LAN/VPN allowlist), `MATRIX_WELLKNOWN=traefik|synapse|external`, `MATRIX_METRICS=true` (Prometheus labels)
+- Secrets generated once into `/srv/matrix/.env` (mode 600), never rotated; Synapse/MAS read them from mode-600 files (`*_path` / `*_file`), the DB passwords via `PGPASSWORD` — no secret in any generated config except the documented lk-jwt appservice registration
+- Signing keys (Synapse, MAS) generated once, never overwritten
+- Converges on re-run (toggles, domains, image bumps); changed config files restart only their service; `/_synapse/admin` is never public (`MATRIX_ADMIN_ALLOW_CIDRS`)
+- Backup integration: `--services matrix` dumps both databases (`synapse`, `mas`) and archives the server identity (`.env`, signing key, secrets) as `matrix-<ts>.identity.tar`; `restore-db` re-creates both databases with C collation
+
 ### CI/CD
 
 #### `setup-concourse.sh`
@@ -619,7 +634,7 @@ sudo /usr/local/bin/borg-backup-mybox list
 sudo /usr/local/bin/borg-backup-mybox restore mybox-2026-09-13T04:29:18 --dest /tmp/restore
 ```
 
-> **Notes:** Supported `--services` (dump dispatcher in `lib/docker-backup.sh`): `forgejo, planka, kestra, nextcloud, n8n, concourse, openwebui, omnigent`. Services whose raw data must never be copied mid-write can be quiesced around the whole run with `--stop-services` (short `docker compose stop`/`up -d` window). With `nextcloud` in `--services` the backup user is added to the group owning `<NEXTCLOUD_HOME>/data` (`www-data`) — otherwise the 0770 data dir and `config.php` are unreadable and borg silently skips all user files. The staging dir (`/var/backup-staging` default) must not be inside `--paths`. Local-disk mode protects against software corruption / accidental deletion but **not** disk failure — mount a separate drive for that. `--no-self-backup` / `--no-initial` on the server script opt out of the automatic self-backup. Installs that customized a service's `CONTAINER_NAME` must mirror it into the backup-side `<SVC>_CONTAINER` override (e.g. `FORGEJO_CONTAINER`). Spec: [specification/features/setup-backup-server.md](specification/features/setup-backup-server.md); research: [docs/research/docker-volume-backup-research.md](docs/research/docker-volume-backup-research.md).
+> **Notes:** Supported `--services` (dump dispatcher in `lib/docker-backup.sh`): `forgejo, planka, kestra, nextcloud, n8n, concourse, openwebui, omnigent, matrix`. Services whose raw data must never be copied mid-write can be quiesced around the whole run with `--stop-services` (short `docker compose stop`/`up -d` window). With `nextcloud` in `--services` the backup user is added to the group owning `<NEXTCLOUD_HOME>/data` (`www-data`) — otherwise the 0770 data dir and `config.php` are unreadable and borg silently skips all user files. The staging dir (`/var/backup-staging` default) must not be inside `--paths`. Local-disk mode protects against software corruption / accidental deletion but **not** disk failure — mount a separate drive for that. `--no-self-backup` / `--no-initial` on the server script opt out of the automatic self-backup. Installs that customized a service's `CONTAINER_NAME` must mirror it into the backup-side `<SVC>_CONTAINER` override (e.g. `FORGEJO_CONTAINER`). Spec: [specification/features/setup-backup-server.md](specification/features/setup-backup-server.md); research: [docs/research/docker-volume-backup-research.md](docs/research/docker-volume-backup-research.md).
 
 ---
 

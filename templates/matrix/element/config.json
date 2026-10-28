@@ -1,0 +1,12 @@
+{
+  "default_server_config": {
+    "m.homeserver": {
+      "base_url": "https://${MATRIX_DOMAIN}",
+      "server_name": "${MATRIX_SERVER_NAME}"
+    }
+  },
+  "disable_custom_urls": true,
+  "disable_guests": true,
+  "permalink_prefix": "https://${MATRIX_CHAT_DOMAIN}",
+  "show_labs_settings": false
+}

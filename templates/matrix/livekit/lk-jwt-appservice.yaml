@@ -1,0 +1,23 @@
+# lk-jwt-service application service registration — rendered by
+# tasks/setup-matrix.sh. Documented secret-bearing exception: the
+# as_token/hs_token have no file indirection in Synapse or lk-jwt, so this
+# file is written mode 600 (owner 991) from the tokens stored in .env.
+id: lk-jwt-service
+# null = Synapse pushes no event transactions: lk-jwt-service 0.9.0 does not
+# implement /_matrix/app/v1/transactions (it only calls the homeserver with
+# as_token and is reached through the msc4512 proxy below)
+url: null
+as_token: "${LK_AS_TOKEN}"
+hs_token: "${LK_HS_TOKEN}"
+sender_localpart: _lk_jwt_service
+rate_limited: false
+namespaces:
+  users:
+    - exclusive: false
+      regex: "@.*:${MATRIX_SERVER_NAME_REGEX}"
+  rooms: []
+  aliases: []
+io.element.msc4502.scopes:
+  - "urn:matrix:client:io.element.msc4502:rooms:is_joined"
+io.element.msc4512.proxy_prefix: rtc/livekit
+io.element.msc4512.proxy_url: "http://lk-jwt:8080"

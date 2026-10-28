@@ -42,6 +42,13 @@
   - **nextcloud** admin user/password — applied only at first install:
     reuse the stored `.env`; change the password with
     `docker exec --user www-data <container> php occ user:resetpassword <user>`.
+  - **matrix** admin password — applied only at first install: the stored
+    `.env` value stays in effect (warned, not exited: the rest of the stack
+    still converges); change it with
+    `docker exec -it matrix-mas mas-cli manage set-password <user> '<new>'`.
+    `MATRIX_SERVER_NAME` is the one exception to "exit 0": it is the
+    server's identity, so a different value is a hard error (exit 1) and
+    nothing is modified.
   - **concourse / planka** credentials — tied to the persisted postgres
     volume: reuse the stored `.env`; wipe only via the interactive prompt.
   - **vllm / vllm-omni / colqwen** model args — baked into the container

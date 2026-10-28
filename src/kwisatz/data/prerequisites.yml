@@ -26,6 +26,8 @@ requires:
   setup-tensorfold-spark-qwen38-27b: [setup-nvidia-container]
   setup-llama-cpp: [setup-basics]
   setup-llama-swap: [setup-docker]
+  # every Matrix host is routed through Traefik's proxy network (no LAN mode)
+  setup-matrix: [setup-docker, setup-traefik]
 
 host:
   setup-vllm: {gpu: true, docker: true}
@@ -35,5 +37,6 @@ host:
   setup-tensorfold-spark-qwen38-27b: {gpu: true, docker: true}
   setup-nvidia-container: {gpu: true}
   setup-traefik: {docker: true}
+  setup-matrix: {docker: true}
   # sudo is deliberately absent: every task script escalates, so it is a prerequisite of the
   # run (R-SAFE-006) and not something to declare per target.

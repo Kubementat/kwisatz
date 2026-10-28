@@ -46,7 +46,7 @@
 #                            (/home/<user>, /etc, /srv, + docker volumes)
 #   BACKUP_SERVICES        - Comma list of Docker services to dump before
 #                            'borg create' (forgejo,planka,kestra,nextcloud,
-#                            n8n,concourse,openwebui,omnigent). EMPTY = auto-detect
+#                            n8n,concourse,openwebui,omnigent,matrix). EMPTY = auto-detect
 #                            installed/running ones (none -> plain file backup).
 #   BACKUP_STOP_SERVICES   - Services to `docker compose stop` around the
 #                            whole run (short downtime, raw-copy safety)
@@ -114,7 +114,7 @@ SHOW_PASSPHRASE=false
 FORCE_VERSION_MISMATCH=false
 CHECK_ONLY=false
 
-SUPPORTED_SERVICES="forgejo planka kestra nextcloud n8n concourse openwebui omnigent"
+SUPPORTED_SERVICES="forgejo planka kestra nextcloud n8n concourse openwebui omnigent matrix"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELP
@@ -148,7 +148,9 @@ Options:
                          create' (env: BACKUP_SERVICES). Omit to auto-detect
                          installed/running ones. Supported: forgejo, planka,
                          kestra, nextcloud, n8n, concourse, openwebui,
-                         omnigent. Empty = plain file backup.
+                         omnigent, matrix. Empty = plain file backup.
+                         matrix: also archives the server identity (.env,
+                         signing key, secrets) as matrix-<ts>.identity.tar.
                          nextcloud: the backup user is added to the data
                          dir's group (www-data) so user files are readable.
   --stop-services <a,b>  Services to `docker compose stop` around the whole

@@ -1,0 +1,245 @@
+# Matrix homeserver stack — rendered by tasks/setup-matrix.sh, do not edit.
+# Secrets (*_PASSWORD, LIVEKIT_KEY/SECRET) stay literal ${VAR} tokens here and
+# are resolved at runtime from ${MATRIX_HOME}/.env (mode 600). The active
+# optional components (wellknown, rtc, admin) are chosen by COMPOSE_PROFILES
+# in that same .env, so a bare 'docker compose up -d' starts the right set.
+---
+name: matrix
+
+networks:
+  matrix:
+    external: false
+  ${PROXY_NETWORK}:
+    external: true
+
+services:
+  db:
+    image: ${MATRIX_DB_IMAGE}
+    container_name: matrix-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=synapse
+      - POSTGRES_DB=synapse
+      - POSTGRES_PASSWORD=${MATRIX_DB_PASSWORD}
+      # Synapse refuses to start on anything but UTF8 + C collation/ctype
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - ${MATRIX_HOME}/db:/var/lib/postgresql/data
+    networks:
+      - matrix
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  synapse:
+    image: ${SYNAPSE_IMAGE}
+    container_name: matrix-synapse
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
+      - UID=991
+      - GID=991
+      # homeserver.yaml carries no DB password: libpq reads it from here
+      - PGPASSWORD=${MATRIX_DB_PASSWORD}
+    volumes:
+      - ${MATRIX_HOME}/synapse:/data
+    networks:
+      - matrix
+      - ${PROXY_NETWORK}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${PROXY_NETWORK}"
+      - "traefik.http.routers.matrix.rule=Host(`${MATRIX_DOMAIN}`) && (PathPrefix(`/_matrix`) || PathPrefix(`/_synapse/client`) || PathPrefix(`/_synapse/mas`)${SYNAPSE_WELLKNOWN_RULE})"
+      - "traefik.http.routers.matrix.entrypoints=websecure"
+      - "traefik.http.routers.matrix.tls=true"
+      - "traefik.http.routers.matrix.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.matrix.service=matrix"
+      - "traefik.http.services.matrix.loadbalancer.server.port=8008"
+      # Admin API: never public, LAN/VPN allowlist only
+      - "traefik.http.routers.matrix-admin-api.rule=Host(`${MATRIX_DOMAIN}`) && PathPrefix(`/_synapse/admin`)"
+      - "traefik.http.routers.matrix-admin-api.entrypoints=websecure"
+      - "traefik.http.routers.matrix-admin-api.tls=true"
+      - "traefik.http.routers.matrix-admin-api.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.matrix-admin-api.service=matrix"
+      - "traefik.http.routers.matrix-admin-api.middlewares=matrix-allowlist@docker"
+      - "traefik.http.middlewares.matrix-allowlist.ipallowlist.sourcerange=${MATRIX_ADMIN_ALLOW_CIDRS}"
+      - "prometheus.scrape=${MATRIX_METRICS}"
+      - "prometheus.port=9000"
+
+  mas:
+    image: ${MAS_IMAGE}
+    container_name: matrix-mas
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # Distroless image (no shell, no curl): readiness is probed by the task
+    # script from the synapse container (http://mas:8081/health).
+    command: ["server"]
+    environment:
+      # also picked up by 'docker exec matrix-mas mas-cli manage …'
+      - MAS_CONFIG=/config/config.yaml
+      # config.yaml carries no DB password: sqlx reads it from here
+      - PGPASSWORD=${MAS_DB_PASSWORD}
+    volumes:
+      - ${MATRIX_HOME}/mas:/config:ro
+      - ${MATRIX_HOME}/secrets/mas:/secrets:ro
+    networks:
+      - matrix
+      - ${PROXY_NETWORK}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${PROXY_NETWORK}"
+      - "traefik.http.routers.mas.rule=Host(`${MATRIX_AUTH_DOMAIN}`)"
+      - "traefik.http.routers.mas.entrypoints=websecure"
+      - "traefik.http.routers.mas.tls=true"
+      - "traefik.http.routers.mas.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.mas.service=mas"
+      # Legacy password login/logout/refresh on the homeserver host go to the
+      # MAS compat layer; the priority beats the Synapse router's rule length.
+      - "traefik.http.routers.mas-compat.rule=Host(`${MATRIX_DOMAIN}`) && PathRegexp(`^/_matrix/client/[^/]+/(login|logout|refresh)`)"
+      - "traefik.http.routers.mas-compat.priority=1000"
+      - "traefik.http.routers.mas-compat.entrypoints=websecure"
+      - "traefik.http.routers.mas-compat.tls=true"
+      - "traefik.http.routers.mas-compat.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.mas-compat.service=mas"
+      - "traefik.http.services.mas.loadbalancer.server.port=8080"
+
+  element:
+    image: ${ELEMENT_IMAGE}
+    container_name: matrix-element
+    restart: unless-stopped
+    volumes:
+      - ${MATRIX_HOME}/element/config.json:/app/config.json:ro
+    networks:
+      - ${PROXY_NETWORK}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${PROXY_NETWORK}"
+      - "traefik.http.routers.element.rule=Host(`${MATRIX_CHAT_DOMAIN}`)"
+      - "traefik.http.routers.element.entrypoints=websecure"
+      - "traefik.http.routers.element.tls=true"
+      - "traefik.http.routers.element.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.element.service=element"
+      - "traefik.http.routers.element.middlewares=element-headers@docker"
+      - "traefik.http.services.element.loadbalancer.server.port=80"
+      - "traefik.http.middlewares.element-headers.headers.customFrameOptionsValue=SAMEORIGIN"
+      - "traefik.http.middlewares.element-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.element-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.element-headers.headers.contentSecurityPolicy=frame-ancestors 'self'"
+      - "traefik.http.middlewares.element-headers.headers.stsSeconds=15552000"
+      - "traefik.http.middlewares.element-headers.headers.stsIncludeSubdomains=true"
+
+  wellknown:
+    image: ${MATRIX_WELLKNOWN_IMAGE}
+    container_name: matrix-wellknown
+    restart: unless-stopped
+    profiles: ["wellknown"]
+    volumes:
+      - ${MATRIX_HOME}/wellknown/conf:/etc/nginx/conf.d:ro
+      - ${MATRIX_HOME}/wellknown/matrix:/usr/share/nginx/html/.well-known/matrix:ro
+    networks:
+      - ${PROXY_NETWORK}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${PROXY_NETWORK}"
+      - "traefik.http.routers.matrix-wellknown.rule=Host(`${MATRIX_SERVER_NAME}`) && PathPrefix(`/.well-known/matrix`)"
+      - "traefik.http.routers.matrix-wellknown.entrypoints=websecure"
+      - "traefik.http.routers.matrix-wellknown.tls=true"
+      - "traefik.http.routers.matrix-wellknown.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.matrix-wellknown.service=matrix-wellknown"
+      - "traefik.http.services.matrix-wellknown.loadbalancer.server.port=80"
+
+  livekit:
+    image: ${LIVEKIT_IMAGE}
+    container_name: matrix-livekit
+    restart: unless-stopped
+    profiles: ["rtc"]
+    command: ["--config", "/etc/livekit/livekit.yaml"]
+    environment:
+      # "<key>: <secret>" — keeps the API secret out of livekit.yaml
+      - "LIVEKIT_KEYS=${LIVEKIT_KEY}: ${LIVEKIT_SECRET}"
+    volumes:
+      - ${MATRIX_HOME}/livekit:/etc/livekit:ro
+    ports:
+      # Media must reach LiveKit directly (not proxied): ICE/TCP + one UDP mux port
+      - "${LIVEKIT_TCP_PORT}:7881/tcp"
+      - "${LIVEKIT_UDP_PORT}:7882/udp"
+    networks:
+      - matrix
+      - ${PROXY_NETWORK}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${PROXY_NETWORK}"
+      - "traefik.http.routers.lk-sfu.rule=Host(`${MATRIX_RTC_DOMAIN}`) && PathPrefix(`/livekit/sfu`)"
+      - "traefik.http.routers.lk-sfu.entrypoints=websecure"
+      - "traefik.http.routers.lk-sfu.tls=true"
+      - "traefik.http.routers.lk-sfu.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.lk-sfu.service=lk-sfu"
+      - "traefik.http.routers.lk-sfu.middlewares=lk-sfu-strip@docker"
+      - "traefik.http.middlewares.lk-sfu-strip.stripprefix.prefixes=/livekit/sfu"
+      - "traefik.http.services.lk-sfu.loadbalancer.server.port=7880"
+
+  lk-jwt:
+    image: ${LK_JWT_IMAGE}
+    container_name: matrix-lk-jwt
+    restart: unless-stopped
+    profiles: ["rtc"]
+    environment:
+      - LIVEKIT_URL=wss://${MATRIX_RTC_DOMAIN}/livekit/sfu
+      - LIVEKIT_KEY=${LIVEKIT_KEY}
+      - LIVEKIT_SECRET=${LIVEKIT_SECRET}
+      - LIVEKIT_FULL_ACCESS_HOMESERVERS=${MATRIX_SERVER_NAME}
+      - LIVEKIT_JWT_BIND=:8080
+      - LIVEKIT_HS_SERVER_NAME=${MATRIX_SERVER_NAME}
+      - LIVEKIT_AS_REGISTRATION_FILE=/registration/lk-jwt.yaml
+      # OpenID validation goes straight to Synapse, not via public DNS/TLS
+      - LIVEKIT_CS_API_URL_OVERRIDES=${MATRIX_SERVER_NAME}=http://synapse:8008
+    # Reach this host's Traefik directly (no hairpin NAT): LiveKit's public
+    # URL, and Matrix server discovery (.well-known/matrix/server, then
+    # /_matrix/federation/v1/openid/userinfo) for OpenID token validation.
+    # Rendered by the script: rtc + homeserver host (+ the server_name apex
+    # unless it is hosted elsewhere), de-duplicated.
+    extra_hosts: ${LK_JWT_EXTRA_HOSTS}
+    volumes:
+      - ${MATRIX_HOME}/synapse/appservices:/registration:ro
+    networks:
+      - matrix
+      - ${PROXY_NETWORK}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${PROXY_NETWORK}"
+      - "traefik.http.routers.lk-jwt.rule=Host(`${MATRIX_RTC_DOMAIN}`) && PathPrefix(`/livekit/jwt`)"
+      - "traefik.http.routers.lk-jwt.entrypoints=websecure"
+      - "traefik.http.routers.lk-jwt.tls=true"
+      - "traefik.http.routers.lk-jwt.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.lk-jwt.service=lk-jwt"
+      - "traefik.http.routers.lk-jwt.middlewares=lk-jwt-strip@docker"
+      - "traefik.http.middlewares.lk-jwt-strip.stripprefix.prefixes=/livekit/jwt"
+      - "traefik.http.services.lk-jwt.loadbalancer.server.port=8080"
+
+  admin:
+    image: ${KETESA_IMAGE}
+    container_name: matrix-admin
+    restart: unless-stopped
+    profiles: ["admin"]
+    volumes:
+      - ${MATRIX_HOME}/admin/config.json:/var/public/config.json:ro
+    networks:
+      - ${PROXY_NETWORK}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${PROXY_NETWORK}"
+      - "traefik.http.routers.matrix-admin-ui.rule=Host(`${MATRIX_ADMIN_DOMAIN}`)"
+      - "traefik.http.routers.matrix-admin-ui.entrypoints=websecure"
+      - "traefik.http.routers.matrix-admin-ui.tls=true"
+      - "traefik.http.routers.matrix-admin-ui.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.matrix-admin-ui.service=matrix-admin-ui"
+      - "traefik.http.routers.matrix-admin-ui.middlewares=matrix-allowlist@docker"
+      - "traefik.http.services.matrix-admin-ui.loadbalancer.server.port=8080"

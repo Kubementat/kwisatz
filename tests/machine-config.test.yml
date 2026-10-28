@@ -142,6 +142,19 @@ scripts:
     env: {}
     args: []
 
+  # Matrix homeserver with calls — ad-hoc, needs docker + traefik first:
+  #   tests/run-vm-tests.sh --scripts setup-docker,setup-traefik,setup-matrix
+  # The VM gets no ACME certificate (Traefik runs sniStrict), so the script's
+  # through-Traefik checks only warn; the stack, MAS, DB bootstrap, admin
+  # creation and the re-run convergence are what this case proves.
+  setup-matrix:
+    enabled: false
+    description: Matrix (Synapse + MAS + Element + LiveKit) — ad-hoc via --scripts
+    env:
+      MATRIX_SERVER_NAME: "matrix.test"
+      MATRIX_RTC: "true"
+    args: []
+
   # Standalone client in local mode (no server host) with a small scope.
   setup-backup-client:
     enabled: false

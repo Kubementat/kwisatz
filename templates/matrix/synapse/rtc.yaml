@@ -1,0 +1,24 @@
+# MATRIX_RTC=true — MatrixRTC (Element Call) via LiveKit + lk-jwt-service
+experimental_features:
+  msc4143_enabled: true   # MatrixRTC transports endpoint
+  msc4502_enabled: true   # appservice is_joined lookups (lk-jwt AS mode)
+  msc4512_enabled: true   # appservice proxy (lk-jwt AS mode)
+# MSC4140 delayed events — without it calls get stuck after a client drops
+max_event_delay_duration: 24h
+rc_message:
+  per_second: 0.5
+  burst_count: 30
+rc_delayed_event_mgmt:
+  per_second: 1
+  burst_count: 20
+matrix_rtc:
+  transports:
+    - type: livekit
+      url: "wss://${MATRIX_RTC_DOMAIN}/livekit/sfu"
+      # deprecated since Synapse 1.161, kept for older clients
+      livekit_service_url: "https://${MATRIX_RTC_DOMAIN}/livekit/jwt"
+# Used when Synapse serves /.well-known/matrix/client (MATRIX_WELLKNOWN=synapse)
+extra_well_known_client_content:
+  org.matrix.msc4143.rtc_foci:
+    - type: livekit
+      livekit_service_url: "https://${MATRIX_RTC_DOMAIN}/livekit/jwt"

@@ -1,0 +1,76 @@
+# Synapse homeserver.yaml — rendered by tasks/setup-matrix.sh, do not edit.
+# Concatenation of templates/matrix/synapse/{homeserver.base,listeners|metrics,
+# private|federation,rtc}.yaml. No secrets in here: every secret is read from
+# a mode-600 file under /data/secrets (materialised from ${MATRIX_HOME}/.env),
+# the DB password comes from PGPASSWORD in the container env.
+---
+server_name: "${MATRIX_SERVER_NAME}"
+public_baseurl: "https://${MATRIX_DOMAIN}/"
+pid_file: /data/homeserver.pid
+log_config: /data/log.config
+media_store_path: /data/media_store
+signing_key_path: "/data/${MATRIX_SERVER_NAME}.signing.key"
+report_stats: false
+
+database:
+  name: psycopg2
+  args:
+    user: synapse
+    dbname: synapse
+    host: db
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+
+registration_shared_secret_path: /data/secrets/registration_shared_secret
+macaroon_secret_key_path: /data/secrets/macaroon_secret_key
+form_secret_path: /data/secrets/form_secret
+
+# MAS owns login, registration and sessions
+matrix_authentication_service:
+  enabled: true
+  endpoint: http://mas:8080/
+  secret_path: /data/secrets/mas_secret
+
+enable_registration: false
+suppress_key_server_warning: true
+allow_public_rooms_without_auth: false
+allow_public_rooms_over_federation: false
+
+max_upload_size: "${MATRIX_MAX_UPLOAD}"
+encryption_enabled_by_default_for_room_type: "${MATRIX_E2EE_DEFAULT}"
+forgotten_room_retention_period: 28d
+
+push:
+  include_content: false
+
+# Only in MATRIX_WELLKNOWN=synapse mode, and only with federation or calls
+# (lk-jwt-service finds this server through it to validate OpenID tokens)
+serve_server_wellknown: ${SYNAPSE_SERVE_SERVER_WELLKNOWN}
+
+# The blacklist is mandatory with previews on: without it any room member can
+# make Synapse GET internal services. It covers RFC1918 (incl. every docker
+# default address pool) and 100.64.0.0/10 (NetBird).
+url_preview_enabled: ${MATRIX_URL_PREVIEWS}
+url_preview_ip_range_blacklist:
+  - "127.0.0.0/8"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+  - "100.64.0.0/10"
+  - "192.0.0.0/24"
+  - "169.254.0.0/16"
+  - "192.88.99.0/24"
+  - "198.18.0.0/15"
+  - "192.0.2.0/24"
+  - "198.51.100.0/24"
+  - "203.0.113.0/24"
+  - "224.0.0.0/4"
+  - "::1/128"
+  - "fe80::/10"
+  - "fc00::/7"
+  - "2001:db8::/32"
+  - "ff00::/8"
+  - "fec0::/10"
+
+app_service_config_files: ${SYNAPSE_APPSERVICE_FILES}

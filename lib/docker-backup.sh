@@ -245,29 +245,40 @@ if ! declare -F bk_sqlite_restore >/dev/null 2>&1; then
   }
 fi
 
-# bk_pg_restore <container> <db-name> <dump-file>
+# bk_pg_restore <container> <db-name> <dump-file> [owner]
 #   Destructive: --clean --if-exists drops and re-creates every object.
 #   Connects like bk_pg_dump (container's POSTGRES_USER over localhost).
+#   With [owner]: the database itself is dropped and re-created first —
+#   TEMPLATE template0, UTF8, C collation/ctype (what Synapse and MAS
+#   require) — and the dump is restored as that role (--role), so the
+#   objects belong to the owner even when it is not the connecting user.
 if ! declare -F bk_pg_restore >/dev/null 2>&1; then
   bk_pg_restore() {
-    local container="$1" db="$2" file="$3"
+    local container="$1" db="$2" file="$3" owner="${4:-}"
     local pguser pgpw envs
+    local -a pgenv=() restore_args=(--clean --if-exists --no-owner)
     bk_info "pg_restore: ${file} -> ${container}/${db} (DESTRUCTIVE)"
     envs="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container" 2>/dev/null || true)"
     pguser="$(sed -n 's/^POSTGRES_USER=//p' <<< "$envs" | tail -n1)"
     pgpw="$(sed -n 's/^POSTGRES_PASSWORD=//p' <<< "$envs" | tail -n1)"
     [[ -n "$pguser" ]] || pguser="postgres"
-    if [[ -n "$pgpw" ]]; then
-      docker exec -e PGPASSWORD="$pgpw" -i "$container" pg_restore --clean --if-exists --no-owner -h 127.0.0.1 -U "$pguser" -d "$db" < "$file" || {
-        bk_error "pg_restore failed for ${container}/${db}"
+    [[ -n "$pgpw" ]] && pgenv=(-e PGPASSWORD="$pgpw")
+    if [[ -n "$owner" ]]; then
+      bk_info "re-creating database ${db} (owner ${owner}, template0, UTF8, C locale)"
+      if ! docker exec "${pgenv[@]}" -i "$container" psql -v ON_ERROR_STOP=1 -q -h 127.0.0.1 -U "$pguser" -d postgres <<SQL
+DROP DATABASE IF EXISTS "${db}" WITH (FORCE);
+CREATE DATABASE "${db}" OWNER "${owner}" TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C';
+SQL
+      then
+        bk_error "could not re-create database ${container}/${db}"
         return 1
-      }
-    else
-      docker exec -i "$container" pg_restore --clean --if-exists --no-owner -U "$pguser" -d "$db" < "$file" || {
-        bk_error "pg_restore failed for ${container}/${db}"
-        return 1
-      }
+      fi
+      restore_args=(--no-owner --role="$owner")
     fi
+    docker exec "${pgenv[@]}" -i "$container" pg_restore "${restore_args[@]}" -h 127.0.0.1 -U "$pguser" -d "$db" < "$file" || {
+      bk_error "pg_restore failed for ${container}/${db}"
+      return 1
+    }
     return 0
   }
 fi
@@ -335,6 +346,7 @@ if ! declare -F bk_service_home >/dev/null 2>&1; then
       concourse) printf '%s\n' "${CONCOURSE_HOME:-/srv/concourse}" ;;
       openwebui) printf '%s\n' "${OPENWEBUI_HOME:-${PROJECT_DIR:-/srv/openwebui}}" ;;
       omnigent)  printf '%s\n' "${OMNIGENT_HOME:-/srv/omnigent}" ;;
+      matrix)    printf '%s\n' "${MATRIX_HOME:-/srv/matrix}" ;;
       *) return 1 ;;
     esac
   }
@@ -483,8 +495,32 @@ if ! declare -F bk_dump_service >/dev/null 2>&1; then
         owdb="$(bk_openwebui_db "$owuc")" || return 1
         bk_sqlite_backup "$owuc" "$owdb" "${dump}.sqlite"
         ;;
+      matrix)
+        # Two databases in one container (synapse is the superuser, so it
+        # dumps both), plus the server identity: .env, the Synapse signing
+        # key and the secret/key files are root/991/65532-owned mode 600 —
+        # unreadable for the backup user, so borg alone would skip them.
+        # They are tarred through docker (which the backup user already
+        # needs for the dumps) from the running synapse image.
+        local mhome img
+        bk_docker_available || return 1
+        mhome="$(bk_service_home matrix)" || return 1
+        bk_pg_dump matrix-db synapse "${dump}.dump" || return 1
+        bk_pg_dump matrix-db mas "${dump}.mas.dump" || return 1
+        img="$(docker inspect --format '{{.Config.Image}}' matrix-synapse 2>/dev/null)" \
+          || { bk_error "matrix-synapse not found — cannot archive the Matrix identity files"; return 1; }
+        bk_info "matrix identity (.env, signing key, secrets) -> ${dump}.identity.tar"
+        # shellcheck disable=SC2016  # the glob expands inside the container
+        if ! docker run --rm --network none --entrypoint sh -v "${mhome}:/m:ro" "$img" -c \
+               'cd /m && tar -cf - .env synapse/*.signing.key synapse/secrets synapse/appservices secrets' \
+               > "${dump}.identity.tar"; then
+          bk_error "could not archive the Matrix identity files from ${mhome}"
+          rm -f "${dump}.identity.tar"
+          return 1
+        fi
+        ;;
       *)
-        bk_error "unknown service for dumping: ${svc} (supported: forgejo, planka, kestra, nextcloud, n8n, concourse, openwebui, omnigent)"
+        bk_error "unknown service for dumping: ${svc} (supported: forgejo, planka, kestra, nextcloud, n8n, concourse, openwebui, omnigent, matrix)"
         return 1
         ;;
     esac
@@ -566,6 +602,44 @@ if ! declare -F bk_restore_db >/dev/null 2>&1; then
         bk_docker_available || return 1
         owdb="$(bk_openwebui_db "$owuc")" || return 1
         bk_sqlite_restore "$owuc" "$owdb" "$file"
+        ;;
+      matrix)
+        # One restore = both databases of one dump set (any of its files may
+        # be passed: restore-db hands over the last match of matrix-*).
+        local base
+        bk_docker_available || return 1
+        case "$file" in
+          *.mas.dump)     base="${file%.mas.dump}" ;;
+          *.identity.tar) base="${file%.identity.tar}" ;;
+          *.dump)         base="${file%.dump}" ;;
+          *) bk_error "unrecognized matrix dump file: ${file}"; return 1 ;;
+        esac
+        [[ -f "${base}.dump" && -f "${base}.mas.dump" ]] \
+          || { bk_error "matrix restore needs both ${base}.dump and ${base}.mas.dump"; return 1; }
+        bk_info "matrix restore: synapse + mas from ${base}.* (DESTRUCTIVE — stops matrix-synapse and matrix-mas)"
+        docker stop -t 30 matrix-synapse matrix-mas >/dev/null || return 1
+        if ! bk_pg_restore matrix-db synapse "${base}.dump" synapse; then
+          bk_error "synapse restore failed — matrix-synapse/matrix-mas left stopped for inspection"
+          return 1
+        fi
+        # Reused one-time keys break decryption: drop them before Synapse
+        # starts (clients upload fresh ones).
+        if ! docker exec matrix-db psql -v ON_ERROR_STOP=1 -q -U synapse -d synapse \
+               -c 'TRUNCATE e2e_one_time_keys_json;'; then
+          bk_error "TRUNCATE e2e_one_time_keys_json failed — matrix-synapse/matrix-mas left stopped"
+          return 1
+        fi
+        if ! bk_pg_restore matrix-db mas "${base}.mas.dump" mas; then
+          bk_error "mas restore failed — matrix-synapse/matrix-mas left stopped for inspection"
+          return 1
+        fi
+        docker start matrix-mas matrix-synapse >/dev/null || return 1
+        bk_wait_running 120 matrix-mas matrix-synapse || return 1
+        if [[ -f "${base}.identity.tar" ]]; then
+          bk_info "identity files (.env, signing key, secrets) are NOT restored here — on the same host they are unchanged."
+          bk_info "On a NEW host: extract $(basename "${base}").identity.tar from the same snapshot (staging dumps dir),"
+          bk_info "then, before setup-matrix.sh: sudo tar -xpf <it> -C ${MATRIX_HOME:-/srv/matrix} (see README_MATRIX.md)"
+        fi
         ;;
       *)
         bk_error "unknown service for restore: ${svc}"

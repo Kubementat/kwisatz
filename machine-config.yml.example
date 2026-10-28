@@ -62,6 +62,17 @@ scripts:
       TRAEFIK_HTTPS_PORT: '443'
       TRAEFIK_DASHBOARD: 'false'
     args: []
+  setup-matrix:
+    enabled: false
+    description: Install Matrix team chat (Synapse + MAS + Element Web, optional calls) behind Traefik
+    # Set before enabling — MATRIX_SERVER_NAME is REQUIRED and can never change
+    # afterwards (it is the part after the colon in @alice:example.com):
+    # env:
+    #   MATRIX_SERVER_NAME: example.com
+    #   MATRIX_RTC: 'true'          # voice/video calls (LiveKit, 7881/tcp + 7882/udp)
+    #   MATRIX_FEDERATION: 'true'   # talk to other Matrix servers (default: private)
+    env: {}
+    args: []
   setup-netbird:
     enabled: false
     description: Install self-hosted NetBird (mesh VPN server + dashboard)
@@ -485,7 +496,7 @@ scripts:
       # REQUIRED — no silent default scope
       BACKUP_PATHS: /etc /srv
       # Docker services dumped consistently before 'borg create' (comma list)
-      # forgejo, planka, kestra, nextcloud, n8n, concourse, openwebui, omnigent
+      # forgejo, planka, kestra, nextcloud, n8n, concourse, openwebui, omnigent, matrix
       BACKUP_SERVICES: forgejo,planka,kestra
       # BACKUP_STOP_SERVICES: nextcloud
       BACKUP_STAGING_DIR: /srv/backup-staging

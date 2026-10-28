@@ -1,0 +1,22 @@
+# LiveKit SFU — rendered by tasks/setup-matrix.sh, do not edit.
+# The API secret is NOT in here: it comes from LIVEKIT_KEYS in the container
+# env (resolved from ${MATRIX_HOME}/.env). LIVEKIT_KEY below is the key id.
+port: 7880
+rtc:
+  tcp_port: 7881
+  # single-port UDP mux: works in bridge networking with one published port
+  udp_port: 7882
+  # empty node_ip = discover the public IP via STUN (use_external_ip)
+  use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP}
+  node_ip: "${LIVEKIT_NODE_IP}"
+turn:
+  enabled: false
+room:
+  # REQUIRED: otherwise anyone could create rooms without an lk-jwt token
+  auto_create: false
+webhook:
+  api_key: "${LIVEKIT_KEY}"
+  urls:
+    - "http://lk-jwt:8080/sfu_webhook"
+logging:
+  level: info

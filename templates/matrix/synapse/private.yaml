@@ -1,0 +1,3 @@
+# MATRIX_FEDERATION=false — "the recommended way of disabling federation"
+federation_domain_whitelist: []
+trusted_key_servers: []
