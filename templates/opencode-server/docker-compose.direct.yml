@@ -18,7 +18,14 @@ services:
     networks:
       - opencode
     volumes:
-      - opencode_data:/data
+      # Opencode keeps its session store and auth under ~/.local/share/opencode
+      # and its config under ~/.config/opencode (HOME is /root in this image;
+      # check with: docker run --rm <image> debug paths). Mounting anywhere else
+      # — the old /data — leaves that state in the container's writable layer,
+      # i.e. lost on 'docker compose down'.
+      - opencode_data:/root/.local/share/opencode
+      - opencode_config:/root/.config/opencode
 
 volumes:
   opencode_data:
+  opencode_config:

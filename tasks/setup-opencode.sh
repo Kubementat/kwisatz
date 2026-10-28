@@ -5,24 +5,31 @@
 # =============================================================================
 #
 # Description:
-#   Installs the Opencode CLI by default (npm). Optionally installs the
-#   "opencode" systemd service (OPENCODE_SERVICE=true) or deploys the
-#   Opencode server as a Docker Compose stack (USE_DOCKER=true).
+#   Installs the Opencode (V2) CLI by default (npm @opencode/cli). Optionally
+#   installs the "opencode" systemd service (OPENCODE_SERVICE=true) or deploys
+#   the Opencode server as a Docker Compose stack (USE_DOCKER=true).
 #   The CLI install initializes the user-level config file
 #   (~/.config/opencode/opencode.json) as {} when it does not exist yet.
+#
+#   V2 notes (https://opencode.ai/v2/docs/migrate-v1/): the CLI ships as
+#   @opencode/cli — the old opencode-ai package never goes past 1.19 — and the
+#   server's Basic-auth username is fixed to "opencode", so there is no
+#   username to configure and the V1 OPENCODE_SERVER_USERNAME is gone.
 #
 # Environment Variables:
 #   OPENCODE_SERVICE         - Install the opencode systemd service (default: false)
 #   USE_DOCKER               - Use Docker Compose mode (default: false)
+#   OPENCODE_VERSION         - Version to install (default: 2.2.0). Drives both the
+#                              npm package and the default server image.
 #   OPENCODE_PORT            - Server port (default: 4096)
 #   OPENCODE_HOSTNAME        - Bind address (default: 0.0.0.0; alias: OPENCODE_HOST)
-#   OPENCODE_SERVER_USERNAME - Auth username (default: admin)
-#   OPENCODE_SERVER_PASSWORD - Auth password (auto-generated if empty)
+#   OPENCODE_PASSWORD        - Server password (HTTP Basic, username "opencode").
+#                              Auto-generated when empty.
 #   OPENCODE_DATA_DIR        - Data directory (default: /srv/opencode)
 #   OPENCODE_TRAEFIK         - Enable Traefik (default: false)
 #   OPENCODE_DOMAIN          - Public domain for Traefik routing (required when OPENCODE_TRAEFIK=true)
 #   PROXY_NETWORK            - Traefik Docker network (default: proxy)
-#   OPENCODE_IMAGE           - Opencode image (default: ghcr.io/anomalyco/opencode:1.18.25, pinned)
+#   OPENCODE_IMAGE           - Opencode image (default: ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}, pinned)
 #   WAIT_TIMEOUT             - Max seconds to wait for the stack to become healthy (default: 180)
 #
 # Usage:
@@ -56,18 +63,19 @@ load_config() {
     USE_DOCKER="${USE_DOCKER:-false}"
     OPENCODE_PORT="${OPENCODE_PORT:-4096}"
     OPENCODE_HOSTNAME="${OPENCODE_HOSTNAME:-${OPENCODE_HOST:-0.0.0.0}}"
-    OPENCODE_SERVER_USERNAME="${OPENCODE_SERVER_USERNAME:-admin}"
-    OPENCODE_SERVER_PASSWORD="${OPENCODE_SERVER_PASSWORD:-}"
+    OPENCODE_PASSWORD="${OPENCODE_PASSWORD:-}"
     DATA_DIR="${OPENCODE_DATA_DIR:-/srv/opencode}"
     OPENCODE_TRAEFIK="${OPENCODE_TRAEFIK:-false}"
     OPENCODE_DOMAIN="${OPENCODE_DOMAIN:-}"
     PROXY_NETWORK="${PROXY_NETWORK:-proxy}"
     # Pinned on purpose (ticket improvements-2/17): `:latest` made the generated
-    # docker-compose.yml pull a moving reference. Default looked up 2026-08-31
-    # from https://github.com/anomalyco/opencode/releases (latest release
-    # v1.18.25; the GHCR tag carries no leading 'v').
+    # docker-compose.yml pull a moving reference — and on this registry `latest`
+    # is still the 1.x line, so only versioned tags are V2 images.
+    # Default looked up 2026-10-28 from https://github.com/anomalyco/opencode/releases
+    # (v2.2.0; the GHCR tag carries no leading 'v').
     # Update deliberately: docker buildx imagetools inspect ghcr.io/anomalyco/opencode
-    OPENCODE_IMAGE="${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:1.18.25}"
+    OPENCODE_VERSION="${OPENCODE_VERSION:-2.2.0}"
+    OPENCODE_IMAGE="${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}}"
     warn_moving_image "${OPENCODE_IMAGE}" "OPENCODE_IMAGE"
 }
 
@@ -85,9 +93,10 @@ print_config() {
     echo "  Mode:                     $mode"
     if [[ "$USE_DOCKER" == "true" ]]; then
         echo "  OPENCODE_PORT:            $OPENCODE_PORT"
-        echo "  OPENCODE_SERVER_USERNAME: $OPENCODE_SERVER_USERNAME"
-        echo "  OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:+*** (set)}"
+        echo "  OPENCODE_VERSION:         $OPENCODE_VERSION"
+        echo "  OPENCODE_PASSWORD:        ${OPENCODE_PASSWORD:+*** (set)}"
         echo "  DATA_DIR:                 $DATA_DIR"
+        echo "  Basic auth username:      opencode (fixed by Opencode V2)"
         if [[ "$OPENCODE_TRAEFIK" == "true" ]]; then
             echo "  OPENCODE_DOMAIN:          ${OPENCODE_DOMAIN:-(required for Traefik)}"
             echo "  PROXY_NETWORK:            $PROXY_NETWORK"
@@ -97,52 +106,51 @@ print_config() {
         if [[ "$OPENCODE_SERVICE" == "true" ]]; then
             echo "  OPENCODE_PORT:            $OPENCODE_PORT"
             echo "  OPENCODE_HOSTNAME:        $OPENCODE_HOSTNAME"
-            echo "  OPENCODE_SERVER_USERNAME: $OPENCODE_SERVER_USERNAME"
-            echo "  OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:+*** (set)}"
+            echo "  OPENCODE_VERSION:         $OPENCODE_VERSION"
+            echo "  OPENCODE_PASSWORD:        ${OPENCODE_PASSWORD:+*** (set)}"
+            echo "  Basic auth username:      opencode (fixed by Opencode V2)"
         fi
     fi
     echo "--------------------------------"
 }
 
 maybe_generate_password() {
-    if [[ -n "$OPENCODE_SERVER_PASSWORD" ]]; then
+    if [[ -n "$OPENCODE_PASSWORD" ]]; then
         return
     fi
 
-    # Re-read persisted credentials so re-runs never rotate secrets a
-    # running service or volume depends on (specification/project/conventions.md).
+    # Re-read the persisted password so re-runs never rotate a secret a running
+    # service or an existing session store depends on
+    # (specification/project/conventions.md).
     if [[ "$USE_DOCKER" == "true" ]]; then
         # .env is root-owned mode 600 — read it with sudo (env_file_get cannot
         # read it as the invoking user, which would silently rotate the secret).
         local env_file="${DATA_DIR}/.env"
         if [[ -f "$env_file" ]]; then
-            OPENCODE_SERVER_USERNAME="$(sudo sed -n 's/^[[:space:]]*OPENCODE_SERVER_USERNAME=//p' "$env_file" 2>/dev/null | tail -n1 || true)"
-            OPENCODE_SERVER_PASSWORD="$(sudo sed -n 's/^[[:space:]]*OPENCODE_SERVER_PASSWORD=//p' "$env_file" 2>/dev/null | tail -n1 || true)"
+            OPENCODE_PASSWORD="$(sudo sed -n 's/^[[:space:]]*OPENCODE_PASSWORD=//p' "$env_file" 2>/dev/null | tail -n1 || true)"
         fi
     elif [[ "$OPENCODE_SERVICE" == "true" ]] && [[ -f "$SERVICE_FILE" ]]; then
-        OPENCODE_SERVER_USERNAME="$(sed -n 's/^Environment="OPENCODE_SERVER_USERNAME=\(.*\)"$/\1/p' "$SERVICE_FILE" | tail -n1)"
-        OPENCODE_SERVER_PASSWORD="$(sed -n 's/^Environment="OPENCODE_SERVER_PASSWORD=\(.*\)"$/\1/p' "$SERVICE_FILE" | tail -n1)"
+        OPENCODE_PASSWORD="$(sed -n 's/^Environment="OPENCODE_PASSWORD=\(.*\)"$/\1/p' "$SERVICE_FILE" | tail -n1)"
     fi
-    OPENCODE_SERVER_USERNAME="${OPENCODE_SERVER_USERNAME:-admin}"
 
-    if [[ -n "$OPENCODE_SERVER_PASSWORD" ]]; then
-        info "Reusing existing Opencode server credentials."
+    if [[ -n "$OPENCODE_PASSWORD" ]]; then
+        info "Reusing the existing Opencode server password."
         return
     fi
 
     step "Generating secure random password..."
-    OPENCODE_SERVER_PASSWORD=$(openssl rand -base64 32)
+    OPENCODE_PASSWORD=$(openssl rand -base64 32)
 
     echo ""
     echo "=============================================="
     echo "IMPORTANT: Generated Opencode Server Password"
     echo "=============================================="
     echo ""
-    echo "Username: $OPENCODE_SERVER_USERNAME"
-    echo "Password: $OPENCODE_SERVER_PASSWORD"
+    echo "Username: opencode (fixed by Opencode V2)"
+    echo "Password: $OPENCODE_PASSWORD"
     echo ""
     echo "Please save this password securely. It will not be displayed again."
-    echo "You can set OPENCODE_SERVER_PASSWORD environment variable to reuse it."
+    echo "You can set OPENCODE_PASSWORD to reuse it on the next run."
     echo ""
 }
 
@@ -206,8 +214,8 @@ preflight_docker() {
 
     success "Docker $(docker --version | awk '{print $3}' | tr -d ',') detected and running."
 
-    if [[ -z "$OPENCODE_SERVER_PASSWORD" ]] && ! command -v openssl &>/dev/null; then
-        error "openssl is not installed. Required for generating secure password. Install it or set OPENCODE_SERVER_PASSWORD manually."
+    if [[ -z "$OPENCODE_PASSWORD" ]] && ! command -v openssl &>/dev/null; then
+        error "openssl is not installed. Required for generating secure password. Install it or set OPENCODE_PASSWORD manually."
     fi
 
     if ! command -v envsubst &>/dev/null; then
@@ -237,7 +245,7 @@ preflight_systemd() {
     step "Running pre-flight checks (systemd mode)"
 
     if ! command -v openssl &>/dev/null; then
-        warn "openssl not found. Generating password may fail, or set OPENCODE_SERVER_PASSWORD manually."
+        warn "openssl not found. Generating the password may fail, or set OPENCODE_PASSWORD manually."
     fi
 
     if ! command -v envsubst &>/dev/null; then
@@ -250,7 +258,7 @@ preflight_systemd() {
 # ─────────────────────────────────────────────────────────────────────────────
 
 install_opencode_cli() {
-    step "Installing/Updating Opencode CLI..."
+    step "Installing/Updating the Opencode CLI (@opencode/cli@${OPENCODE_VERSION})"
 
     if ! command -v npm &>/dev/null; then
         info "npm is not installed. Installing Node.js and npm..."
@@ -258,19 +266,48 @@ install_opencode_cli() {
         sudo apt install -y nodejs npm
     fi
 
+    # The V1 package (opencode-ai) installs the same `opencode` command and never
+    # ships past 1.19, so leaving it behind lets the wrong binary win. Remove it;
+    # V2 owns the command from here on.
+    if npm ls -g --depth=0 opencode-ai &>/dev/null; then
+        info "Removing the V1 package opencode-ai (V2 lives in @opencode/cli)..."
+        npm uninstall -g opencode-ai || true
+    fi
+
+    # Older runs installed opencode-ai via 'sudo npm install -g', i.e. into a prefix
+    # this user cannot write (/usr/local/lib/node_modules/opencode-ai plus a
+    # root-owned symlink). npm cannot remove that, and every non-interactive PATH
+    # (cron, systemd units, adr containers) silently runs the 1.x binary — so
+    # delete it by resolving what *every* 'opencode' on PATH points at.
+    local candidate candidate_target candidate_root
+    while IFS= read -r candidate; do
+        candidate_target="$(readlink -f "$candidate" 2>/dev/null || true)"
+        candidate_root="${candidate_target%/bin/*}"
+        if [[ "$candidate_root" == */node_modules/opencode-ai ]]; then
+            info "Removing the root-owned V1 install in ${candidate_root}..."
+            sudo rm -rf "$candidate_root"
+            sudo rm -f "$candidate"
+        fi
+    done < <(type -aP opencode 2>/dev/null || true)
+
     if command -v opencode &>/dev/null; then
-        info "Opencode CLI already installed at $(which opencode). Updating to latest version..."
-    else
-        info "Installing opencode globally via npm..."
+        info "Opencode found at $(command -v opencode) (current: $(opencode --version 2>/dev/null || echo unknown)). Installing the pinned version..."
     fi
 
-    sudo npm install -g opencode-ai --force
+    # No --force, no :latest: the version is pinned, and npm refuses a prefix it
+    # cannot write rather than silently installing to a location that loses to
+    # another node prefix on PATH.
+    npm install -g "@opencode/cli@${OPENCODE_VERSION}"
 
-    if ! opencode --version &>/dev/null; then
-        warn "Opencode CLI installation verification failed, but continuing..."
+    local installed
+    # 'opencode --version' prints "opencode v2.2.0", so pick the number out of it.
+    installed="$(opencode --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+    installed="${installed:-unknown}"
+    if [[ "$installed" != 2.* ]]; then
+        error "expected opencode 2.x from @opencode/cli@${OPENCODE_VERSION}, found '${installed}' at $(command -v opencode || echo 'nothing on PATH')"
     fi
 
-    success "Opencode CLI installed/updated successfully."
+    success "Opencode CLI ${installed} installed."
 
     # Ensure the user-level config file (config + provider/model definitions)
     # exists; initialize it as {} when missing. Tools that merge models into
@@ -315,9 +352,9 @@ _generate_env_file() {
         sudo cp "$env_file" "${env_file}.bak"
     fi
 
-    export OPENCODE_SERVER_USERNAME OPENCODE_SERVER_PASSWORD
+    export OPENCODE_PASSWORD
     # shellcheck disable=SC2016  # envsubst expects the literal variable list
-    envsubst '${OPENCODE_SERVER_USERNAME} ${OPENCODE_SERVER_PASSWORD}' \
+    envsubst '${OPENCODE_PASSWORD}' \
         < "${TEMPLATE_DIR}/env.template" | sudo tee "$env_file" > /dev/null
 
     sudo chmod 600 "$env_file"
@@ -339,11 +376,13 @@ _wait_for_opencode_docker() {
         return 0
     fi
 
-    local access_url="http://localhost:${OPENCODE_PORT}"
+    # /api/info is the V2 readiness/identity endpoint (GET /api/info -> ServerInfo).
+    # The username is always 'opencode'; see https://opencode.ai/v2/docs/cli/web.
+    local access_url="http://localhost:${OPENCODE_PORT}/api/info"
     local max_wait=120 interval=5 elapsed=0
 
     while [[ $elapsed -lt $max_wait ]]; do
-        if curl -s -o /dev/null -w "%{http_code}" "$access_url" | grep -qE "^(200|302|303|401)"; then
+        if curl -fsS -u "opencode:${OPENCODE_PASSWORD}" -o /dev/null "$access_url"; then
             echo ""
             success "Opencode is up and responding!"
             return 0
@@ -426,8 +465,9 @@ summary_docker() {
     if [[ "$OPENCODE_TRAEFIK" != "true" ]]; then
         echo ""
         echo -e "${YELLOW}  Note:${RESET}"
-        echo -e "  - OPENCODE_SERVER_PASSWORD is stored in .env (not exposed in docker-compose.yml)"
-        echo -e "  - To use a custom password, set OPENCODE_SERVER_PASSWORD before running this script"
+        echo -e "  - OPENCODE_PASSWORD is stored in .env (not exposed in docker-compose.yml)"
+        echo -e "  - To use a custom password, set OPENCODE_PASSWORD before running this script"
+        echo -e "  - HTTP Basic auth username is 'opencode' (fixed by Opencode V2)"
     fi
 
     if [[ "$OPENCODE_TRAEFIK" == "true" ]]; then
@@ -448,8 +488,8 @@ summary_docker() {
     if [[ "$OPENCODE_TRAEFIK" != "true" ]]; then
         echo ""
         echo -e "${BOLD}Security Notice:${RESET}"
-        echo -e "  Your OPENCODE_SERVER_PASSWORD is stored in .env (mode: 600)."
-        echo -e "  Do not share this file or expose it without TLS protection."
+        echo -e "  Your OPENCODE_PASSWORD is stored in .env (mode: 600)."
+        echo -e "  Authenticate as 'opencode:<password>'; do not share this file or expose it without TLS."
     fi
     echo ""
 }
@@ -458,17 +498,32 @@ summary_docker() {
 # SYSTEMD MODE
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Render the unit and install it only when it differs from what is already
+# there, so re-running this script converges an existing service instead of
+# leaving a stale unit behind (Re-run policy in specification/project/conventions.md).
 _write_service_file() {
-    if [[ -f "$SERVICE_FILE" ]]; then
-        info "Service file $SERVICE_FILE already exists. Skipping write."
+    local rendered
+    rendered="$(mktemp)"
+
+    # The npm install puts the binary wherever the invoking user's node prefix
+    # points, so resolve it from PATH instead of assuming /usr/local/bin.
+    local opencode_bin
+    opencode_bin="$(command -v opencode || true)"
+    [[ -n "$opencode_bin" ]] || error "opencode binary not found on PATH — install the CLI first"
+
+    export USER HOME OPENCODE_PASSWORD OPENCODE_HOSTNAME OPENCODE_PORT OPENCODE_BIN="$opencode_bin"
+    # shellcheck disable=SC2016  # envsubst expects the literal variable list
+    envsubst '${USER} ${HOME} ${OPENCODE_PASSWORD} ${OPENCODE_HOSTNAME} ${OPENCODE_PORT} ${OPENCODE_BIN}' \
+        < "${TEMPLATE_DIR}/${SERVICE_NAME}.service" > "$rendered"
+
+    if [[ -f "$SERVICE_FILE" ]] && sudo cmp -s "$rendered" "$SERVICE_FILE"; then
+        info "Service unit ${SERVICE_FILE} is already current — leaving it in place."
+        rm -f "$rendered"
         return
     fi
 
-    export USER HOME OPENCODE_SERVER_USERNAME OPENCODE_SERVER_PASSWORD \
-        OPENCODE_HOSTNAME OPENCODE_PORT
-    # shellcheck disable=SC2016  # envsubst expects the literal variable list
-    envsubst '${USER} ${HOME} ${OPENCODE_SERVER_USERNAME} ${OPENCODE_SERVER_PASSWORD} ${OPENCODE_HOSTNAME} ${OPENCODE_PORT}' \
-        < "${TEMPLATE_DIR}/${SERVICE_NAME}.service" | sudo tee "$SERVICE_FILE" > /dev/null
+    sudo install -m 644 "$rendered" "$SERVICE_FILE"
+    rm -f "$rendered"
     success "Service file written to $SERVICE_FILE"
 }
 
@@ -477,11 +532,11 @@ _test_health_endpoint() {
         return
     fi
 
-    info "Testing health endpoint..."
+    info "Testing readiness endpoint..."
     sleep 3
     if command -v curl &>/dev/null; then
-        curl -s --user "${OPENCODE_SERVER_USERNAME}:${OPENCODE_SERVER_PASSWORD}" \
-            "http://$OPENCODE_HOSTNAME:$OPENCODE_PORT/global/health" || true
+        curl -s -u "opencode:${OPENCODE_PASSWORD}" \
+            "http://$OPENCODE_HOSTNAME:$OPENCODE_PORT/api/info" || true
     fi
 }
 
@@ -519,9 +574,9 @@ summary_systemd() {
     echo ""
     echo -e "  ${BOLD}Web UI${RESET}   http://${OPENCODE_HOSTNAME}:${OPENCODE_PORT}"
     echo ""
-    echo -e "${BOLD}${CYAN}Admin credentials:${RESET}"
-    echo -e "  Username: $OPENCODE_SERVER_USERNAME"
-    if [[ -n "$OPENCODE_SERVER_PASSWORD" ]]; then
+    echo -e "${BOLD}${CYAN}HTTP Basic auth:${RESET}"
+    echo -e "  Username: opencode (fixed by Opencode V2)"
+    if [[ -n "$OPENCODE_PASSWORD" ]]; then
         echo -e "  Password: *** (configured)"
     else
         echo -e "  Password: *** (auto-generated on first run via env vars)"
@@ -566,14 +621,22 @@ uninstall_cli() {
     step "Uninstalling Opencode CLI"
 
     if command -v npm &>/dev/null; then
-        info "Removing opencode-ai npm package..."
-        sudo npm uninstall -g opencode-ai
+        # Both packages own the `opencode` command; V2 is @opencode/cli, V1 was
+        # opencode-ai. Remove whichever is installed.
+        for pkg in @opencode/cli opencode-ai; do
+            if npm ls -g --depth=0 "$pkg" &>/dev/null; then
+                info "Removing npm package ${pkg}..."
+                npm uninstall -g "$pkg" || true
+            fi
+        done
         success "Opencode CLI removed."
     else
         warn "npm not found. Nothing to remove."
     fi
 
-    success "Opencode CLI uninstalled."
+    # Config (~/.config/opencode) and session data (~/.local/share/opencode) are
+    # deliberately left alone — this script does not delete user history.
+    info "Left untouched: ~/.config/opencode and ~/.local/share/opencode"
 }
 
 uninstall_docker() {
@@ -650,9 +713,9 @@ All configuration is provided via environment variables.
 GENERAL OPTIONS
   OPENCODE_PORT                Port to bind the server to.
                                Default: 4096
-  OPENCODE_SERVER_USERNAME     Username for HTTP basic auth (server modes).
-                               Default: admin
-  OPENCODE_SERVER_PASSWORD     Password for HTTP basic auth (server modes).
+  OPENCODE_PASSWORD            Password for HTTP basic auth (server modes).
+                               The username is always "opencode" (Opencode V2
+                               removed OPENCODE_SERVER_USERNAME).
                                Default: auto-generated (printed once at startup)
 
 INSTALL MODES
@@ -667,9 +730,10 @@ DOCKER MODE OPTIONS            (only used when USE_DOCKER=true)
   OPENCODE_DATA_DIR            Host directory for Docker Compose files and .env.
                                Default: /srv/opencode
   OPENCODE_IMAGE               Image used by the generated docker-compose.yml.
-                               Pinned by default; override with an explicit
-                               version tag, not a moving tag.
-                               Default: ghcr.io/anomalyco/opencode:1.18.25
+                               Defaults to the pinned OPENCODE_VERSION tag.
+                               Override with an explicit version tag, never a
+                               moving tag: this registry's :latest is still 1.x.
+                               Default: ghcr.io/anomalyco/opencode:<OPENCODE_VERSION>
   WAIT_TIMEOUT                 Max seconds to wait for the stack to come up and
                                become healthy after 'docker compose up -d'.
                                Default: 180
@@ -692,16 +756,22 @@ PRIVILEGES
   needed (npm/apt installs, /srv/opencode, systemd, ufw, docker).
 
 NOTES
-  The CLI install ensures the user-level config file
-  (~/.config/opencode/opencode.json) exists, initializing it to {} when
-  missing, so model-sync tooling can merge into it.
+  The CLI install runs 'npm install -g @opencode/cli@<OPENCODE_VERSION>' and
+  removes the V1 package opencode-ai first: both provide the same `opencode`
+  command, so they must not both be installed. The user config file
+  (~/.config/opencode/opencode.json) is initialized to {} when missing so model
+  sync tooling can merge into it; existing config and session data are kept.
+
+  Opencode V2 replaces the layered V1 tui.json with a single global
+  ~/.config/opencode/cli.json on the first interactive run; that file is owned
+  by the terminal client, not by this script.
 
 EXAMPLES
   # CLI only (default):
   ./setup-opencode.sh
 
   # CLI + systemd service with explicit password:
-  OPENCODE_SERVICE=true OPENCODE_SERVER_PASSWORD=mysecret ./setup-opencode.sh
+  OPENCODE_SERVICE=true OPENCODE_PASSWORD=mysecret ./setup-opencode.sh
 
   # Docker mode with Traefik:
   USE_DOCKER=true OPENCODE_TRAEFIK=true OPENCODE_DOMAIN=opencode.example.com \

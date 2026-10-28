@@ -5,9 +5,12 @@ After=network.target
 [Service]
 Type=simple
 User=${USER}
-Environment="OPENCODE_SERVER_USERNAME=${OPENCODE_SERVER_USERNAME}"
-Environment="OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}"
-ExecStart=/usr/local/bin/opencode serve --hostname ${OPENCODE_HOSTNAME} --port ${OPENCODE_PORT}
+# Opencode V2: HTTP Basic auth username is fixed to "opencode"; only the
+# password is configurable (OPENCODE_SERVER_USERNAME no longer exists).
+Environment="OPENCODE_PASSWORD=${OPENCODE_PASSWORD}"
+# Resolved from PATH at install time (npm puts the binary under the invoking
+# user's node prefix, which is not necessarily /usr/local/bin).
+ExecStart=${OPENCODE_BIN} serve --hostname ${OPENCODE_HOSTNAME} --port ${OPENCODE_PORT}
 Restart=always
 RestartSec=5
 WorkingDirectory=${HOME}
