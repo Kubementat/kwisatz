@@ -34,7 +34,7 @@ scripts:
     enabled: true
     description: Install essential development tools (git, jq, yq, node, etc.)
     env:
-      NVM_VERSION: '0.40.4'
+      # NVM_VERSION: default from versions.yml
       NVM_DIR: $HOME/.nvm
     args: []
 
@@ -236,11 +236,9 @@ scripts:
       # Grafana admin credentials (password auto-generated if empty, stored in a mode-600 .env)
       GRAFANA_ADMIN_USER: admin
       # GRAFANA_ADMIN_PASSWORD: ''
-      # Image tags (defaults shown; override to pin a different version)
-      PROMETHEUS_IMAGE_VERSION: prom/prometheus:v3.13.2
-      GRAFANA_IMAGE_VERSION: grafana/grafana:13.1.1
-      NODE_EXPORTER_IMAGE_VERSION: quay.io/prometheus/node-exporter:v1.12.1
-      CADVISOR_IMAGE_VERSION: ghcr.io/google/cadvisor:v0.60.5
+      # Images: pinned in versions.yml (kept current by Renovate) — set one
+      # only to deviate on this machine, e.g.
+      # PROMETHEUS_IMAGE_VERSION: prom/prometheus:<tag>
       # Set to true to re-create an existing stack (data preserved)
       MONITORING_FORCE: 'false'
     args: []
