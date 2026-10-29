@@ -380,6 +380,64 @@ if ! declare -F env_file_write > /dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# Version pins — versions.yml at the repo root (one file, kept current by Renovate)
+#
+#   kw_pin     <key> [field]   prints one field of an entry (default: version)
+#   kw_version <key>           = kw_pin <key> version
+#   kw_image   <key>           prints <package>:<version>[@<digest>]
+#
+#   Use them as the *default* of an override variable, as a plain assignment so
+#   a missing key aborts the script under `set -e` (`: "${X:=$(…)}"` would hide
+#   the failure):
+#     OPENWEBUI_IMAGE="${OPENWEBUI_IMAGE:-$(kw_image openwebui)}"
+#
+#   Reads with the system python3 + PyYAML (`python3 -I`, no venv). A missing
+#   file, key, field or PyYAML prints an error and returns 1. KW_VERSIONS_FILE
+#   points at another file (tests).
+# ---------------------------------------------------------------------------
+_KW_VERSIONS_DEFAULT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/versions.yml"
+
+if ! declare -F kw_pin > /dev/null 2>&1; then
+  kw_pin() {
+    local key="${1:-}" field="${2:-version}"
+    [[ -n "$key" ]] || { err_msg "kw_pin: no key given"; return 1; }
+    python3 -I - "${KW_VERSIONS_FILE:-$_KW_VERSIONS_DEFAULT}" "$key" "$field" <<'PY'
+import sys
+path, key, field = sys.argv[1:]
+try:
+    import yaml
+except ImportError:
+    sys.exit("[ERROR] kw_pin: PyYAML is missing — sudo apt-get install -y python3-yaml (setup-basics installs it)")
+try:
+    with open(path) as handle:
+        data = yaml.safe_load(handle) or {}
+except (OSError, yaml.YAMLError) as e:
+    sys.exit(f"[ERROR] kw_pin: cannot read {path}: {e}")
+entry = data.get(key)
+if not isinstance(entry, dict):
+    sys.exit(f"[ERROR] kw_pin: no entry '{key}' in {path}")
+if field == "image":
+    value = f"{entry['package']}:{entry['version']}"
+    if entry.get("digest"):
+        value += f"@{entry['digest']}"
+elif entry.get(field) in (None, ""):
+    sys.exit(f"[ERROR] kw_pin: entry '{key}' in {path} has no '{field}'")
+else:
+    value = entry[field]
+print(value)
+PY
+  }
+fi
+
+if ! declare -F kw_version > /dev/null 2>&1; then
+  kw_version() { kw_pin "${1:-}" version; }
+fi
+
+if ! declare -F kw_image > /dev/null 2>&1; then
+  kw_image() { kw_pin "${1:-}" image; }
+fi
+
+# ---------------------------------------------------------------------------
 # wait_for_healthy <timeout_s> <container_id...>
 #   Polls 'docker inspect' until every container is running (and, when it
 #   defines a healthcheck, healthy). Exits non-zero with the bad container

@@ -1,0 +1,49 @@
+# =============================================================================
+# versions.yml — every upstream version kwisatz installs, in one place
+# =============================================================================
+#
+# Task scripts read their defaults from here with the kw_* helpers in
+# lib/helpers.sh (kw_image / kw_version / kw_pin); every override variable
+# (`OPENWEBUI_IMAGE=… ./tasks/setup-openwebui.sh`, `env:` in machine-config.yml,
+# `kwisatz apply --env`) still wins over the value below.
+#
+# Renovate (renovate.json, tasks/setup-renovate.sh) reads this file with one
+# jsonata manager and opens bump PRs against `develop`;
+# utilities/check-versions.sh prints what is outdated without opening anything.
+#
+# Entry fields (1:1 Renovate dependency fields):
+#   datasource  docker|github-releases|github-tags|pypi|git-refs|custom
+#               (custom: not looked up by Renovate)
+#   package     image / owner/repo / PyPI name / git URL
+#   version     the pinned tag/version — always a quoted string
+#   digest      optional; image digest or commit, Renovate keeps it current
+#   versioning  optional; Renovate versioning for odd tag schemes
+#
+# A pin whose next major breaks persisted data carries a `# HELD <reason>`
+# comment on the entry AND an allowedVersions rule in renovate.json
+# (tests/unit/test_versions.py keeps the two in sync).
+# =============================================================================
+# image digests and commit SHAs do not fit 80 columns
+# yamllint disable rule:line-length
+---
+agentsview:
+  datasource: github-releases
+  package: kenn-io/agentsview
+  version: "v0.44.0"
+
+hermes:
+  # release v0.21.5; the script installs the commit, Renovate compares tags
+  datasource: github-tags
+  package: NousResearch/hermes-agent
+  version: "v2026.9.24"
+  digest: "f97608f178d1ffeca59860195ab7da295f7c8e5f"
+
+openwebui:
+  datasource: docker
+  package: ghcr.io/open-webui/open-webui
+  version: "v0.11.1"
+
+renovate:
+  datasource: docker
+  package: renovate/renovate
+  version: "44.193.0"

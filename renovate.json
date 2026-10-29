@@ -1,0 +1,26 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "baseBranchPatterns": ["develop"],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Dependency Dashboard (versions.yml)",
+  "enabledManagers": ["custom.jsonata", "pep621"],
+  "customManagers": [
+    {
+      "customType": "jsonata",
+      "description": "versions.yml — one entry per upstream component kwisatz installs",
+      "fileFormat": "yaml",
+      "managerFilePatterns": ["/^versions\\.yml$/"],
+      "matchStrings": [
+        "$each($[0], function($v, $k) { $v.datasource != 'custom' ? { 'depName': $k, 'packageName': $v.package, 'datasource': $v.datasource, 'currentValue': $v.version, 'currentDigest': $v.digest, 'versioning': $v.versioning } })"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Majors wait for approval on the Dependency Dashboard",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}

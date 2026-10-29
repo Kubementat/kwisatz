@@ -35,7 +35,8 @@ source "${LIB_PATH}" || {
   exit 1
 }
 
-AGENTSVIEW_VERSION_DEFAULT="0.44.0"
+# Default pinned in versions.yml (key agentsview), kept current by Renovate.
+AGENTSVIEW_VERSION_DEFAULT="$(kw_version agentsview)"
 
 usage() {
   cat <<EOF
