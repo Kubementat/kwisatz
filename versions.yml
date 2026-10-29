@@ -420,3 +420,16 @@ neovim:
   datasource: github-releases
   package: neovim/neovim
   version: "v0.12.6"
+
+ollaya:
+  # was "latest release" until versions.yml; setup-ollaya strips the "v"
+  datasource: github-releases
+  package: ollaya-dev/ollaya
+  version: "v0.18.0"
+
+whispering:
+  # was resolved to the latest release at runtime until versions.yml;
+  # setup-whispering strips the "v"
+  datasource: github-releases
+  package: EpicenterHQ/epicenter
+  version: "v7.11.0"

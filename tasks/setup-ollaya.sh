@@ -26,7 +26,7 @@
 #
 # IMPORTANT VARIABLES:
 #   OLLAYA_DIR                Data directory (default: /srv/ollaya)
-#   OLLAYA_VERSION            Release to install, e.g. 0.7.5 (default: latest release)
+#   OLLAYA_VERSION            Release to install, or latest (default: versions.yml key ollaya)
 #   OLLAYA_INSTALL_DIR        Install prefix for the binary (default: /usr/local)
 #   OLLAYA_HOST               Bind host:port (default: 0.0.0.0:11435)
 #   OLLAYA_USER               Service user (default: ollaya)
@@ -89,7 +89,7 @@ source "${LIB_PATH}"
 # ─────────────────────────────────────────────────────────────────────────────
 
 OLLAYA_DIR="${OLLAYA_DIR:-/srv/ollaya}"
-OLLAYA_VERSION="${OLLAYA_VERSION:-}"   # empty = latest release, resolved below
+OLLAYA_VERSION="${OLLAYA_VERSION:-$(kw_version ollaya)}"   # "latest" = resolved below
 OLLAYA_INSTALL_DIR="${OLLAYA_INSTALL_DIR:-/usr/local}"
 OLLAYA_HOST="${OLLAYA_HOST:-0.0.0.0:11435}"
 OLLAYA_USER="${OLLAYA_USER:-ollaya}"
@@ -131,8 +131,8 @@ usage() {
 ${BOLD}Usage:${RESET} $0 [OPTIONS]
 
 Installs Ollaya (decision model runtime, https://github.com/ollaya-dev/ollaya)
-with the official checksum-verified release installer (latest release unless
-OLLAYA_VERSION is set) and runs it as the
+with the official checksum-verified release installer (the release pinned in
+versions.yml unless OLLAYA_VERSION is set) and runs it as the
 systemd service ollaya.service under the system user "${OLLAYA_USER}". Models
 are stored in ${OLLAYA_DIR}/models. A UFW inbound rule is added for the API
 port unless the server is bound to loopback.
@@ -144,8 +144,8 @@ ${BOLD}Options:${RESET}
 
 ${BOLD}Environment variables${RESET} (all optional):
   OLLAYA_DIR                Data directory: models, .env (default: /srv/ollaya)
-  OLLAYA_VERSION            Release to install, e.g. 0.7.5 (default: the latest
-                            GitHub release; re-runs upgrade when a newer one exists)
+  OLLAYA_VERSION            Release to install, or latest (default: $(kw_version ollaya);
+                            'latest' resolves the newest GitHub release on each run)
   OLLAYA_INSTALL_DIR        Install prefix of the binary (default: /usr/local)
   OLLAYA_HOST               Bind host:port (default: 0.0.0.0:11435; use
                             127.0.0.1:11435 to keep it local — no UFW rule then)
@@ -247,7 +247,7 @@ fi
 
 step "Resolving Ollaya version"
 
-if [[ -z "$OLLAYA_VERSION" ]]; then
+if [[ "$OLLAYA_VERSION" == "latest" ]]; then
   # /releases/latest redirects to /releases/tag/<tag>: no API call, no rate limit.
   LATEST_URL="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/ollaya-dev/ollaya/releases/latest")" \
     || error "Could not determine the latest Ollaya release. Set OLLAYA_VERSION explicitly."

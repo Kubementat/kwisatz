@@ -14,7 +14,7 @@
 #   --help      Display this help message
 #
 # Usage:
-#   ./setup-whispering.sh              # Install Whispering (latest version)
+#   ./setup-whispering.sh              # Install Whispering (pinned version)
 #   ./setup-whispering.sh --force      # Reinstall (force)
 # =============================================================================
 
@@ -48,13 +48,16 @@ START_SCRIPT_TARGET_PATH="${START_SCRIPT_TARGET_PATH:-$HOME/whispering}"
 APP_IMAGE_TARGET_PATH="${APP_IMAGE_TARGET_PATH:-$HOME/whispering_bin}"
 APP_IMAGE_BACKUP_PATH="${APP_IMAGE_BACKUP_PATH:-$HOME/whispering_bin_backup}"
 VERSION_MARKER_PATH="${APP_IMAGE_TARGET_PATH}.version"
+# Release to install, without the "v" (versions.yml key whispering); "latest"
+# resolves the newest GitHub release on each run.
+WHISPERING_VERSION="${WHISPERING_VERSION:-$(kw_version whispering | sed 's/^v//')}"
 
 # =============================================================================
 # Help
 # =============================================================================
 
 show_help() {
-  cat << 'EOF'
+  cat <<EOF
 Usage: setup-whispering.sh [OPTIONS]
 
 Install Whispering desktop application on Linux.
@@ -64,13 +67,15 @@ Options:
   --help     Display this help message
 
 Environment variables:
+  WHISPERING_VERSION         Release to install, or latest (default:
+                             $(kw_version whispering | sed 's/^v//'))
   WHISPERING_ARCH_FALLBACK   Set to 'amd64' to install x86_64 (amd64) artifacts
                              on an unsupported host architecture. Unset
                              (default): the task fails loudly instead of
                              guessing.
 
 Examples:
-  ./setup-whispering.sh              # Install Whispering (latest version)
+  ./setup-whispering.sh              # Install Whispering (pinned version)
   ./setup-whispering.sh --force      # Reinstall (force)
 
 For more information, visit: https://github.com/EpicenterHQ/epicenter
@@ -116,12 +121,13 @@ trap cleanup EXIT
 # Main
 # =============================================================================
 
-# Fetch latest release version from GitHub
-step "Fetching latest Whispering version from GitHub"
-WHISPERING_VERSION=$(curl -fsSL "https://api.github.com/repos/EpicenterHQ/epicenter/releases/latest" 2>/dev/null | grep -oP '"tag_name":\s*"v\K[^"]+' || echo "")
-if [[ -z "${WHISPERING_VERSION}" ]]; then
-  error "Could not determine latest Whispering version from GitHub"
-  exit 1
+if [[ "${WHISPERING_VERSION}" == "latest" ]]; then
+  step "Fetching latest Whispering version from GitHub"
+  WHISPERING_VERSION=$(curl -fsSL "https://api.github.com/repos/EpicenterHQ/epicenter/releases/latest" 2>/dev/null | grep -oP '"tag_name":\s*"v\K[^"]+' || echo "")
+  if [[ -z "${WHISPERING_VERSION}" ]]; then
+    error "Could not determine latest Whispering version from GitHub"
+    exit 1
+  fi
 fi
 SOURCE_URL="https://github.com/EpicenterHQ/epicenter/releases/download/v${WHISPERING_VERSION}/Whispering_${WHISPERING_VERSION}_${ARCH}.AppImage"
 step "Setting up Whispering (version: ${WHISPERING_VERSION})"
@@ -162,7 +168,7 @@ if [[ -f "${APP_IMAGE_TARGET_PATH}" ]]; then
       INSTALLED_VERSION=$(cat "${VERSION_MARKER_PATH}")
     fi
     if [[ "${INSTALLED_VERSION}" == "${WHISPERING_VERSION}" ]]; then
-      success "Whispering ${WHISPERING_VERSION} is already installed (latest release)"
+      success "Whispering ${WHISPERING_VERSION} is already installed"
       info "Run '${START_SCRIPT_TARGET_PATH}' to start the application"
       exit 0
     fi
