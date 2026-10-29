@@ -181,7 +181,8 @@ Images are pinned (`SYNAPSE_IMAGE`, `MAS_IMAGE`, `ELEMENT_IMAGE`, …). To upgra
    version in between, and the MAS / Element release notes.
 2. Back up (`borg-backup-<client> create`).
 3. Re-run with the new tag, e.g. `SYNAPSE_IMAGE=matrixdotorg/synapse:v1.165.0 kwisatz apply matrix`
-   (or bump the default in the script). Synapse migrates its database on start.
+   (or merge the Renovate PR that bumps `synapse` in `versions.yml`). Synapse migrates its
+   database on start.
 4. Check `GET /_synapse/admin/v1/background_updates/status` (from an allowed network) before the
    next jump.
 

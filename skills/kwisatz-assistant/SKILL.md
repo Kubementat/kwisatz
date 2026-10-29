@@ -322,7 +322,7 @@ When recommending services, group them logically:
 | **Project Mgmt** | setup-forgejo, setup-planka |
 | **Storage / Files** | setup-nextcloud, setup-samba |
 | **Automation** | setup-n8n |
-| **CI/CD** | setup-concourse |
+| **CI/CD** | setup-concourse, setup-renovate (version-bump PRs for `versions.yml`) |
 | **Backup** | setup-backup-server, setup-backup-client |
 | **Remote Access** | setup-anydesk, setup-virtualization |
 | **Speech** | setup-whispering, setup-omnivoice |
@@ -335,6 +335,7 @@ Located in `utilities/`:
 
 - **`utilities/run-llama-server.sh`** — Launch llama-server with auto flash-attention. Run without `--model` to list available `.gguf` models in `~/.lmstudio/models/`.
 - **`utilities/ssh-port-forward.sh`** — SSH tunnel wrapper: `./ssh-port-forward.sh <local_port> <remote_host> <remote_port> <ssh_user> [ssh_port]`
+- **`utilities/check-versions.sh`** — Lists every pin in `versions.yml` (the one file holding all upstream versions the tasks install) as `current → latest`, via the pinned Renovate image in lookup-only mode. Needs docker; `--json` for machine output.
 - **`utilities/sync-server-files.sh`** — Incrementally sync a directory from the AI server to a local machine via rsync/SSH (e.g. repos, hermes workspaces). Config via `SYNC_REMOTE_USER`, `SYNC_REMOTE_HOST`, `SYNC_SSH_PORT` (default 2224), `SYNC_DELETE`, `SYNC_SUDO`; options `--source-directory`, `--target-directory`, `--dry-run`, `--verbose`, `--sudo`. See README.md "Utility Scripts" for full docs.
 
 ## Common Recommendations by Use Case
