@@ -376,3 +376,29 @@ tensorfold-27b-prebuilt:
   package: ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold
   version: "v0.6.0-fb91a0019fdc"
   versioning: "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>[0-9a-f]+)$"
+
+# ── host tools: GitHub releases / tags, PyPI, git, vendor ─────────────────────
+
+nvm:
+  # setup-basics strips the leading "v"
+  datasource: github-releases
+  package: nvm-sh/nvm
+  version: "v0.40.4"
+
+laya:
+  datasource: pypi
+  package: laya
+  version: "0.3.19"
+
+ace-step:
+  # project version 1.5.0 is published under v0.1.x tags
+  datasource: github-tags
+  package: ACE-Step/ACE-Step-1.5
+  version: "v0.1.8"
+
+lm-studio:
+  # not looked up by Renovate (vendor download site). setup-lm-studio uses it
+  # as the "auto-detect latest" default
+  datasource: custom
+  package: lmstudio.ai
+  version: "0.4.6-1"

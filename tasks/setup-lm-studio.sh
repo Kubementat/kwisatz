@@ -94,7 +94,9 @@ done
 #   LMSTUDIO_INSTALL_SHA256=<64 hex> ./setup-lm-studio.sh
 : "${LMSTUDIO_INSTALL_SHA256:=}"
 
-DEFAULT_LM_STUDIO_VERSION="0.4.6-1"
+# versions.yml key lm-studio (datasource custom: the vendor site has no API
+# Renovate knows). Left at this default, the run installs the latest release.
+DEFAULT_LM_STUDIO_VERSION="$(kw_version lm-studio)"
 : "${LM_STUDIO_VERSION:=${DEFAULT_LM_STUDIO_VERSION}}"
 
 DESKTOP_LINK_TARGET_PATH="${DESKTOP_LINK_TARGET_PATH:-$HOME/Desktop/LM-Studio.desktop}"
