@@ -11,7 +11,7 @@
 # KEY ACTIONS:
 #   1. Pre-flight checks: systemctl, curl, port availability
 #   2. Keeps an existing installation unless `--force`; prompts only with `--interactive`
-#   3. Downloads the latest llama-swap binary from GitHub releases
+#   3. Downloads the pinned llama-swap binary from GitHub releases
 #   4. Generates config.yaml from template (comprehensive example with all options)
 #   5. Generates and installs llama-swap.service from template
 #   6. Reloads systemd, starts and enables the service
@@ -28,7 +28,7 @@
 #   LLAMA_SWAP_LISTEN_ADDR - Bind address (default: 0.0.0.0:9292)
 #   LLAMA_SWAP_USER       - Service runtime user (default: root)
 #   LLAMA_SWAP_BIN_PATH   - Binary install path (default: /usr/local/bin/llama-swap)
-#   LLAMA_SWAP_VERSION    - Release version to install (default: latest)
+#   LLAMA_SWAP_VERSION    - Release version to install, or latest (default: versions.yml key llama-swap)
 #
 # DEPENDENCIES:
 #   - curl: Used for health check polling and binary download
@@ -118,7 +118,7 @@ LLAMA_SWAP_GLOBAL_TTL="${LLAMA_SWAP_GLOBAL_TTL:-0}"      # Global model TTL
 LLAMA_SWAP_LISTEN_ADDR="${LLAMA_SWAP_LISTEN_ADDR:-0.0.0.0:9292}"  # Bind address
 LLAMA_SWAP_USER="${LLAMA_SWAP_USER:-root}"               # Service user
 LLAMA_SWAP_BIN_PATH="${LLAMA_SWAP_BIN_PATH:-/usr/local/bin/llama-swap}"  # Binary path
-LLAMA_SWAP_VERSION="${LLAMA_SWAP_VERSION:-latest}"       # Release version
+LLAMA_SWAP_VERSION="${LLAMA_SWAP_VERSION:-$(kw_version llama-swap)}"       # Release version
 
 # ─────────────────────────────────────────────────────────────────────────────
 # COMPUTED VALUES
@@ -162,7 +162,7 @@ ${BOLD}Environment variables${RESET} (all optional):
   LLAMA_SWAP_LISTEN_ADDR   Bind address (default: 0.0.0.0:9292)
   LLAMA_SWAP_USER          Service runtime user (default: root)
   LLAMA_SWAP_BIN_PATH      Binary install path (default: /usr/local/bin/llama-swap)
-  LLAMA_SWAP_VERSION       Release version to install (default: latest)
+  LLAMA_SWAP_VERSION       Release version to install, or latest (default: $(kw_version llama-swap))
 EOF
 }
 
@@ -252,7 +252,7 @@ if [[ -f "$SERVICE_FILE" ]]; then
   warn "Existing systemd service file found at ${SERVICE_FILE}."
   echo ""
   info "Existing config at ${CONFIG_FILE} will be PRESERVED (not overwritten)."
-  info "The llama-swap binary will be updated to the latest version."
+  info "The llama-swap binary will be updated to ${LLAMA_SWAP_VERSION}."
   if [[ "$FORCE" -eq 1 ]]; then
     info "--force flag set — proceeding automatically."
   elif [[ "$INTERACTIVE" == "true" ]]; then

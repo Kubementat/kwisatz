@@ -402,3 +402,21 @@ lm-studio:
   datasource: custom
   package: lmstudio.ai
   version: "0.4.6-1"
+
+orca:
+  # was the floating "latest" until versions.yml
+  datasource: github-releases
+  package: stablyai/orca
+  version: "v1.4.244"
+
+llama-swap:
+  # was the floating "latest" until versions.yml
+  datasource: github-releases
+  package: mostlygeek/llama-swap
+  version: "v268"
+
+neovim:
+  # was the floating "stable" until versions.yml
+  datasource: github-releases
+  package: neovim/neovim
+  version: "v0.12.6"

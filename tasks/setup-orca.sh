@@ -31,7 +31,7 @@
 #   --help    Display this help message
 #
 # Environment Variables (all optional):
-#   ORCA_VERSION          Release tag (e.g. v1.4.218) or 'latest' (default)
+#   ORCA_VERSION          Release tag or 'latest' (default: versions.yml key orca)
 #   ORCA_PORT             serve listen port (default: 6768)
 #   ORCA_PAIRING_ADDRESS  Address clients should dial — Tailscale/LAN IP or
 #                         hostname, or a full https://…/runtime reverse-proxy
@@ -67,7 +67,7 @@ source "${LIB_PATH}" || {
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-: "${ORCA_VERSION:=latest}"
+ORCA_VERSION="${ORCA_VERSION:-$(kw_version orca)}"
 : "${ORCA_PORT:=6768}"
 : "${ORCA_PAIRING_ADDRESS:=}"
 : "${ORCA_MOBILE_PAIRING:=false}"
@@ -89,17 +89,17 @@ TEMPLATE_DIR="${SCRIPT_DIR}/../templates/orca"
 # Help
 # ---------------------------------------------------------------------------
 show_help() {
-  cat << 'EOF'
+  cat <<EOF
 Usage: setup-orca.sh [OPTIONS]
 
-Install Orca remote server (headless `orca serve` under systemd).
+Install Orca remote server (headless \`orca serve\` under systemd).
 
 Options:
   --force    Re-download and reinstall the target version
   --help     Display this help message
 
 Environment Variables (all optional):
-  ORCA_VERSION          Release tag (e.g. v1.4.218) or 'latest' (default: latest)
+  ORCA_VERSION          Release tag or 'latest' (default: $(kw_version orca))
   ORCA_PORT             serve listen port (default: 6768)
   ORCA_PAIRING_ADDRESS  Address clients should dial — Tailscale/LAN IP or
                         hostname, or a full https://…/runtime URL. Empty =

@@ -27,9 +27,13 @@ USE = re.compile(r"\bkw_(?:image|version|pin)\s+([a-z0-9-]+)")
 
 # ── hard-coded pins ────────────────────────────────────────────────────────────────
 # `<SOMETHING>_IMAGE|VERSION|TAG|REF|COMMIT|DIGEST…` given a literal default
-PIN_DEFAULT = re.compile(
-    r"\b(?P<var>(?:[A-Z0-9]+_)*(?:IMAGE|VERSION|TAG|REF|COMMIT|DIGEST)(?:_[A-Z0-9]+)*)"
-    r"(?::?[-=]|=)\"?(?P<value>[^\"'$\s)}][^\"\s)};]*)"
+# (`${VAR:-x}` / `${VAR:=x}` anywhere; a plain `VAR=x` only at the start of a line,
+# so an indented help example such as `  ORCA_VERSION=v1.4 ./setup-orca.sh` is not one)
+_VAR = r"(?P<var>(?:[A-Z0-9]+_)*(?:IMAGE|VERSION|TAG|REF|COMMIT|DIGEST)(?:_[A-Z0-9]+)*)"
+_VALUE = r"\"?(?P<value>[^\"'$\s)}][^\"\s)};]*)"
+PIN_DEFAULTS = (
+    re.compile(r"\$\{" + _VAR + r":[-=]" + _VALUE),
+    re.compile(r"^(?:local\s+)?" + _VAR + "=" + _VALUE),
 )
 # a help text that prints a literal image default: `(default: postgres:16-alpine`
 HELP_DEFAULT = re.compile(r"default:\s*(?P<value>[\w.-]+(?:/[\w.-]+)*:[\w.-]*\d[\w.@:-]*)")
@@ -92,7 +96,7 @@ def hard_coded_pins() -> list[str]:
     for script in sorted((REPO / "tasks").glob("*.sh")):
         for n, line in code_lines(script):
             hits = []
-            for m in PIN_DEFAULT.finditer(line):
+            for m in (m for pat in PIN_DEFAULTS for m in pat.finditer(line)):
                 if (script.name, m["var"]) in ALLOWED or NOT_A_PIN.search(m["value"]):
                     continue
                 hits.append(f"{m['var']}={m['value']}")
