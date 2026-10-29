@@ -287,3 +287,20 @@ omnigent-postgres:
   datasource: docker
   package: postgres
   version: "16-alpine"
+
+# ── netbird (setup-netbird) — server/dashboard/client move together ───────────
+
+netbird-server:
+  datasource: docker
+  package: netbirdio/netbird-server
+  version: "0.77.1"
+
+netbird-dashboard:
+  datasource: docker
+  package: netbirdio/dashboard
+  version: "v2.91.1"
+
+netbird-client:
+  datasource: docker
+  package: netbirdio/netbird
+  version: "0.77.1"
