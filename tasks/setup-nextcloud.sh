@@ -37,11 +37,11 @@
 # IMPORTANT VARIABLES (full list in --help):
 #   NEXTCLOUD_HOME          - Host directory for persistent data (default: /srv/nextcloud)
 #   NEXTCLOUD_IMAGE         - App image, shared by app+cron (default:
-#                             nextcloud:34-apache, pinned — update
+#                             versions.yml key nextcloud, pinned — update
 #                             deliberately ONE major at a time)
-#   NEXTCLOUD_DB_IMAGE      - PostgreSQL image (default: postgres:17-alpine;
+#   NEXTCLOUD_DB_IMAGE      - PostgreSQL image (default: versions.yml;
 #                             follows db/PG_VERSION of an existing install)
-#   NEXTCLOUD_REDIS_IMAGE   - Redis image       (default: redis:7-alpine)
+#   NEXTCLOUD_REDIS_IMAGE   - Redis image       (default: versions.yml)
 #   CONTAINER_NAME          - App container name (default: nextcloud; keep
 #                             it for the backup dispatcher: it dumps
 #                             nextcloud / nextcloud-db and matches them only
@@ -174,17 +174,17 @@ Modes (switch by re-running with the other value — see MODE SWITCH below):
 Environment variables (all optional):
   NEXTCLOUD_HOME               Host directory for persistent data
                                (default: /srv/nextcloud)
-  NEXTCLOUD_IMAGE              App+cron image (default: nextcloud:34-apache,
+  NEXTCLOUD_IMAGE              App+cron image (default: $(kw_image nextcloud),
                                pinned — update deliberately ONE major at a
                                time, 33->34->35, backup first:
                                setup-backup-server.sh --services nextcloud.
                                The cron sidecar shares this var, so its tag
                                can never drift from the app.)
-  NEXTCLOUD_DB_IMAGE           PostgreSQL image (default: postgres:17-alpine;
+  NEXTCLOUD_DB_IMAGE           PostgreSQL image (default: $(kw_image nextcloud-postgres);
                                when ${NEXTCLOUD_HOME:-/srv/nextcloud}/db/PG_VERSION
                                exists the default follows the installed major
                                to protect the datadir; explicit override wins)
-  NEXTCLOUD_REDIS_IMAGE        Redis image (default: redis:7-alpine)
+  NEXTCLOUD_REDIS_IMAGE        Redis image (default: $(kw_image nextcloud-redis))
    CONTAINER_NAME               App container name (default: nextcloud — keep
                                 it if setup-backup-server.sh --services
                                 nextcloud is used: the dispatcher dumps
@@ -289,9 +289,9 @@ NEXTCLOUD_HOME="${NEXTCLOUD_HOME:-/srv/nextcloud}"          # Host directory for
 
 # App image shared by the app AND the cron sidecar. Pinned on purpose — the
 # stable/latest aliases risk skipping Nextcloud majors, which the upgrade
-# path forbids (one major at a time). Update deliberately after reading the
-# changelog: docker buildx imagetools inspect nextcloud
-NEXTCLOUD_IMAGE="${NEXTCLOUD_IMAGE:-nextcloud:34-apache}"
+# path forbids (one major at a time). The default is HELD in versions.yml
+# (key nextcloud): move the major there deliberately after reading the changelog.
+NEXTCLOUD_IMAGE="${NEXTCLOUD_IMAGE:-$(kw_image nextcloud)}"
 warn_moving_image "${NEXTCLOUD_IMAGE}" "NEXTCLOUD_IMAGE"
 
 CONTAINER_NAME="${CONTAINER_NAME:-nextcloud}"
@@ -309,10 +309,10 @@ if [[ -z "${NEXTCLOUD_DB_IMAGE:-}" ]]; then
   if [[ "${_pg_major}" =~ ^[0-9]+$ ]]; then
     NEXTCLOUD_DB_IMAGE="postgres:${_pg_major}-alpine"
   else
-    NEXTCLOUD_DB_IMAGE="postgres:17-alpine"
+    NEXTCLOUD_DB_IMAGE="$(kw_image nextcloud-postgres)"
   fi
 fi
-NEXTCLOUD_REDIS_IMAGE="${NEXTCLOUD_REDIS_IMAGE:-redis:7-alpine}"
+NEXTCLOUD_REDIS_IMAGE="${NEXTCLOUD_REDIS_IMAGE:-$(kw_image nextcloud-redis)}"
 
 POSTGRES_DB="${POSTGRES_DB:-nextcloud}"
 POSTGRES_USER="${POSTGRES_USER:-nextcloud}"

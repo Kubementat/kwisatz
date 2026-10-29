@@ -108,3 +108,68 @@ temporal-ui:
   datasource: docker
   package: temporalio/ui
   version: "2.34.0"
+
+# ── nextcloud (setup-nextcloud) ───────────────────────────────────────────────
+
+nextcloud:
+  # HELD <35: Nextcloud upgrades one major at a time — move the major here
+  # and in renovate.json deliberately, after a backup
+  datasource: docker
+  package: nextcloud
+  version: "34-apache"
+
+nextcloud-postgres:
+  # HELD <18: the data volume is tied to the major, upgrade needs pg_upgrade
+  # (the script keeps an existing install on its db/PG_VERSION major)
+  datasource: docker
+  package: postgres
+  version: "17-alpine"
+
+nextcloud-redis:
+  datasource: docker
+  package: redis
+  version: "7-alpine"
+
+# ── matrix (setup-matrix) — grouped in renovate.json ──────────────────────────
+
+synapse:
+  datasource: docker
+  package: matrixdotorg/synapse
+  version: "v1.164.0"
+
+mas:
+  datasource: docker
+  package: ghcr.io/element-hq/matrix-authentication-service
+  version: "1.28.0"
+
+element:
+  datasource: docker
+  package: vectorim/element-web
+  version: "v1.12.33"
+
+matrix-wellknown:
+  datasource: docker
+  package: nginx
+  version: "1.30-alpine"
+
+livekit:
+  datasource: docker
+  package: livekit/livekit-server
+  version: "v1.13.11"
+
+lk-jwt:
+  datasource: docker
+  package: ghcr.io/element-hq/lk-jwt-service
+  version: "0.9.0"
+
+ketesa:
+  datasource: docker
+  package: ghcr.io/etkecc/ketesa
+  version: "v1.5.2"
+
+matrix-postgres:
+  # HELD <18: the data volume is tied to the major, upgrade needs pg_upgrade
+  # (the script keeps an existing install on its db/PG_VERSION major)
+  datasource: docker
+  package: postgres
+  version: "17-alpine"

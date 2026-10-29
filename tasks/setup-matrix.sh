@@ -175,16 +175,16 @@ Environment variables:
   MATRIX_HOME               Data directory (default: /srv/matrix)
   WAIT_TIMEOUT              Seconds for the health gate and each readiness
                             poll (default: 300)
-  MATRIX_DB_IMAGE           (default: postgres:17-alpine; follows
+  MATRIX_DB_IMAGE           (default: $(kw_image matrix-postgres); follows
                             db/PG_VERSION of an existing install)
-  SYNAPSE_IMAGE             (default: matrixdotorg/synapse:v1.164.0 — read
+  SYNAPSE_IMAGE             (default: $(kw_image synapse) — read
                             Synapse's upgrade.md and back up before bumping)
-  MAS_IMAGE                 (default: ghcr.io/element-hq/matrix-authentication-service:1.28.0)
-  ELEMENT_IMAGE             (default: vectorim/element-web:v1.12.33)
-  MATRIX_WELLKNOWN_IMAGE    (default: nginx:1.30-alpine)
-  LIVEKIT_IMAGE             (default: livekit/livekit-server:v1.13.11)
-  LK_JWT_IMAGE              (default: ghcr.io/element-hq/lk-jwt-service:0.9.0)
-  KETESA_IMAGE              (default: ghcr.io/etkecc/ketesa:v1.5.2)
+  MAS_IMAGE                 (default: $(kw_image mas))
+  ELEMENT_IMAGE             (default: $(kw_image element))
+  MATRIX_WELLKNOWN_IMAGE    (default: $(kw_image matrix-wellknown))
+  LIVEKIT_IMAGE             (default: $(kw_image livekit))
+  LK_JWT_IMAGE              (default: $(kw_image lk-jwt))
+  KETESA_IMAGE              (default: $(kw_image ketesa))
 
 DNS prerequisites (A/AAAA records, or NetBird DNS records for VPN-only):
   MATRIX_DOMAIN, MATRIX_AUTH_DOMAIN, MATRIX_CHAT_DOMAIN
@@ -297,23 +297,23 @@ LIVEKIT_NODE_IP="${LIVEKIT_NODE_IP:-}"
 PROXY_NETWORK="${PROXY_NETWORK:-proxy}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
 
-# Pinned images. Never start a newer-major postgres against an older datadir:
+# Pinned images (versions.yml). Never start a newer-major postgres against an older datadir:
 # the default follows db/PG_VERSION of an existing install.
 if [[ -z "${MATRIX_DB_IMAGE:-}" ]]; then
   _pg_major="$(sudo cat "${MATRIX_HOME}/db/PG_VERSION" 2>/dev/null || true)"
   if [[ "${_pg_major}" =~ ^[0-9]+$ ]]; then
     MATRIX_DB_IMAGE="postgres:${_pg_major}-alpine"
   else
-    MATRIX_DB_IMAGE="postgres:17-alpine"
+    MATRIX_DB_IMAGE="$(kw_image matrix-postgres)"
   fi
 fi
-SYNAPSE_IMAGE="${SYNAPSE_IMAGE:-matrixdotorg/synapse:v1.164.0}"
-MAS_IMAGE="${MAS_IMAGE:-ghcr.io/element-hq/matrix-authentication-service:1.28.0}"
-ELEMENT_IMAGE="${ELEMENT_IMAGE:-vectorim/element-web:v1.12.33}"
-MATRIX_WELLKNOWN_IMAGE="${MATRIX_WELLKNOWN_IMAGE:-nginx:1.30-alpine}"
-LIVEKIT_IMAGE="${LIVEKIT_IMAGE:-livekit/livekit-server:v1.13.11}"
-LK_JWT_IMAGE="${LK_JWT_IMAGE:-ghcr.io/element-hq/lk-jwt-service:0.9.0}"
-KETESA_IMAGE="${KETESA_IMAGE:-ghcr.io/etkecc/ketesa:v1.5.2}"
+SYNAPSE_IMAGE="${SYNAPSE_IMAGE:-$(kw_image synapse)}"
+MAS_IMAGE="${MAS_IMAGE:-$(kw_image mas)}"
+ELEMENT_IMAGE="${ELEMENT_IMAGE:-$(kw_image element)}"
+MATRIX_WELLKNOWN_IMAGE="${MATRIX_WELLKNOWN_IMAGE:-$(kw_image matrix-wellknown)}"
+LIVEKIT_IMAGE="${LIVEKIT_IMAGE:-$(kw_image livekit)}"
+LK_JWT_IMAGE="${LK_JWT_IMAGE:-$(kw_image lk-jwt)}"
+KETESA_IMAGE="${KETESA_IMAGE:-$(kw_image ketesa)}"
 for _i in MATRIX_DB_IMAGE SYNAPSE_IMAGE MAS_IMAGE ELEMENT_IMAGE MATRIX_WELLKNOWN_IMAGE \
           LIVEKIT_IMAGE LK_JWT_IMAGE KETESA_IMAGE; do
   warn_moving_image "${!_i}" "$_i"
