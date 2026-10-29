@@ -58,11 +58,11 @@ source "${SCRIPT_DIR}/../lib/helpers.sh"
 source "${SCRIPT_DIR}/../lib/tensorfold-helper.sh"
 
 # ── Pinned upstream recipe ────────────────────────────────────────────────────
-TENSORFOLD_REPO="https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold"
-# Recipe repo commit (commit date 2026-10-12). Note: the often-quoted pin
-# db281878ddb836fd0df510d8771ecb7e0fe47d26 is the TensorFold ENGINE commit
-# (TF_REF in the recipe's scripts/config.sh), not a recipe-repo commit.
-TENSORFOLD_RECIPE_REF="4e1239ddb9d9a4cc3c748e771ae4725335c46a95"
+TENSORFOLD_REPO="$(kw_pin tensorfold-flash-recipe package)"
+# Recipe repo commit (versions.yml key tensorfold-flash-recipe). Note: the
+# often-quoted pin db28187… is the TensorFold ENGINE commit (TF_REF in the
+# recipe's scripts/config.sh), not a recipe-repo commit.
+TENSORFOLD_RECIPE_REF="$(kw_pin tensorfold-flash-recipe digest)"
 # Free disk, per piece that still has to be downloaded — the pre-flight demands
 # only what is actually missing (upstream: MIN_FREE_GB=140 + IMAGE_FREE_GB=40,
 # checked again, precisely, inside scripts/prepare.sh):

@@ -352,3 +352,27 @@ colpali-engine:
   datasource: pypi
   package: colpali-engine
   version: "0.3.13"
+
+# ── tensorfold (setup-tensorfold-spark-qwen38-flash/-27b) ─────────────────────
+
+tensorfold-flash-recipe:
+  # recipe repo commit (main @ 2026-10-12); the engine pin lives inside the
+  # recipe, and setup-tensorfold-spark-qwen38-flash names its local image after it
+  datasource: git-refs
+  package: https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
+  version: "main"
+  digest: "4e1239ddb9d9a4cc3c748e771ae4725335c46a95"
+
+tensorfold-27b-recipe:
+  # recipe repo commit (main @ 2026-10-01); moves together with the prebuilt image
+  datasource: git-refs
+  package: https://github.com/MiaAI-Lab/Qwen3.8-27B-DGX-Spark-TensorFold
+  version: "main"
+  digest: "c11ff138871cf43d12898d79dbfa4dc952d17ca4"
+
+tensorfold-27b-prebuilt:
+  # <TF_VERSION>-<patches hash>; the script derives the local tag from it
+  datasource: docker
+  package: ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold
+  version: "v0.6.0-fb91a0019fdc"
+  versioning: "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>[0-9a-f]+)$"

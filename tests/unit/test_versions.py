@@ -45,6 +45,8 @@ ALLOWED = {
     ("setup-gufo-strix-halo-qwen38-flash.sh", "HSA_OVERRIDE_GFX_VERSION"),
     ("setup-gufo-strix-halo-qwen38-27b.sh", "HSA_OVERRIDE_GFX_VERSION"),
     ("setup-deepseek-harness.sh", "DSH_NODE_VERSION"),
+    # the local tag the pinned recipe's prepare.sh builds — follows the recipe, not a pull
+    ("setup-tensorfold-spark-qwen38-flash.sh", "TENSORFOLD_IMAGE"),
 }
 #: flipped to False once every script reads versions.yml (step 3 of the plan)
 REPORT_ONLY = True

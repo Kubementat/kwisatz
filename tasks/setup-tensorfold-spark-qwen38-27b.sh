@@ -65,8 +65,8 @@ source "${SCRIPT_DIR}/../lib/helpers.sh"
 source "${SCRIPT_DIR}/../lib/tensorfold-helper.sh"
 
 # ── Pinned upstream recipe ────────────────────────────────────────────────────
-TENSORFOLD_27B_REPO="https://github.com/MiaAI-Lab/Qwen3.8-27B-DGX-Spark-TensorFold"
-TENSORFOLD_27B_RECIPE_REF="c11ff138871cf43d12898d79dbfa4dc952d17ca4"
+TENSORFOLD_27B_REPO="$(kw_pin tensorfold-27b-recipe package)"
+TENSORFOLD_27B_RECIPE_REF="$(kw_pin tensorfold-27b-recipe digest)"
 # Free disk, per piece that still has to be downloaded — the pre-flight demands
 # only what is actually missing (upstream: MIN_FREE_GB=25 for the ~19 GiB
 # checkpoints + IMAGE_FREE_GB=35 for the image, checked again inside
@@ -80,9 +80,10 @@ TENSORFOLD_27B_MODEL_GB=$(( TENSORFOLD_27B_MIN_FREE_GB - TENSORFOLD_27B_IMAGE_GB
 # Engine images prepare.sh leaves behind (its scripts/config.sh): the tagged
 # local build tensorfold-qwen38-27b:<TF_VERSION>, and — when the pull worked —
 # the prebuilt ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold reference it
-# tags as the local one. Either counts as "no image download needed".
-TENSORFOLD_27B_IMAGE="tensorfold-qwen38-27b:v0.6.0"
-TENSORFOLD_27B_IMAGE_PREBUILT="ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold:v0.6.0-fb91a0019fdc"
+# tags as the local one. Either counts as "no image download needed". The
+# prebuilt tag is <TF_VERSION>-<patches hash>; the local tag is its first half.
+TENSORFOLD_27B_IMAGE_PREBUILT="$(kw_image tensorfold-27b-prebuilt)"
+TENSORFOLD_27B_IMAGE="tensorfold-qwen38-27b:$(kw_version tensorfold-27b-prebuilt | cut -d- -f1)"
 
 # Named -tf: qwen3.8-27b is already taken by the llama.cpp GGUF entry in
 # models.yml.default — both runtimes of the same model coexist in llama-swap.
