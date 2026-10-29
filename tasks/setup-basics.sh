@@ -69,8 +69,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Configuration
-NVM_VERSION="${NVM_VERSION:-$(kw_version nvm | sed "s/^v//")}"
+# Configuration (NVM_VERSION's default is read after the apt step: versions.yml
+# needs python3-yaml, which this script is what installs)
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 
 # Installer checksums (ticket improvements-2/17). Each installer is downloaded to
@@ -99,6 +99,7 @@ declare -a APT_PACKAGES=(
   git
   python3-pip
   python3-full
+  python3-yaml
   jq
   yq
   net-tools
@@ -146,6 +147,7 @@ else
 fi
 
 # Install NVM
+NVM_VERSION="${NVM_VERSION:-$(kw_version nvm | sed "s/^v//")}"
 step "Installing NVM v${NVM_VERSION}"
 if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
   success "NVM already installed at ${NVM_DIR}"
