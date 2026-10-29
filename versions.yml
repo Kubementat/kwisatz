@@ -259,3 +259,31 @@ dagu:
   datasource: docker
   package: ghcr.io/dagucloud/dagu
   version: "2.16.2"
+
+# ── opencode, nvidia-container ────────────────────────────────────────────────
+
+opencode:
+  # also the @opencode/cli npm version the script installs
+  datasource: docker
+  package: ghcr.io/anomalyco/opencode
+  version: "2.2.0"
+
+nvidia-smoke:
+  # base image for the CDI smoke test (no CUDA needed)
+  datasource: docker
+  package: ubuntu
+  version: "24.04"
+
+# ── omnigent (setup-omnigent) ─────────────────────────────────────────────────
+
+omnigent-server:
+  # was the floating :latest until versions.yml
+  datasource: docker
+  package: ghcr.io/omnigent-ai/omnigent-server
+  version: "v0.20.0"
+
+omnigent-postgres:
+  # HELD <17: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "16-alpine"
