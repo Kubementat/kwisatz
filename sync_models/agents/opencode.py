@@ -198,9 +198,22 @@ class OpencodeAdapter(AgentAdapter):
             entry["name"] = model.name
             fields.append("name")
         for key in ("limit", "modalities"):
-            if entry.get(key, _MISSING) is None:
-                entry[key] = {}
-            if not isinstance(entry.get(key), dict):
+            value = entry.get(key)
+            if value is None:
+                # Absent or JSON-null managed fields → creation-time defaults
+                # from the catalog, so entries missing them (e.g. written by an
+                # agent) converge instead of failing the whole sync.
+                value = (
+                    {"context": model.context_window, "output": model.max_tokens}
+                    if key == "limit"
+                    else {
+                        "input": list(model.input),
+                        "attachment": "image" in model.input,
+                        "output": ["text"],
+                    }
+                )
+                entry[key] = value
+            if not isinstance(value, dict):
                 raise AgentReadError(
                     f"model '{model.name}' field '{key}' is not a JSON object"
                 )
