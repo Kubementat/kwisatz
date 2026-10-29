@@ -270,6 +270,7 @@ opencode:
 
 nvidia-smoke:
   # base image for the CDI smoke test (no CUDA needed)
+  # HELD to LTS releases (YY.04)
   datasource: docker
   package: ubuntu
   version: "24.04"

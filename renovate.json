@@ -34,6 +34,36 @@
       "dependencyDashboardApproval": true
     },
     {
+      "description": "Matrix stack (setup-matrix): released and tested together",
+      "groupName": "matrix",
+      "matchDepNames": [
+        "synapse",
+        "mas",
+        "element",
+        "matrix-wellknown",
+        "livekit",
+        "lk-jwt",
+        "ketesa"
+      ]
+    },
+    {
+      "description": "NetBird server, dashboard and client must move together",
+      "groupName": "netbird",
+      "matchDepNames": [
+        "netbird-server",
+        "netbird-dashboard",
+        "netbird-client"
+      ]
+    },
+    {
+      "description": "the 27b recipe pins the engine version of its prebuilt image",
+      "groupName": "tensorfold-27b",
+      "matchDepNames": [
+        "tensorfold-27b-recipe",
+        "tensorfold-27b-prebuilt"
+      ]
+    },
+    {
       "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
       "matchDepNames": [
         "postiz-postgres"
@@ -123,6 +153,13 @@
         "colpali-engine"
       ],
       "allowedVersions": "<0.3.14"
+    },
+    {
+      "description": "HELD: Ubuntu LTS releases only",
+      "matchDepNames": [
+        "nvidia-smoke"
+      ],
+      "allowedVersions": "/^\\d\\d\\.04$/"
     }
   ]
 }
