@@ -52,8 +52,6 @@ ALLOWED = {
     # the local tag the pinned recipe's prepare.sh builds — follows the recipe, not a pull
     ("setup-tensorfold-spark-qwen38-flash.sh", "TENSORFOLD_IMAGE"),
 }
-#: flipped to False once every script reads versions.yml (step 3 of the plan)
-REPORT_ONLY = True
 
 
 def load() -> dict:
@@ -144,9 +142,6 @@ def test_every_used_key_exists_and_every_entry_is_used():
 
 def test_no_hard_coded_pins_in_tasks():
     pins = hard_coded_pins()
-    if REPORT_ONLY:
-        print(f"\n{len(pins)} hard-coded pin(s) left in tasks/:\n" + "\n".join(pins))
-        return
     assert not pins, "version literals belong in versions.yml:\n" + "\n".join(pins)
 
 
