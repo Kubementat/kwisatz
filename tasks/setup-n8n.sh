@@ -10,10 +10,10 @@
 # Environment Variables (optional):
 #   N8N_DIR           - Installation directory (default: /srv/n8n)
 #   TRAEFIK_ENABLED   - Enable Traefik integration (default: false)
-#   N8N_IMAGE         - n8n image (default: docker.n8n.io/n8nio/n8n:2.37.4, pinned)
+#   N8N_IMAGE         - n8n image (default: versions.yml key n8n, pinned)
 #   N8N_TRAEFIK_IMAGE - Private sidecar Traefik, Traefik variant only
-#                       (default: traefik:v3.7.12, pinned)
-#   POSTGRES_IMAGE    - Database image (default: postgres:15-alpine, pinned)
+#                       (default: versions.yml key traefik, pinned)
+#   POSTGRES_IMAGE    - Database image (default: versions.yml key n8n-postgres, pinned)
 #
 # Usage:
 #   ./setup-n8n.sh
@@ -50,11 +50,11 @@ ${BOLD}Options:${RESET}
 ${BOLD}Environment variables${RESET} (all optional):
   N8N_DIR           Installation directory (default: /srv/n8n)
   TRAEFIK_ENABLED   Enable Traefik integration (default: false)
-  N8N_IMAGE         n8n image (default: docker.n8n.io/n8nio/n8n:2.37.4,
+  N8N_IMAGE         n8n image (default: $(kw_image n8n),
                     pinned — override with an explicit version tag)
   N8N_TRAEFIK_IMAGE Private sidecar Traefik, written by the Traefik variant
-                    only (default: traefik:v3.7.12, pinned)
-  POSTGRES_IMAGE    Database image (default: postgres:15-alpine, pinned)
+                    only (default: $(kw_image traefik), pinned)
+  POSTGRES_IMAGE    Database image (default: $(kw_image n8n-postgres), pinned)
   WAIT_TIMEOUT      Max seconds to wait for the stack to come up and become
                     healthy after 'docker compose up -d' (default: 180)
 
@@ -88,14 +88,11 @@ COMPOSE_FILE="${N8N_DIR}/docker-compose.yml"
 # Container images — pinned on purpose (ticket improvements-2/17): the templates
 # used to carry an untagged n8n reference (i.e. `:latest`), an untagged Traefik
 # sidecar and a hard-coded postgres tag.
-# Defaults looked up 2026-08-31 from https://docker.n8n.io (n8nio/n8n, newest
-# stable release; same content as the Docker Hub library mirror) and from the
-# tags already in use in templates/n8n/. The Traefik sidecar tracks the shared
-# proxy's major (setup-traefik.sh uses traefik:v3).
-# Update deliberately: docker buildx imagetools inspect docker.n8n.io/n8nio/n8n
-: "${N8N_IMAGE:=docker.n8n.io/n8nio/n8n:2.37.4}"
-: "${N8N_TRAEFIK_IMAGE:=traefik:v3.7.12}"
-: "${POSTGRES_IMAGE:=postgres:15-alpine}"
+# The defaults live in versions.yml (Renovate keeps them current); the Traefik
+# sidecar shares the `traefik` entry with setup-traefik.sh.
+N8N_IMAGE="${N8N_IMAGE:-$(kw_image n8n)}"
+N8N_TRAEFIK_IMAGE="${N8N_TRAEFIK_IMAGE:-$(kw_image traefik)}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-$(kw_image n8n-postgres)}"
 warn_moving_image "${N8N_IMAGE}" "N8N_IMAGE"
 warn_moving_image "${N8N_TRAEFIK_IMAGE}" "N8N_TRAEFIK_IMAGE"
 warn_moving_image "${POSTGRES_IMAGE}" "POSTGRES_IMAGE"

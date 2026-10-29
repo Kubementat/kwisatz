@@ -88,6 +88,27 @@
         "planka-postgres"
       ],
       "allowedVersions": "/^16(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "n8n-postgres"
+      ],
+      "allowedVersions": "/^15(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "concourse-postgres"
+      ],
+      "allowedVersions": "/^15(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "kestra-postgres"
+      ],
+      "allowedVersions": "/^16(\\D|$)/"
     }
   ]
 }

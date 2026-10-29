@@ -206,3 +206,56 @@ planka-postgres:
   datasource: docker
   package: postgres
   version: "16-alpine"
+
+# ── traefik + n8n, concourse, kestra, dagu ────────────────────────────────────
+
+traefik:
+  # was the floating :v3 in setup-traefik; n8n's sidecar shares this entry
+  datasource: docker
+  package: traefik
+  version: "v3.7.16"
+
+socket-proxy:
+  # fronts /var/run/docker.sock: tag AND digest pinned
+  datasource: docker
+  package: ghcr.io/tecnativa/docker-socket-proxy
+  version: "v0.5.0"
+  digest: "sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459"
+
+n8n:
+  datasource: docker
+  package: docker.n8n.io/n8nio/n8n
+  version: "2.37.4"
+
+n8n-postgres:
+  # HELD <16: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "15-alpine"
+
+concourse:
+  datasource: docker
+  package: concourse/concourse
+  version: "8.3.0"
+
+concourse-postgres:
+  # HELD <16: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "15"
+
+kestra:
+  datasource: docker
+  package: kestra/kestra
+  version: "v2.0.0"
+
+kestra-postgres:
+  # HELD <17: the data volume is tied to the major (Kestra docs: 16/17 data-dir issue)
+  datasource: docker
+  package: postgres
+  version: "16"
+
+dagu:
+  datasource: docker
+  package: ghcr.io/dagucloud/dagu
+  version: "2.16.2"

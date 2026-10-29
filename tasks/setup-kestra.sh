@@ -18,8 +18,8 @@
 #   KESTRA_DIR           - Installation directory (default: /srv/kestra)
 #   KESTRA_BIND_IP       - Bind address, direct mode (default: 127.0.0.1)
 #   KESTRA_PORT          - Host port for the web UI (default: 8084)
-#   KESTRA_IMAGE         - Kestra image (default: kestra/kestra:v2.0.0, pinned)
-#   POSTGRES_IMAGE       - PostgreSQL image (default: postgres:16, pinned —
+#   KESTRA_IMAGE         - Kestra image (default: versions.yml key kestra, pinned)
+#   POSTGRES_IMAGE       - PostgreSQL image (default: versions.yml key kestra-postgres, pinned —
 #                          see the Kestra docs on the 16/17 data-dir issue)
 #   KESTRA_USERNAME      - Web UI basic-auth username, must be a mail address
 #                          (default: admin@example.com)
@@ -101,9 +101,9 @@ ${BOLD}Environment variables${RESET} (all optional):
   KESTRA_DIR           Installation directory (default: /srv/kestra)
   KESTRA_BIND_IP       Bind address, direct mode (default: 127.0.0.1)
   KESTRA_PORT          Host port for the web UI (default: 8084)
-  KESTRA_IMAGE         Kestra image (default: kestra/kestra:v2.0.0, pinned —
+  KESTRA_IMAGE         Kestra image (default: $(kw_image kestra), pinned —
                        override with an explicit version tag)
-  POSTGRES_IMAGE       PostgreSQL image (default: postgres:16, pinned — the
+  POSTGRES_IMAGE       PostgreSQL image (default: $(kw_image kestra-postgres), pinned — the
                        Kestra docs warn about data-dir incompatibility when
                        moving between major Postgres versions)
   KESTRA_USERNAME      Web UI basic-auth username, must be a mail address
@@ -165,11 +165,9 @@ KESTRA_WD_DIR="${KESTRA_DIR}/wd"
 
 # Pinned images. Kestra publishes immutable v<X.X.X> tags and recommends them
 # for locked-down production (rolling: latest, latest-lts — avoid via the
-# warn_moving_image check). Update deliberately:
-#   docker buildx imagetools inspect kestra/kestra
-#   docker buildx imagetools inspect postgres
-: "${KESTRA_IMAGE:=kestra/kestra:v2.0.0}"
-: "${POSTGRES_IMAGE:=postgres:16}"
+# warn_moving_image check). The defaults live in versions.yml.
+KESTRA_IMAGE="${KESTRA_IMAGE:-$(kw_image kestra)}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-$(kw_image kestra-postgres)}"
 warn_moving_image "${KESTRA_IMAGE}" "KESTRA_IMAGE"
 warn_moving_image "${POSTGRES_IMAGE}" "POSTGRES_IMAGE"
 

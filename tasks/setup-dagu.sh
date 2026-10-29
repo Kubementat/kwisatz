@@ -13,7 +13,7 @@
 #   DAGU_DIR           - Installation directory (default: /srv/dagu)
 #   DAGU_BIND_IP       - Bind address (default: 127.0.0.1)
 #   DAGU_PORT          - Host port for the web UI (default: 8080)
-#   DAGU_IMAGE         - Dagu image (default: ghcr.io/dagucloud/dagu:2.16.2, pinned)
+#   DAGU_IMAGE         - Dagu image (default: versions.yml key dagu, pinned)
 #   DAGU_TZ            - Timezone for Dagu (default: UTC)
 #   DAGU_USERNAME      - Admin username (default: dagu)
 #   DAGU_PASSWORD      - Admin password (default: auto-generated on first run)
@@ -57,7 +57,7 @@ ${BOLD}Environment variables${RESET} (all optional):
   DAGU_DIR           Installation directory (default: /srv/dagu)
   DAGU_BIND_IP       Bind address (default: 127.0.0.1)
   DAGU_PORT          Host port for the web UI (default: 8080)
-  DAGU_IMAGE         Dagu image (default: ghcr.io/dagucloud/dagu:2.16.2,
+  DAGU_IMAGE         Dagu image (default: $(kw_image dagu),
                      pinned — override with an explicit version tag)
   DAGU_TZ            Timezone for Dagu (default: UTC)
   DAGU_USERNAME      Admin username (default: dagu)
@@ -105,9 +105,8 @@ COMPOSE_FILE="${DAGU_DIR}/docker-compose.yml"
 ENV_FILE="${DAGU_DIR}/.env"
 DAGU_DATA_DIR="${DAGU_DIR}/data"
 
-# Pinned image (update deliberately:
-#   docker buildx imagetools inspect ghcr.io/dagucloud/dagu)
-: "${DAGU_IMAGE:=ghcr.io/dagucloud/dagu:2.16.2}"
+# Pinned image — the default lives in versions.yml (key dagu)
+DAGU_IMAGE="${DAGU_IMAGE:-$(kw_image dagu)}"
 warn_moving_image "${DAGU_IMAGE}" "DAGU_IMAGE"
 
 command -v envsubst >/dev/null 2>&1 \
