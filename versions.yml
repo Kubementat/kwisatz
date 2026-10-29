@@ -68,3 +68,43 @@ cadvisor:
   datasource: docker
   package: ghcr.io/google/cadvisor
   version: "v0.60.5"
+
+# ── postiz (setup-postiz) ─────────────────────────────────────────────────────
+
+postiz:
+  datasource: docker
+  package: ghcr.io/gitroomhq/postiz-app
+  version: "v2.24.0"
+
+postiz-postgres:
+  # HELD <18: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "17-alpine"
+
+temporal-postgres:
+  # HELD <17: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "16"
+
+postiz-redis:
+  datasource: docker
+  package: redis
+  version: "7.2"
+
+elasticsearch:
+  # HELD <8: Temporal's visibility store needs Elasticsearch 7
+  datasource: docker
+  package: elasticsearch
+  version: "7.17.27"
+
+temporal:
+  datasource: docker
+  package: temporalio/auto-setup
+  version: "1.28.1"
+
+temporal-ui:
+  datasource: docker
+  package: temporalio/ui
+  version: "2.34.0"

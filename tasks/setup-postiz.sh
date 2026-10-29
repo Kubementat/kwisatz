@@ -59,7 +59,7 @@ ${BOLD}Environment variables${RESET} (all optional):
 
   Application:
     POSTIZ_HOME             Data directory (default: /srv/postiz)
-    POSTIZ_IMAGE            Container image (default: ghcr.io/gitroomhq/postiz-app:v2.24.0, pinned)
+    POSTIZ_IMAGE            Container image (default: $(kw_image postiz), pinned)
     HTTP_PORT               Host port for the Postiz web UI (default: 4007,
                             ignored when POSTIZ_TRAEFIK=true)
     POSTIZ_HOST_IP          Host IP used to build the default MAIN_URL in
@@ -91,12 +91,12 @@ ${BOLD}Environment variables${RESET} (all optional):
     PROXY_NETWORK           Traefik's external Docker network name (default: proxy)
 
   Temporal stack images (pinned — update deliberately):
-    POSTGRES_IMAGE          Postiz DB image (default: postgres:17-alpine)
-    TEMPORAL_POSTGRES_IMAGE Temporal DB image (default: postgres:16)
-    REDIS_IMAGE             Redis image (default: redis:7.2)
-    ES_IMAGE                Temporal visibility index (default: elasticsearch:7.17.27)
-    TEMPORAL_IMAGE          Temporal auto-setup (default: temporalio/auto-setup:1.28.1)
-    TEMPORAL_UI_IMAGE       Temporal UI (default: temporalio/ui:2.34.0)
+    POSTGRES_IMAGE          Postiz DB image (default: $(kw_image postiz-postgres))
+    TEMPORAL_POSTGRES_IMAGE Temporal DB image (default: $(kw_image temporal-postgres))
+    REDIS_IMAGE             Redis image (default: $(kw_image postiz-redis))
+    ES_IMAGE                Temporal visibility index (default: $(kw_image elasticsearch))
+    TEMPORAL_IMAGE          Temporal auto-setup (default: $(kw_image temporal))
+    TEMPORAL_UI_IMAGE       Temporal UI (default: $(kw_image temporal-ui))
     TEMPORAL_UI_PORT        Temporal UI host port, loopback-only (default: 18080)
 
   Startup:
@@ -162,18 +162,15 @@ POSTIZ_TRAEFIK="${POSTIZ_TRAEFIK:-false}"
 POSTIZ_DOMAIN="${POSTIZ_DOMAIN:-}"
 PROXY_NETWORK="${PROXY_NETWORK:-proxy}"
 
-# Image pins — matched to the official gitroomhq/postiz-docker-compose as of
-# 2026-09-30; the Postiz app tag is the newest release at implementation time
-# (checked 2026-10-01 via the GHCR tag list / GitHub releases).
-# Update deliberately: ghcr tag list for gitroomhq/postiz-app, GitHub releases
-# for the Temporal images.
-POSTIZ_IMAGE="${POSTIZ_IMAGE:-ghcr.io/gitroomhq/postiz-app:v2.24.0}"
-POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:17-alpine}"
-TEMPORAL_POSTGRES_IMAGE="${TEMPORAL_POSTGRES_IMAGE:-postgres:16}"
-REDIS_IMAGE="${REDIS_IMAGE:-redis:7.2}"
-ES_IMAGE="${ES_IMAGE:-elasticsearch:7.17.27}"
-TEMPORAL_IMAGE="${TEMPORAL_IMAGE:-temporalio/auto-setup:1.28.1}"
-TEMPORAL_UI_IMAGE="${TEMPORAL_UI_IMAGE:-temporalio/ui:2.34.0}"
+# Image pins — matched to the official gitroomhq/postiz-docker-compose; the
+# defaults live in versions.yml (bumped by Renovate PRs, HELD entries stay).
+POSTIZ_IMAGE="${POSTIZ_IMAGE:-$(kw_image postiz)}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-$(kw_image postiz-postgres)}"
+TEMPORAL_POSTGRES_IMAGE="${TEMPORAL_POSTGRES_IMAGE:-$(kw_image temporal-postgres)}"
+REDIS_IMAGE="${REDIS_IMAGE:-$(kw_image postiz-redis)}"
+ES_IMAGE="${ES_IMAGE:-$(kw_image elasticsearch)}"
+TEMPORAL_IMAGE="${TEMPORAL_IMAGE:-$(kw_image temporal)}"
+TEMPORAL_UI_IMAGE="${TEMPORAL_UI_IMAGE:-$(kw_image temporal-ui)}"
 TEMPORAL_UI_PORT="${TEMPORAL_UI_PORT:-18080}"
 
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-300}"
@@ -649,5 +646,5 @@ echo -e "  Follow logs :  docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FIL
 echo -e "  Stop stack  :  docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE} down"
 echo -e "  Start stack :  docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE} up -d"
 echo -e "  Temporal CLI:  docker exec -it temporal temporal workflow list --namespace default"
-echo -e "  Upgrade     :  bump POSTIZ_IMAGE (newest ghcr tag), re-run this script,"
+echo -e "  Upgrade     :  bump postiz in versions.yml (or POSTIZ_IMAGE), re-run this script,"
 echo -e "                 'docker compose pull && up -d' — migrations run on boot."

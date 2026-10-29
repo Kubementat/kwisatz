@@ -1,16 +1,25 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "baseBranchPatterns": ["develop"],
+  "extends": [
+    "config:recommended"
+  ],
+  "baseBranchPatterns": [
+    "develop"
+  ],
   "dependencyDashboard": true,
   "dependencyDashboardTitle": "Dependency Dashboard (versions.yml)",
-  "enabledManagers": ["custom.jsonata", "pep621"],
+  "enabledManagers": [
+    "custom.jsonata",
+    "pep621"
+  ],
   "customManagers": [
     {
       "customType": "jsonata",
       "description": "versions.yml — one entry per upstream component kwisatz installs",
       "fileFormat": "yaml",
-      "managerFilePatterns": ["/^versions\\.yml$/"],
+      "managerFilePatterns": [
+        "/^versions\\.yml$/"
+      ],
       "matchStrings": [
         "$each($[0], function($v, $k) { $v.datasource != 'custom' ? { 'depName': $k, 'packageName': $v.package, 'datasource': $v.datasource, 'currentValue': $v.version, 'currentDigest': $v.digest, 'versioning': $v.versioning } })"
       ]
@@ -19,8 +28,31 @@
   "packageRules": [
     {
       "description": "Majors wait for approval on the Dependency Dashboard",
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": [
+        "major"
+      ],
       "dependencyDashboardApproval": true
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "postiz-postgres"
+      ],
+      "allowedVersions": "/^17(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "temporal-postgres"
+      ],
+      "allowedVersions": "/^16(\\D|$)/"
+    },
+    {
+      "description": "HELD: Temporal's visibility store needs Elasticsearch 7",
+      "matchDepNames": [
+        "elasticsearch"
+      ],
+      "allowedVersions": "/^7\\./"
     }
   ]
 }
