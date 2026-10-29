@@ -232,8 +232,9 @@ if ! command -v envsubst &>/dev/null; then
   error "envsubst is not installed. Required for template rendering. Install with: sudo apt-get install gettext-base"
 fi
 
-# Check if port is already in use (direct mode only)
-if [[ "$OPENWEBUI_TRAEFIK" != "true" ]]; then
+# Check if port is already in use (direct mode only). An existing stack holds the
+# port itself, so a converging re-run skips the check (re-run policy).
+if [[ "$OPENWEBUI_TRAEFIK" != "true" && ! -f "${PROJECT_DIR}/docker-compose.yml" ]]; then
   if ss -tln 2>/dev/null | grep -q ":${OPENWEBUI_PORT} " || \
      netstat -tln 2>/dev/null | grep -q ":${OPENWEBUI_PORT} "; then
     error "Port ${OPENWEBUI_PORT} is already in use. Choose a different OPENWEBUI_PORT."
