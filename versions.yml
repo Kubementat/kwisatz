@@ -173,3 +173,36 @@ matrix-postgres:
   datasource: docker
   package: postgres
   version: "17-alpine"
+
+# ── forgejo, excalidraw, planka ───────────────────────────────────────────────
+
+forgejo:
+  # was the floating :14 until versions.yml
+  datasource: docker
+  package: codeberg.org/forgejo/forgejo
+  version: "14.0.5"
+
+forgejo-postgres:
+  # HELD <15: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "14"
+
+excalidraw:
+  # upstream publishes no release tags: latest, pinned by digest
+  datasource: docker
+  package: excalidraw/excalidraw
+  version: "latest"
+  digest: "sha256:f7ee194addd607bf831d2af0f0a34463dd4225e426cf35199ef0b12a803398e9"
+
+planka:
+  # was the floating :latest until versions.yml
+  datasource: docker
+  package: ghcr.io/plankanban/planka
+  version: "2.2.1"
+
+planka-postgres:
+  # HELD <17: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "16-alpine"
