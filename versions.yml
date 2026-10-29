@@ -433,3 +433,10 @@ whispering:
   datasource: github-releases
   package: EpicenterHQ/epicenter
   version: "v7.11.0"
+
+llama-cpp:
+  # build tags b<N>, several a day; was "newest tag at runtime" until versions.yml
+  datasource: github-releases
+  package: ggml-org/llama.cpp
+  version: "b11981"
+  versioning: "regex:^b(?<major>\\d+)$"
