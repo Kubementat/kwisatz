@@ -304,3 +304,13 @@ netbird-client:
   datasource: docker
   package: netbirdio/netbird
   version: "0.77.1"
+
+# ── gufo (setup-gufo-strix-halo-qwen38-flash/-27b) ────────────────────────────
+
+gufo:
+  # registry tags carry no "v"; a bump changes serve flags — read the source
+  # of the new tag before merging
+  datasource: docker
+  package: ghcr.io/gufo-org/toolboxes/gufo-runtime
+  version: "0.8.1"
+  digest: "sha256:56f0a052e784fdfd43ebe2aba590336c8fb5b05c5a813aaebb5ac98d61010afd"
