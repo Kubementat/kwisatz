@@ -47,3 +47,24 @@ renovate:
   datasource: docker
   package: renovate/renovate
   version: "44.193.0"
+
+# ── monitoring (setup-monitoring) ────────────────────────────────────────────
+prometheus:
+  datasource: docker
+  package: prom/prometheus
+  version: "v3.13.2"
+
+grafana:
+  datasource: docker
+  package: grafana/grafana
+  version: "13.1.1"
+
+node-exporter:
+  datasource: docker
+  package: quay.io/prometheus/node-exporter
+  version: "v1.12.1"
+
+cadvisor:
+  datasource: docker
+  package: ghcr.io/google/cadvisor
+  version: "v0.60.5"

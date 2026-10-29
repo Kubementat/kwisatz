@@ -48,10 +48,10 @@
 #   GRAFANA_DOMAIN           - Domain for Traefik routing (required when GRAFANA_TRAEFIK=true)
 #   GRAFANA_ADMIN_USER       - Grafana admin username (default: admin)
 #   GRAFANA_ADMIN_PASSWORD   - Auto-generated via openssl rand if unset
-#   PROMETHEUS_IMAGE_VERSION - Prometheus image tag (default: prom/prometheus:v3.13.2)
-#   GRAFANA_IMAGE_VERSION    - Grafana image tag (default: grafana/grafana:13.1.1)
-#   NODE_EXPORTER_IMAGE_VERSION - Node Exporter image tag (default: quay.io/...:v1.12.1)
-#   CADVISOR_IMAGE_VERSION     - cAdvisor image tag (default: ghcr.io/google/cadvisor:v0.60.5)
+#   PROMETHEUS_IMAGE_VERSION - Prometheus image (default: versions.yml, key prometheus)
+#   GRAFANA_IMAGE_VERSION    - Grafana image (default: versions.yml, key grafana)
+#   NODE_EXPORTER_IMAGE_VERSION - Node Exporter image (default: versions.yml, key node-exporter)
+#   CADVISOR_IMAGE_VERSION     - cAdvisor image (default: versions.yml, key cadvisor)
 #   MONITORING_FORCE         - Set to "true" to re-create an existing stack
 #
 # FIREWALL:
@@ -126,10 +126,6 @@ PROMETHEUS_BIND_ADDRESS="${PROMETHEUS_BIND_ADDRESS:-127.0.0.1}"
 GRAFANA_DOMAIN="${GRAFANA_DOMAIN:-}"
 GRAFANA_ADMIN_USER="${GRAFANA_ADMIN_USER:-admin}"
 GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-}"
-PROMETHEUS_IMAGE_VERSION="${PROMETHEUS_IMAGE_VERSION:-prom/prometheus:v3.13.2}"
-GRAFANA_IMAGE_VERSION="${GRAFANA_IMAGE_VERSION:-grafana/grafana:13.1.1}"
-NODE_EXPORTER_IMAGE_VERSION="${NODE_EXPORTER_IMAGE_VERSION:-quay.io/prometheus/node-exporter:v1.12.1}"
-CADVISOR_IMAGE_VERSION="${CADVISOR_IMAGE_VERSION:-ghcr.io/google/cadvisor:v0.60.5}"
 MONITORING_FORCE="${MONITORING_FORCE:-false}"
 
 MONITORING_COMPOSE_DIR="${MONITORING_HOME}/monitoring"
@@ -150,6 +146,12 @@ source "${LIB_PATH}" || {
   echo "[ERROR] Shared library not found: ${LIB_PATH}" >&2
   exit 1
 }
+
+# Version defaults: versions.yml, read with kw_* (lib/helpers.sh)
+PROMETHEUS_IMAGE_VERSION="${PROMETHEUS_IMAGE_VERSION:-$(kw_image prometheus)}"
+GRAFANA_IMAGE_VERSION="${GRAFANA_IMAGE_VERSION:-$(kw_image grafana)}"
+NODE_EXPORTER_IMAGE_VERSION="${NODE_EXPORTER_IMAGE_VERSION:-$(kw_image node-exporter)}"
+CADVISOR_IMAGE_VERSION="${CADVISOR_IMAGE_VERSION:-$(kw_image cadvisor)}"
 
 TEMPLATES_DIR="$(realpath "${SCRIPT_DIR}/../templates/monitoring")"
 
@@ -183,10 +185,10 @@ ${BOLD}Environment variables${RESET} (all optional):
   GRAFANA_DOMAIN             Domain for Traefik routing (required when GRAFANA_TRAEFIK=true)
   GRAFANA_ADMIN_USER         Grafana admin username (default: admin)
   GRAFANA_ADMIN_PASSWORD     Grafana admin password (auto-generated if unset)
-  PROMETHEUS_IMAGE_VERSION   Prometheus image tag (default: prom/prometheus:v3.13.2)
-  GRAFANA_IMAGE_VERSION      Grafana image tag (default: grafana/grafana:13.1.1)
-  NODE_EXPORTER_IMAGE_VERSION  Node Exporter image tag (default: quay.io/prometheus/node-exporter:v1.12.1)
-  CADVISOR_IMAGE_VERSION     cAdvisor image tag (default: ghcr.io/google/cadvisor:v0.60.5)
+  PROMETHEUS_IMAGE_VERSION   Prometheus image tag (default: $(kw_image prometheus))
+  GRAFANA_IMAGE_VERSION      Grafana image tag (default: $(kw_image grafana))
+  NODE_EXPORTER_IMAGE_VERSION  Node Exporter image tag (default: $(kw_image node-exporter))
+  CADVISOR_IMAGE_VERSION     cAdvisor image tag (default: $(kw_image cadvisor))
   MONITORING_FORCE           Set to "true" to re-create an existing stack (default: false)
   WAIT_TIMEOUT               Max seconds to wait for the stack to come up and
                              become healthy after 'docker compose up -d'
