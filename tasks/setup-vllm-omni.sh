@@ -42,7 +42,7 @@ PROJECT_DIR="${PROJECT_DIR:-/srv/vllm-omni}"
 # HF cache dir on the host — models downloaded via huggingface-cli live here.
 HF_CACHE_DIR="${HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
 
-VLLM_OMNI_VERSION="${VLLM_OMNI_VERSION:-latest}"   # image tag (e.g. v0.24.0)
+VLLM_OMNI_VERSION="${VLLM_OMNI_VERSION:-}"         # image tag; empty = versions.yml pin of the backend
 VLLM_OMNI_PORT="${VLLM_OMNI_PORT:-8091}"           # host API port (container: 8000)
 VLLM_OMNI_MODEL="${VLLM_OMNI_MODEL:-}"             # HF model ID / in-container path
 HF_TOKEN="${HF_TOKEN:-}"                           # optional: gated models
@@ -142,7 +142,7 @@ usage() {
   echo "  --nvidia              Force NVIDIA CUDA backend"
   echo "  --amd                 Force AMD ROCm backend  (amd64 only)"
   echo "  --cpu                 Force CPU-only backend  (impractical for generation)"
-  echo "  --version <tag>       Image tag  (default: latest)"
+  echo "  --version <tag>       Image tag  (default: $(kw_version vllm-omni), ROCm: $(kw_version vllm-omni-rocm))"
   echo "  --port <n>            Host API port  (default: 8091)"
   echo "  --model <id>          HF model ID or in-container path"
   echo "  --hf-token <token>    HuggingFace token for gated models"
@@ -431,6 +431,14 @@ if [[ "$BACKEND" == "nvidia" ]]; then
 fi
 
 # ── Resolve Docker image ───────────────────────────────────────────────────────
+# Defaults from versions.yml; the ROCm image is released on its own, lagging cadence.
+if [[ -z "$VLLM_OMNI_VERSION" ]]; then
+  if [[ "$BACKEND" == "amd" ]]; then
+    VLLM_OMNI_VERSION="$(kw_version vllm-omni-rocm)"
+  else
+    VLLM_OMNI_VERSION="$(kw_version vllm-omni)"
+  fi
+fi
 IMAGE_SUFFIX=""
 [[ "$ARCH" == "aarch64" ]] && IMAGE_SUFFIX="-aarch64"
 case "$BACKEND" in
