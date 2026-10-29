@@ -335,3 +335,20 @@ vllm-omni-rocm:
   datasource: docker
   package: vllm/vllm-omni-rocm
   version: "v0.30.0"
+
+# ── colqwen (setup-colqwen) ───────────────────────────────────────────────────
+
+ngc-pytorch:
+  # must match the host driver (CUDA) and the torch pin of colpali-engine;
+  # tested: 25.10-py3 + colpali-engine 0.3.13 on DGX Spark
+  datasource: docker
+  package: nvcr.io/nvidia/pytorch
+  version: "25.10-py3"
+  versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)-py(?<compatibility>\\d+)$"
+
+colpali-engine:
+  # HELD <0.3.14: 0.3.14+ need transformers 5.x, which drops the LoRA weights
+  # of vidore/colqwen2.5-v0.2 (see templates/colqwen/env.template)
+  datasource: pypi
+  package: colpali-engine
+  version: "0.3.13"

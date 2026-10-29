@@ -116,6 +116,13 @@
         "omnigent-postgres"
       ],
       "allowedVersions": "/^16(\\D|$)/"
+    },
+    {
+      "description": "HELD: 0.3.14+ need transformers 5.x (breaks vidore/colqwen2.5-v0.2)",
+      "matchDepNames": [
+        "colpali-engine"
+      ],
+      "allowedVersions": "<0.3.14"
     }
   ]
 }
