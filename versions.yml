@@ -440,3 +440,17 @@ llama-cpp:
   package: ggml-org/llama.cpp
   version: "b11981"
   versioning: "regex:^b(?<major>\\d+)$"
+
+nanobot:
+  # was "newest tag at runtime" until versions.yml
+  datasource: github-tags
+  package: HKUDS/nanobot
+  version: "v0.4.0"
+
+omnivoice:
+  # no release tags upstream: the commit (digest) follows master, the script
+  # builds the commit
+  datasource: git-refs
+  package: https://github.com/ServeurpersoCom/omnivoice.cpp
+  version: "master"
+  digest: "1a468d8b9d65b3544ca1004d2d7c05dfc65d1f3e"

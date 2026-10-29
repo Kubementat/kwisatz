@@ -10,6 +10,8 @@
 #
 # Environment Variables (optional):
 #   NANOBOT_TARGET_REPO_DIRECTORY - Clone destination (default: /srv/nanobot)
+#   NANOBOT_VERSION               - Git tag to check out, or latest
+#                                   (default: versions.yml key nanobot)
 #
 # Usage:
 #   ./setup-nanobot.sh
@@ -45,6 +47,8 @@ ${BOLD}Options:${RESET}
 
 ${BOLD}Environment variables${RESET} (all optional):
   NANOBOT_TARGET_REPO_DIRECTORY  Clone destination (default: /srv/nanobot)
+  NANOBOT_VERSION                Git tag to check out, or latest for the newest
+                                 tag (default: $(kw_version nanobot))
 
 ${BOLD}Note:${RESET} A restart_nanobot.sh script (supports --rebuild) is created
 in the target directory for managing the container.
@@ -66,6 +70,7 @@ done
 
 # Configuration
 : "${NANOBOT_TARGET_REPO_DIRECTORY:=/srv/nanobot}"
+NANOBOT_VERSION="${NANOBOT_VERSION:-$(kw_version nanobot)}"
 NANOBOT_SHARED_DIRECTORY="$HOME/.nanobot"
 DOCKERFILE_EXTEND_SRC="${SCRIPT_REPO_DIR}/../templates/nanobot/Dockerfile.extend"
 
@@ -93,11 +98,13 @@ else
   git -C "${NANOBOT_TARGET_REPO_DIRECTORY}" fetch --tags
 fi
 
-# Checkout latest tag
-LATEST_TAG=$(git -C "${NANOBOT_TARGET_REPO_DIRECTORY}" describe --tags \
-  "$(git -C "${NANOBOT_TARGET_REPO_DIRECTORY}" rev-list --tags --max-count=1)")
-info "Checking out: ${LATEST_TAG}"
-git -C "${NANOBOT_TARGET_REPO_DIRECTORY}" checkout "${LATEST_TAG}"
+# Checkout the pinned tag ("latest": the newest tag)
+if [[ "${NANOBOT_VERSION}" == "latest" ]]; then
+  NANOBOT_VERSION=$(git -C "${NANOBOT_TARGET_REPO_DIRECTORY}" describe --tags \
+    "$(git -C "${NANOBOT_TARGET_REPO_DIRECTORY}" rev-list --tags --max-count=1)")
+fi
+info "Checking out: ${NANOBOT_VERSION}"
+git -C "${NANOBOT_TARGET_REPO_DIRECTORY}" checkout "${NANOBOT_VERSION}"
 
 pushd "${NANOBOT_TARGET_REPO_DIRECTORY}"
 
