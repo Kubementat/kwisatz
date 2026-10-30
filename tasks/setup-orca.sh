@@ -17,11 +17,17 @@
 #   /usr/local/bin/orca-desktop for GUI use. NOTE: only one host mode
 #   (desktop app OR orca serve) may run on the same machine at a time.
 #
+#   Updates: ORCA_VERSION=latest moves to the newest release on every run and
+#   restarts the service when it does. Pin a tag to stay put.
+#
+#   /usr/local/bin/orca-pair adds, lists and revokes clients without a restart
+#   (needs Orca v1.4.245 or newer). Run it as the service user.
+#
 #   Source: official headless guide
 #   https://github.com/stablyai/orca/blob/main/docs/reference/headless-linux-server.md
 #
 # Options:
-#   --force   Re-download the AppImage even if the requested version is installed
+#   --force   Re-download and reinstall the target version
 #   --help    Display this help message
 #
 # Environment Variables (all optional):
@@ -89,7 +95,7 @@ Usage: setup-orca.sh [OPTIONS]
 Install Orca remote server (headless `orca serve` under systemd).
 
 Options:
-  --force    Re-download the AppImage even if the requested version is installed
+  --force    Re-download and reinstall the target version
   --help     Display this help message
 
 Environment Variables (all optional):
@@ -112,8 +118,16 @@ Examples (run as a regular user with sudo privileges — sudo is used internally
   ORCA_PAIRING_ADDRESS=100.64.1.20 ./setup-orca.sh
   ORCA_VERSION=v1.4.218 ORCA_MOBILE_PAIRING=true ./setup-orca.sh
 
+ORCA_VERSION=latest moves to the newest release on every run and restarts the
+service when it does. Pin a tag to stay put.
+
 After setup, paste the printed pairing URL into
 Settings -> Remote Orca Servers -> Add Server on your client.
+
+More clients, no restart (Orca v1.4.245 or newer, run as the service user):
+  orca-pair add <name> [--mobile]   print a link for a new device
+  orca-pair list                    show devices, never tokens
+  orca-pair rm <name>               revoke a device
 Docs: https://www.onorca.dev/docs/remote-servers
 EOF
 }
@@ -263,7 +277,6 @@ esac
 ORCA_APPIMAGE="${ORCA_INSTALL_DIR}/orca-linux.AppImage"
 ORCA_VERSION_FILE="${ORCA_INSTALL_DIR}/VERSION"
 
-# Resolve the release tag: exact for pinned versions, effective URL for latest.
 # GitHub's first redirect for a /latest/download/ URL points at the tagged
 # download URL — that is where the release tag lives (the final CDN URL
 # does not carry it).
@@ -278,25 +291,34 @@ if [[ -f "${ORCA_VERSION_FILE}" ]]; then
   INSTALLED_VERSION="$(sudo cat "${ORCA_VERSION_FILE}")"
 fi
 
-# Skip the download only when the requested version is already installed
-# (a pinned tag matches the recorded one, or we want 'latest' and a binary
-# exists). Any mismatch — or --force — downloads.
-SKIP_DOWNLOAD=false
-if [[ -f "${ORCA_APPIMAGE}" && "${FORCE_INSTALL}" != "true" ]]; then
-  if [[ "${ORCA_VERSION}" == "latest" || "${INSTALLED_VERSION}" == "${ORCA_VERSION}" ]]; then
-    SKIP_DOWNLOAD=true
-    info "AppImage already installed (version: ${INSTALLED_VERSION:-unknown}). Skipping download (use --force to re-download)."
-  else
-    info "Installed version ${INSTALLED_VERSION:-unknown} does not match requested ${ORCA_VERSION} — upgrading."
-  fi
+if [[ "${ORCA_VERSION}" == "latest" ]]; then
+  TARGET_TAG="$(resolve_tag_from_url "https://github.com/${GITHUB_REPO}/releases/latest/download/${ORCA_ASSET}")"
+else
+  TARGET_TAG="${ORCA_VERSION}"
 fi
 
+# Skip the download only when the target version is already installed, or when
+# 'latest' cannot be resolved and there is an install to keep. --force downloads.
+SKIP_DOWNLOAD=false
+if [[ -z "${TARGET_TAG}" ]]; then
+  [[ -f "${ORCA_APPIMAGE}" && "${FORCE_INSTALL}" != "true" ]] \
+    || error "Could not resolve the latest Orca release, so there is nothing to download."
+  SKIP_DOWNLOAD=true
+  warn "Could not resolve the latest Orca release — keeping the installed version (${INSTALLED_VERSION:-unknown})."
+elif [[ -f "${ORCA_APPIMAGE}" && "${FORCE_INSTALL}" != "true" && "${INSTALLED_VERSION}" == "${TARGET_TAG}" ]]; then
+  SKIP_DOWNLOAD=true
+  info "AppImage already installed (version: ${TARGET_TAG}). Skipping download (use --force to re-download)."
+elif [[ -f "${ORCA_APPIMAGE}" ]]; then
+  info "Installing over the existing AppImage: ${INSTALLED_VERSION:-unknown} -> ${TARGET_TAG}"
+fi
+
+PREVIOUS_TAG=""
 if [[ "${SKIP_DOWNLOAD}" != "true" ]]; then
-  if [[ "${ORCA_VERSION}" == "latest" ]]; then
-    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/latest/download/${ORCA_ASSET}"
-  else
-    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${ORCA_VERSION}/${ORCA_ASSET}"
+  # Only a tag this run replaces is a way back; "unknown" and a --force of the same tag are not.
+  if [[ "${INSTALLED_VERSION}" != "unknown" && "${INSTALLED_VERSION}" != "${TARGET_TAG}" ]]; then
+    PREVIOUS_TAG="${INSTALLED_VERSION}"
   fi
+  DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${TARGET_TAG}/${ORCA_ASSET}"
 
   info "Downloading ${DOWNLOAD_URL}"
   DOWNLOAD_TMP="$(mktempfile "${ORCA_ASSET}.new")"
@@ -311,9 +333,6 @@ if [[ "${SKIP_DOWNLOAD}" != "true" ]]; then
   grep -qiF "${ORCA_FILE_MACHINE}" <<<"${FILE_INFO}" \
     || error "Downloaded AppImage does not match architecture (${ORCA_FILE_MACHINE}): ${FILE_INFO}"
 
-  DEPLOYED_TAG="$(resolve_tag_from_url "${DOWNLOAD_URL}")"
-  [[ -n "${DEPLOYED_TAG}" ]] || DEPLOYED_TAG="unknown"
-
   # Refuse a symlinked install target (staging/chmod would follow it)
   # and clear any stale staging name.
   sudo test ! -L "${ORCA_APPIMAGE}" \
@@ -324,9 +343,9 @@ if [[ "${SKIP_DOWNLOAD}" != "true" ]]; then
   # Stage to a side name and rename — never overwrite a FUSE binary in place.
   sudo install -m 755 -o root -g root "${DOWNLOAD_TMP}" "${ORCA_APPIMAGE}.new"
   sudo mv -f "${ORCA_APPIMAGE}.new" "${ORCA_APPIMAGE}"
-  printf '%s\n' "${DEPLOYED_TAG}" | sudo tee "${ORCA_VERSION_FILE}" > /dev/null
+  printf '%s\n' "${TARGET_TAG}" | sudo tee "${ORCA_VERSION_FILE}" > /dev/null
   rm -f "${DOWNLOAD_TMP}"
-  success "AppImage installed at ${ORCA_APPIMAGE} (version: ${DEPLOYED_TAG})"
+  success "AppImage installed at ${ORCA_APPIMAGE} (version: ${TARGET_TAG})"
 fi
 # Keep the dir/binary root-owned 755: the service user must not replace them.
 sudo chown root:root "${ORCA_INSTALL_DIR}" "${ORCA_APPIMAGE}"
@@ -371,7 +390,11 @@ sudo systemctl reset-failed "${SERVICE_NAME}.service" 2>/dev/null || true
 sudo systemctl enable "${SERVICE_NAME}.service"
 
 SERVICE_STATE="$(sudo systemctl is-active "${SERVICE_NAME}.service" 2>/dev/null || true)"
-if [[ "${UNIT_CHANGED}" == "true" || "${SERVICE_STATE}" != "active" ]]; then
+# A binary newer than the running process also needs a restart, including one
+# replaced by an earlier run that never restarted.
+SERVICE_STARTED="$(date -d "$(sudo systemctl show -p ActiveEnterTimestamp --value "${SERVICE_NAME}.service")" +%s 2>/dev/null || echo 0)"
+if [[ "${UNIT_CHANGED}" == "true" || "${SERVICE_STATE}" != "active" ]] \
+  || (( $(stat -c %Y "${ORCA_APPIMAGE}") > SERVICE_STARTED )); then
   START_TS="$(date +%s)"
   sudo systemctl restart "${SERVICE_NAME}.service"
   RESTARTED=true
@@ -421,6 +444,7 @@ if [[ "${RESTARTED}" == "true" && -z "${READY_LINE}" ]]; then
     echo "Logs:        sudo journalctl -u ${SERVICE_NAME}.service -n 50"
     echo "Common causes: missing Electron libraries (see apt step), Xvfb not installed,"
     echo "               port ${ORCA_PORT} in use, or an unreachable/invalid ORCA_PAIRING_ADDRESS."
+    echo "Way back:    ORCA_VERSION=${PREVIOUS_TAG:-<previous tag>} ./setup-orca.sh"
   } | while IFS= read -r line; do warn "${line}"; done
   error "${SERVICE_NAME} did not become ready within ${ORCA_HEALTH_TIMEOUT}s (state: ${SERVICE_STATE:-unknown})"
 fi
@@ -459,6 +483,19 @@ if [[ "${ORCA_DESKTOP}" == "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 9. Install the orca-pair helper (no secrets; re-rendered so address/port stay current)
+# ---------------------------------------------------------------------------
+step "Installing /usr/local/bin/orca-pair"
+
+export ORCA_PAIRING_ADDRESS ORCA_VERSION_FILE
+PAIR_TMP="$(mktempfile "orca-pair")"
+envsubst '${ORCA_PORT} ${ORCA_PAIRING_ADDRESS} ${ORCA_VERSION_FILE}' \
+  < "${TEMPLATE_DIR}/orca-pair" > "${PAIR_TMP}"
+sudo install -m 755 -o root -g root "${PAIR_TMP}" /usr/local/bin/orca-pair
+rm -f "${PAIR_TMP}"
+success "Helper installed: /usr/local/bin/orca-pair"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
@@ -480,6 +517,13 @@ else
   warn "No pairing URL available (reason: ${PAIRING_REASON:-ORCA_PAIRING_ADDRESS empty})."
   warn "Set ORCA_PAIRING_ADDRESS to a reachable address and re-run to advertise this server."
 fi
+ORCA_PAIR_CMD="orca-pair"
+[[ "${ORCA_SERVICE_USER}" == "$(id -un)" ]] || ORCA_PAIR_CMD="sudo -Hu ${ORCA_SERVICE_USER} orca-pair"
+echo ""
+echo -e "  Add or revoke a client without a restart (Orca v1.4.245 or newer):"
+echo -e "    ${ORCA_PAIR_CMD} add <name> [--mobile]"
+echo -e "    ${ORCA_PAIR_CMD} list"
+echo -e "    ${ORCA_PAIR_CMD} rm <name>"
 echo ""
 echo -e "  Register agent accounts on the server (interactive):"
 echo -e "    sudo -Hu ${ORCA_SERVICE_USER} ${ORCA_APPIMAGE} account add --agent claude"

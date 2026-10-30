@@ -315,6 +315,7 @@ scripts:
       # Release tag (e.g. v1.4.218) or 'latest'; pairing address clients dial
       ORCA_VERSION: latest
       ORCA_PORT: '6768'
+      # ORCA_VERSION latest updates and restarts each apply; a tag pins it
       ORCA_PAIRING_ADDRESS: ''
       ORCA_MOBILE_PAIRING: 'false'
       # ORCA_DESKTOP: 'false'   # also install /usr/local/bin/orca-desktop

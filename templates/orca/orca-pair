@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2016  # jq programs must stay single-quoted
+# orca-pair — add or revoke an Orca client without restarting orca-serve.
+# Rendered by tasks/setup-orca.sh. Run as the service user.
+# Writes Orca's internal device file; swap for `orca pairing create` once upstream ships it.
+set -euo pipefail
+
+profile="$HOME/.config/orca"
+reg="$profile/orca-devices.json"
+usage="usage: orca-pair add <name> [--mobile] | rm <name> | list"
+
+# Older versions ignore rows added to the file until they restart.
+[[ "$(printf 'v1.4.245\n%s\n' "$(cat "${ORCA_VERSION_FILE}")" | sort -V | head -1)" == v1.4.245 ]] \
+  || { echo "orca-pair needs Orca v1.4.245 or newer" >&2; exit 1; }
+
+[[ -f "$reg" ]] || { echo "no device registry at $reg: run orca-pair as the service user (sudo -Hu <user> orca-pair ...)" >&2; exit 1; }
+
+save() { local t; t="$(mktemp "$reg.XXXXXX")"; jq "$@" "$reg" > "$t"; mv "$t" "$reg"; }
+
+case "${1:-}" in
+  add)
+    name="${2:?$usage}"
+    scope=runtime; [[ "${3:-}" == --mobile ]] && scope=mobile
+    [[ -n "${ORCA_PAIRING_ADDRESS}" && "${ORCA_PAIRING_ADDRESS}" != *://* ]] \
+      || { echo "ORCA_PAIRING_ADDRESS must be a plain LAN IP or hostname (got '${ORCA_PAIRING_ADDRESS}'): set it and re-run setup-orca.sh" >&2; exit 1; }
+    # One grant per device: a shared grant cannot be revoked for one device alone.
+    if jq -e --arg n "$name" 'any(.[]; .name == $n)' "$reg" > /dev/null; then
+      echo "device '$name' already exists" >&2; exit 1
+    fi
+    id="$(cat /proc/sys/kernel/random/uuid)"
+    token="$(od -An -tx1 -N24 /dev/urandom | tr -d ' \n')"
+    save --arg id "$id" --arg n "$name" --arg t "$token" --arg s "$scope" --argjson now "$(date +%s%3N)" \
+      '. + [{deviceId: $id, name: $n, token: $t, scope: $s, pairedAt: $now, lastSeenAt: 0, pairingReach: "network"}]'
+    code="$(jq -c --arg e "ws://${ORCA_PAIRING_ADDRESS}:${ORCA_PORT}" --arg t "$token" --arg id "$id" --arg s "$scope" \
+      '{v: 2, endpoint: $e, deviceToken: $t, publicKeyB64: .publicKeyB64, pairedDeviceId: $id, scope: $s}' \
+      "$profile/orca-e2ee-keypair.json" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
+    echo "orca://pair?code=$code"
+    ;;
+  rm)
+    name="${2:?$usage}"
+    jq -e --arg n "$name" 'any(.[]; .name == $n)' "$reg" > /dev/null \
+      || { echo "no device '$name'" >&2; exit 1; }
+    # Also drops rows a client derived from this grant, or they would keep working.
+    save --arg n "$name" '[.[] | select(.name == $n) | .deviceId] as $ids
+      | map(select([.deviceId, .forkedFrom, .parentDeviceId] | any(.[]; . as $x | $ids | index($x)) | not))'
+    ;;
+  list)
+    jq -r '.[] | "\(.name)\t\(.scope)\t\(if .lastSeenAt > 0 then "paired" else "unused" end)"' "$reg"
+    ;;
+  *)
+    echo "$usage" >&2; exit 2
+    ;;
+esac

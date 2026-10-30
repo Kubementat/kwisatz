@@ -121,7 +121,9 @@ Installs the Orca remote server (https://www.onorca.dev) in headless mode: the L
 **Features:**
 - `ORCA_VERSION` (default `latest`), `ORCA_PORT` (default 6768), `ORCA_SERVICE_USER` (default: invoking user/sudo caller), `ORCA_PAIRING_ADDRESS` (Tailscale/LAN address or `https://…/runtime` URL clients should dial; empty = local-only), `ORCA_MOBILE_PAIRING`, `ORCA_DESKTOP` (adds an `/usr/local/bin/orca-desktop` AppImage launcher — only one host mode per machine)
 - Bounded health verification on the `orca_server_ready` JSON contract
-- Idempotent: re-runs skip the download and leave a healthy running service untouched; changed env values re-render the unit and restart
+- Updates: `ORCA_VERSION=latest` moves to the newest release on every run and restarts the service when it does (connected clients drop for the restart); pin a tag to stay put. `--force` re-downloads and reinstalls the target version. If GitHub is unreachable the installed version is kept
+- Idempotent: a re-run with the target version installed skips the download and leaves a healthy running service untouched; changed env values re-render the unit and restart, and a binary newer than the running service restarts it
+- `/usr/local/bin/orca-pair` (`add <name> [--mobile]`, `list`, `rm <name>`, run as the service user): adds or revokes a client without a restart by editing Orca's device registry. Needs Orca v1.4.245 or newer and a plain LAN IP or hostname in `ORCA_PAIRING_ADDRESS`
 
 #### `setup-llama-swap.sh`
 Deploys llama-swap, a multi-model LLM proxy with hot-swap support, as a native systemd service. Downloads the Go binary from GitHub releases and generates a comprehensive `config.yaml` with all available options documented.
