@@ -79,8 +79,7 @@ Keep edits to the config block and `show_help` small. The branch
 
 ### `templates/orca/orca-pair` (new)
 
-Start from `/tmp/claude-1000/-home-samba-shared-dev-kwisatz/f9770bc9-da36-465d-8093-f1ef495306ca/scratchpad/min/orca-pair`,
-which was already exercised against a fake registry. Add only:
+Start from the minimal helper already exercised against a fake registry. Add only:
 
 - A clear error when `$reg` does not exist, because it usually means the wrong user. Name the fix:
   run it as the service user.
@@ -129,7 +128,14 @@ Nothing may touch the live `orca-serve.service`, `/opt/orca` or `~/.config/orca`
 
 ## Acceptance check for the user (not automatable here)
 
-On this server, after merge: run `./tasks/setup-orca.sh`, then confirm:
+On this server, after merge, run the script with this machine's settings. `machine-config.yml` has no
+`setup-orca` entry, and without these variables the unit would lose its pairing address:
+
+```bash
+ORCA_PAIRING_ADDRESS=192.168.178.57 ORCA_MOBILE_PAIRING=true ./tasks/setup-orca.sh
+```
+
+Then confirm:
 
 - `/opt/orca/VERSION` shows the new tag and `orca-serve` is active.
 - The 3 existing clients still connect.
