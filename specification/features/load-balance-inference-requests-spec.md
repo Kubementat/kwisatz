@@ -5,7 +5,7 @@
 **Target branch:** feature branch off `develop` (git worktree, per `AGENTS.md`)
 **Semver impact:** MINOR — new task, new optional config file, no breaking keys
 **Source plan:** “Private LLM gateway (LiteLLM) in front of all llama-swap boxes” (2026-11-02)
-**Supersedes:** `2026-10-26-home-lab-llm-routing-load-balancing-architecture.md` (denkbot)
+**Supersedes:** `2026-10-26-home-lab-llm-routing-load-balancing-architecture.md`
 
 ---
 
@@ -15,7 +15,8 @@ Add one private, OpenAI- and Anthropic-compatible endpoint — the **gateway** �
 existing llama-swap boxes. Agents (pi, opencode, Claude Code, Hermes, Open WebUI, n8n) use one
 base URL and one key; the gateway chooses the box that serves each request.
 
-The gateway is **LiteLLM Proxy** in one Docker container on **evobox**, at `/srv/llm-gateway`,
+The gateway is **LiteLLM Proxy** in one Docker container on the host that fronts the
+llama-swap boxes, at `/srv/llm-gateway`,
 listening on port `4000`. It keeps its own model groups, session pins, per-deployment capacity
 caps, retries and cooldowns. llama-swap remains the per-box front door and is unchanged in
 behavior; the gateway is a routing layer in front of it.
@@ -73,12 +74,13 @@ These are the substantive corrections. Each one is already reflected in the beha
 tests below.
 
 **C1 — `order: 2` is failover-only, not “lower weight”.**
-LiteLLM filters by `order` before the weighted pick. A laptop at `order: 2` receives **no new
+LiteLLM filters by `order` before the weighted pick. A `best_effort` deployment at `order: 2` receives **no new
 sessions** while any `order: 1` deployment is healthy; its `weight` is ignored at that tier.
 The draft simultaneously says “lower weight” and “order: 2”, which cannot both be true.
-Resolution: **laptop defaults to failover-only (`best_effort: true` ⇒ `order: 2`)**. To give
-the laptop a share of new sessions, set `best_effort: false`, `order: 1` and a low `weight`
-(e.g. `1` against dgx `5` / evobox `1`). The renderer warns when `order > 1` and `weight > 1`.
+Resolution: **a box that should only serve as failover defaults to
+failover-only (`best_effort: true` ⇒ `order: 2`)**. To give it a share of new
+sessions, set `best_effort: false`, `order: 1` and a low `weight` (e.g. `1`
+against a box weighted `2`). The renderer warns when `order > 1` and `weight > 1`.
 
 **C2 — a pinned session at its cap gets `429`; it does not spill to a peer.**
 `max_parallel_requests` is a hard cap and a session pin narrows the candidates to one
@@ -86,11 +88,12 @@ deployment before the strategy runs. The documented behavior has no “yield” 
 `#45868`). Consequences:
 - A **new** session that hits a full box is retried/failed over to a peer when
   `enable_weighted_failover: true` is set (this is why it is in the rendered config).
-- A **pinned** session that opens a second concurrent turn against a 1-slot Gufo box gets
+- A **pinned** session that opens a second concurrent turn against a 1-slot box gets
   `429`, and the agent must retry. `num_retries` may re-hit the same pinned target, so it can only add
   latency before the same `429`; T4 records the real behavior on the pinned image.
-- Mitigations, in order: document client retry; raise the Strix cap to `2` and let Gufo queue
-  internally; or add Postgres + per-agent keys and accept coarser affinity (out of scope v1).
+- Mitigations, in order: document client retry; raise that box's engine session
+  cap to `2` and let the engine queue internally; or add Postgres + per-agent
+  keys and accept coarser affinity (out of scope v1).
 
 **C3 — UFW does not filter Docker-published ports.**
 Docker installs its own `nat`/`filter` rules; `ufw allow from <cidr> to any port 4000` does not
@@ -148,25 +151,33 @@ that also serves the shared group; that request will unload the shared model for
 pinned there. Resolution: the renderer warns when a backend is both in a shared group and in a
 single-deployment model. T6 asserts **no cross-box swap**, not “no unload on the correct box”.
 
-**C12 — Spark `PARALLEL=5` is a design default, not current state.**
-`templates/tensorfold-spark-qwen38-flash/serve.env` does not set `PARALLEL`; the design note
-`docs/plans/tensorfold-qwen3.8-flash-next.md` does. P0 verifies the live value on dgx and either
-sets `PARALLEL=5` explicitly or adjusts the gateway cap to the observed value.
+**C12 — an engine's design parallelism is not necessarily its live value.**
+A task template that does not pin the engine's session cap leaves it at the engine
+default, which may differ from the documented design value. P0 verifies the live value on
+each box and either pins it in the box's own config or sets the gateway cap to the
+observed value.
 
 ### 2.3 Decisions carried over
 
 D1 LiteLLM as the router; D2 session affinity as the cache strategy; D3 each box keeps its own
 model ids; D4 hard per-deployment caps equal to engine parallelism; D5 only resident models in
-shared groups; D6 private-only exposure; D7 laptop is best-effort; D8 direct `:9292` is the
+shared groups; D6 private-only exposure; D7 failover boxes are best-effort; D8 direct `:9292` is the
 break-glass path. The corrections above refine D4/D6/D7 but do not change their intent.
 
 ### 2.4 Current state (verified in the repo)
 
-| Box | llama-swap | Flash Next id | Engine | Parallel | Readiness |
-|-----|-----------|---------------|--------|----------|-----------|
-| dgx (DGX Spark) | `:9292` | `qwen3.8-flash-next`; aliases `Qwen3.8-Flash-Next`, `qwen3.8-flash`, `qwen3.8` | TensorFold v0.6.1, proxy `:8888` | design `PARALLEL=5`; **P0 verify** | `/health` |
-| evobox (Strix Halo) | `:9292` | `qwen3.8-flash-next-gufo`; aliases `Qwen3.8-Flash-Next-GGUF`, `qwen3.8-flash-gufo` | Gufo, fixed port | `GUFO_SESSIONS=1` (task default) | `/v1/models` |
-| laptop (Strix Halo) | `:9292` on NetBird IP | assume same as evobox — **P0 verify** | Gufo | assume `1` — **P0 verify** | `/v1/models` |
+| Box (example) | llama-swap | Model ids on that box | Engine | Parallel | Readiness |
+|---------------|-----------|---------------------|--------|----------|-----------|
+| box-a (the gateway host) | `:9292` | `qwen3.8-flash-next` | the box's own engine | `1` | `/v1/models` |
+| box-b | `:9292` | `qwen3.8-flash-next-gufo` | engine behind a proxy port | `2`; **P0 verify** | `/health` |
+| box-c | `:9292` over the mesh only | assume same as box-b — **P0 verify** | the box's own engine | assume `1` — **P0 verify** | `/v1/models` |
+
+P0 replaces this table with the real inventory of the operator's boxes. Every row is
+unverified until then; the renderer only sees `gateway.yml`.
+
+The model ids are the llama-swap ids of the recipes this repository already ships
+(`templates/tensorfold-*`, `templates/gufo-*`, …); a box can serve any id, the gateway
+only needs the one declared in `gateway.yml`.
 
 Relevant repo files:
 
@@ -205,18 +216,18 @@ Relevant repo files:
                           v
               +---------------------------+
               |  gateway (LiteLLM)        |
-              |  evobox:4000              |
+              |  <this host>:4000         |
               |  - model groups           |
               |  - session affinity       |
               |  - per-deployment caps    |
               |  - retries / cooldowns    |
               +---------------------------+
                  |          |          |
-        LAN      |          |          |  NetBird (failover)
+        LAN      |          |          |  mesh/VPN (failover)
                  v          v          v
-            dgx:9292   evobox:9292  laptop:9292
-            TensorFold    Gufo         Gufo
-              :8888
+          box-a:9292  box-b:9292  box-c:9292
+        (this host)   (own engine,
+                       own proxy port)
 ```
 
 ### 3.1 Request flow
@@ -229,7 +240,8 @@ Relevant repo files:
 4. On a miss, `simple-shuffle` picks an `order: 1` deployment using `weight`; the first
    successful response creates the pin.
 5. The request goes to that box’s llama-swap at `http://<box>:9292/v1`, with the backend’s own
-   model id. llama-swap loads the model if needed and proxies to TensorFold or Gufo.
+   model id. llama-swap loads the model if needed and proxies to whichever engine that box
+   runs.
 6. `x-litellm-model-id` on the response names the deployment that served it.
 
 ### 3.2 Failure and saturation behavior
@@ -249,7 +261,8 @@ Relevant repo files:
 
 ### 3.3 Placement and break-glass
 
-- The gateway runs on **evobox**, which is also a backend. It is a single point of failure by
+- The gateway normally runs on one of the boxes it routes to, which is also a backend. It
+  is a single point of failure by
   design; D8 keeps `http://<box>:9292/v1` working unchanged.
 - Stopping the gateway is `cd /srv/llm-gateway && docker compose -f docker-compose.yml -f
   compose.ports.yml down` (manual, not part of a normal task run). Re-pointing an agent to `:9292`
@@ -275,12 +288,12 @@ listen:
   # Every address the port is published on. Never 0.0.0.0 or ::.
   # Each address must be assigned to a local interface at apply time.
   addresses:
-    - 192.168.178.57      # evobox LAN
-    - 100.64.0.10         # evobox NetBird (placeholder; P0: `ip -4 addr show wt0`)
+    - 192.0.2.10          # this host, LAN
+    - 100.64.0.10         # this host, NetBird (P0: `ip -4 addr show wt0`)
     - 192.168.122.1       # libvirt bridge, for the Hermes VM
   # Source CIDRs allowed to reach the published port. Enforced in DOCKER-USER (C3).
   allow_from:
-    - 192.168.178.0/24
+    - 192.0.2.0/24
     - 100.64.0.0/10
     - 192.168.122.0/24
 
@@ -288,15 +301,15 @@ affinity_ttl_seconds: 7200
 request_timeout_seconds: 1200
 
 backends:
-  dgx:
-    base_url: http://192.168.178.104:9292/v1
-    api_key_env: LLAMA_SWAP_KEY_DGX       # optional; omit when the box has no apiKeys
-  evobox:
-    base_url: http://192.168.178.57:9292/v1
-    api_key_env: LLAMA_SWAP_KEY_EVOBOX
-  laptop:
-    base_url: http://100.64.0.20:9292/v1
-    api_key_env: LLAMA_SWAP_KEY_LAPTOP
+  box-a:                                  # the host running the gateway
+    base_url: http://192.0.2.10:9292/v1
+    api_key_env: LLAMA_SWAP_KEY_BOX_A     # optional; omit when the box has no apiKeys
+  box-b:
+    base_url: http://192.0.2.21:9292/v1
+    api_key_env: LLAMA_SWAP_KEY_BOX_B
+  box-c:
+    base_url: http://100.64.0.20:9292/v1  # reachable over the mesh only
+    api_key_env: LLAMA_SWAP_KEY_BOX_C
     best_effort: true                     # ⇒ order 2 (failover only, C1)
 
 models:
@@ -304,34 +317,35 @@ models:
   - name: qwen3.8-flash-next
     aliases: [qwen3.8-flash]              # optional; rendered as model_group_alias
     deployments:
-      - backend: dgx
+      - backend: box-a
         model: qwen3.8-flash-next
-        id: dgx-qwen3.8-flash-next
-        max_parallel: 5                   # = TensorFold PARALLEL
-        weight: 5
-        order: 1
-        resident: true
-      - backend: evobox
-        model: qwen3.8-flash-next-gufo
-        id: evobox-qwen3.8-flash-next
-        max_parallel: 1                   # = GUFO_SESSIONS
+        id: box-a-qwen3.8-flash-next
+        max_parallel: 1
         weight: 1
         order: 1
         resident: true
-      - backend: laptop
+      - backend: box-b
         model: qwen3.8-flash-next-gufo
-        id: laptop-qwen3.8-flash-next
+        id: box-b-qwen3.8-flash-next
+        max_parallel: 2                   # = the engine's real session cap
+        weight: 2
+        order: 1
+        resident: true
+      - backend: box-c
+        model: qwen3.8-flash-next-gufo
+        id: box-c-qwen3.8-flash-next
         max_parallel: 1
         weight: 1
         resident: true
 
-  # Single-box model: one deployment; not load-balanced. On evobox this evicts
-  # Flash Next while it runs (C11) — deliberate, and warned about by the renderer.
+  # Single-box model: one deployment; not load-balanced. On a box that also serves
+  # the shared group this evicts it while it runs (C11) — deliberate, and warned
+  # about by the renderer.
   - name: qwen3.8-27b
     deployments:
-      - backend: evobox
+      - backend: box-b
         model: qwen3.8-27b-gufo
-        id: evobox-qwen3.8-27b
+        id: box-b-qwen3.8-27b
         max_parallel: 1
         resident: false
 ```
@@ -345,7 +359,7 @@ models:
 | `listen.addresses` | yes | — | IPv4 addresses to publish on. Empty, `0.0.0.0`, `::`, hostnames and duplicates are rejected. |
 | `listen.allow_from` | yes | — | IPv4 CIDRs allowed to reach the port. `0.0.0.0/0`/`::/0` rejected. |
 | `affinity_ttl_seconds` | no | `7200` | Idle TTL of a session pin. |
-| `request_timeout_seconds` | no | `1200` | Rendered as both `timeout` and `stream_timeout`; must exceed the backend's llama-swap `healthCheckTimeout` (dgx 900). |
+| `request_timeout_seconds` | no | `1200` | Rendered as both `timeout` and `stream_timeout`; must exceed the backend's llama-swap `healthCheckTimeout`, so a cold load is not cut off. |
 | `backends.<name>.base_url` | yes | — | OpenAI-compatible base, normally `http://host:9292/v1`. http/https, no credentials, no query. |
 | `backends.<name>.api_key_env` | no | — | Env var in `/srv/llm-gateway/.env`. When omitted, no `api_key` is sent upstream. |
 | `backends.<name>.best_effort` | no | `false` | When true, deployment defaults to `order: 2` and receives no new sessions (C1). |
@@ -402,9 +416,9 @@ are **read back and kept** (`env_file_get` / `env_file_write`), never rotated on
 # Generated once by setup-llm-gateway.sh; never overwrite a non-empty value.
 LITELLM_MASTER_KEY=sk-...
 # One per backend that requires a key; optional for boxes without apiKeys.
-LLAMA_SWAP_KEY_DGX=...
-LLAMA_SWAP_KEY_EVOBOX=...
-LLAMA_SWAP_KEY_LAPTOP=...
+LLAMA_SWAP_KEY_BOX_A=...
+LLAMA_SWAP_KEY_BOX_B=...
+LLAMA_SWAP_KEY_BOX_C=...
 ```
 
 - `LITELLM_MASTER_KEY` is generated as `sk-` + 64 hex characters when absent or empty.
@@ -423,28 +437,28 @@ model_list:
   - model_name: qwen3.8-flash-next
     litellm_params:
       model: openai/qwen3.8-flash-next
-      api_base: http://192.168.178.104:9292/v1
-      api_key: os.environ/LLAMA_SWAP_KEY_DGX
-      max_parallel_requests: 5
-      weight: 5
-      order: 1
-      timeout: 1200
-      stream_timeout: 1200
-    model_info:
-      id: dgx-qwen3.8-flash-next
-  - model_name: qwen3.8-flash-next
-    litellm_params:
-      model: openai/qwen3.8-flash-next-gufo
-      api_base: http://192.168.178.57:9292/v1
-      api_key: os.environ/LLAMA_SWAP_KEY_EVOBOX
+      api_base: http://192.0.2.10:9292/v1
+      api_key: os.environ/LLAMA_SWAP_KEY_BOX_A
       max_parallel_requests: 1
       weight: 1
       order: 1
       timeout: 1200
       stream_timeout: 1200
     model_info:
-      id: evobox-qwen3.8-flash-next
-  # ... laptop (order 2, no new sessions) ...
+      id: box-a-qwen3.8-flash-next
+  - model_name: qwen3.8-flash-next
+    litellm_params:
+      model: openai/qwen3.8-flash-next-gufo
+      api_base: http://192.0.2.21:9292/v1
+      api_key: os.environ/LLAMA_SWAP_KEY_BOX_B
+      max_parallel_requests: 2
+      weight: 2
+      order: 1
+      timeout: 1200
+      stream_timeout: 1200
+    model_info:
+      id: box-b-qwen3.8-flash-next
+  # ... box-c (order 2, no new sessions) ...
 
 router_settings:
   routing_strategy: simple-shuffle
@@ -517,7 +531,7 @@ services:
 services:
   llm-gateway:
     ports:
-      - "192.168.178.57:4000:4000"
+      - "192.0.2.10:4000:4000"
       - "100.64.0.10:4000:4000"
       - "192.168.122.1:4000:4000"
 ```
@@ -612,8 +626,8 @@ current. Exit codes follow the repo's `die`: `0` success/healthy, `1` for any fa
 **Edge cases.**
 
 - NetBird down (`100.64.0.10` absent) or libvirt off (`192.168.122.1` absent): the default is a
-  hard error, because Docker would fail to bind anyway; the skip flag exists for laptops and
-  temporary teardown.
+  hard error, because Docker would fail to bind anyway; the skip flag exists for a box that
+  temporarily goes away and for deliberate teardown.
 - Port held by a foreign process → exit 1 with `ss -ltnp` output.
 - Re-run on a healthy install: no prompts, no changes beyond convergence.
 
@@ -879,7 +893,7 @@ provider (the key is a secret; `models.yml` is gitignored):
 ```yaml
 providers:
   - name: gateway
-    baseUrl: http://192.168.178.57:4000/v1      # or the NetBird address off-LAN
+    baseUrl: http://192.0.2.10:4000/v1          # or the mesh address off-LAN
     apiKey: sk-<LITELLM_MASTER_KEY>
     models:
       - name: qwen3.8-flash-next
@@ -891,7 +905,7 @@ providers:
           input: [text, image]
 ```
 
-Then `./tasks/sync-models.py --agents-only`. Keep the existing `local`/`dgx` provider entries for
+Then `./tasks/sync-models.py --agents-only`. Keep the existing per-box provider entries for
 break-glass, clearly commented, or remove them once the gateway is trusted.
 
 ### 6.2 Session-header coverage
@@ -929,7 +943,7 @@ LiteLLM’s `/v1/messages` translates to an OpenAI-compatible upstream. Point Cl
 gateway root (no `/v1`):
 
 ```bash
-export ANTHROPIC_BASE_URL=http://192.168.178.57:4000
+export ANTHROPIC_BASE_URL=http://192.0.2.10:4000
 export ANTHROPIC_AUTH_TOKEN=sk-<master key>
 export ANTHROPIC_MODEL=qwen3.8-flash-next
 ```
@@ -967,7 +981,7 @@ structures, not strings, except for the golden-file test.
 
 ### 7.2 Manual/integration protocol (P1–P2)
 
-Run on evobox with the three boxes reachable. Use `$KEY` for the master key and `$G` for the
+Run on the gateway host with all boxes reachable. Use `$KEY` for the master key and `$G` for the
 gateway base URL.
 
 **T1 — Private exposure.**
@@ -982,22 +996,24 @@ wildcard listener, no external answer.
 
 **T3 — Stickiness.**
 Send five turns with `-H "x-litellm-session-id: t3-fixed"`; every response carries the same
-`x-litellm-model-id`. On TensorFold turns 2–5 show rising `cached=` (engine log) or rising
-`usage.prompt_tokens_details.cached_tokens`. Pass: same deployment for all five.
+`x-litellm-model-id`. On an engine that reports prefix-cache hits, turns 2–5 show rising
+`cached=` (engine log) or rising `usage.prompt_tokens_details.cached_tokens`. Pass: same
+deployment for all five.
 
 **T4 — Capacity.**
-(a) Six concurrent **new** sessions with distinct ids: all `200`; no more than one in flight on
-evobox at a time; dgx serves at least three (random 5:1). (b) Pin a session to evobox (repeat
-until `x-litellm-model-id` is evobox), then send two concurrent turns: record whether the second
-is `429`, served by dgx, or queued. Expected: `429` (C2); document the observed behavior and
+(a) Six concurrent **new** sessions with distinct ids: all `200`; no box serves more than its
+`max_parallel`; the box with the higher `weight` takes the larger share. (b) Pin a session to
+the 1-slot box (repeat until `x-litellm-model-id` names it), then send two concurrent turns:
+record whether the second is `429`, served by the peer, or queued. Expected: `429` (C2);
+document the observed behavior and
 the client retry setting. If `num_retries` only re-hits the same pinned box, set it to `0` for
 fast failure and let the client retry.
 
 **T5 — Failover.**
-Stop evobox’s llama-swap; a pinned evobox session’s next turn succeeds on dgx (one cold
-prefill) within `num_retries`. Restart evobox; after `cooldown_time`, new sessions can land on
-evobox again. With `session_affinity_repin_on_failover`, the old session stays on dgx until the
-affinity TTL; without it, it returns to evobox. Record which behavior the pinned image has.
+Stop one box's llama-swap; a session pinned to it succeeds on the peer (one cold prefill)
+within `num_retries`. Restart that box; after `cooldown_time`, new sessions can land on it
+again. With `session_affinity_repin_on_failover`, the old session stays on the peer until the
+affinity TTL; without it, it returns. Record which behavior the pinned image has.
 
 **T6 — Swap safety (cross-box).**
 Send ten requests for a single-deployment model; every `x-litellm-model-id` is that deployment;
@@ -1040,20 +1056,20 @@ completion; Claude Code streams and completes one tool call. If it fails, docume
 
 | Phase | Scope | Exit criterion |
 |-------|-------|----------------|
-| **P0** | Inventory all three boxes: `GET /v1/models` and `/running` (authed), the live `ttl` of each model, `PARALLEL` on dgx, `GUFO_SESSIONS` on evobox/laptop, whether `apiKeys` is set, the NetBird IP (`ip -4 addr show wt0`), `192.168.122.1`, and the laptop model id. Fill `gateway.yml`. | Renderer validates with no D5 (`resident`) errors; any C11 eviction warnings are reviewed and accepted explicitly; caps match observed engine parallelism. |
-| **P1** | Renderer + task + compose on evobox; Flash Next group with dgx + evobox; one agent repointed. | T1–T6 pass, including the recorded pinned-429 behavior. |
-| **P2** | Laptop joins as failover (`best_effort: true`); all agents + Hermes migrated; header coverage recorded; README/AUTOMATIONS/CONTEXT updated. | Two agents started without thinking land on different boxes and stay sticky for a full work session; every client’s affinity status is documented. |
-| **P3** | Observability: Prometheus targets for llama-swap `/metrics` and (optionally) gateway `/metrics`; Grafana panels; one week of data. | Decide whether weights/caps need tuning or `GUFO_SESSIONS=2` is worth testing (memory-tight with ~94 GB weights). |
+| **P0** | Inventory every box: `GET /v1/models` and `/running` (authed), the live `ttl` of each model, the engine's session cap, whether `apiKeys` is set, the mesh address (`ip -4 addr show wt0`), the libvirt bridge, and each box's model ids. Fill `gateway.yml`. | Renderer validates with no D5 (`resident`) errors; any C11 eviction warnings are reviewed and accepted explicitly; caps match observed engine parallelism. |
+| **P1** | Renderer + task + compose on the gateway host; the shared group across two boxes; one agent repointed. | T1–T6 pass, including the recorded pinned-429 behavior. |
+| **P2** | The remaining boxes join as failover (`best_effort: true`); all agents + Hermes migrated; header coverage recorded; README/AUTOMATIONS/CONTEXT updated. | Two agents started without thinking land on different boxes and stay sticky for a full work session; every client's affinity status is documented. |
+| **P3** | Observability: Prometheus targets for llama-swap `/metrics` and (optionally) gateway `/metrics`; Grafana panels; one week of data. | Decide whether weights/caps need tuning or raising an engine's session cap to `2` is worth testing (it is memory-bound on a unified-memory box). |
 
 **P0 commands (sketch).**
 
 ```bash
-for h in 192.168.178.104 192.168.178.57 <laptop-netbird-ip>; do
+for h in 192.0.2.10 192.0.2.21 100.64.0.20; do   # every box you intend to route to
   curl -s -H "Authorization: Bearer $KEY" "http://$h:9292/v1/models" | jq -r '.data[].id'
   curl -s -H "Authorization: Bearer $KEY" "http://$h:9292/running" | jq .
 done
-ip -4 addr show wt0        # evobox NetBird address
-ip -4 addr show virbr0     # 192.168.122.1
+ip -4 addr show wt0        # the mesh address of this host
+ip -4 addr show virbr0     # 192.168.122.1 — the libvirt bridge
 ```
 
 ---
@@ -1062,39 +1078,41 @@ ip -4 addr show virbr0     # 192.168.122.1
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Pinned session at cap gets `429` (C2) | A second concurrent turn on a 1-slot box fails | Document client retry; raise Strix cap to 2 and let Gufo queue; per-agent keys + Postgres later. |
-| `order: 2` misread as “low weight” (C1) | Laptop never gets new sessions | `best_effort` semantics documented; renderer warns on `order > 1 && weight > 1`. |
+| Pinned session at cap gets `429` (C2) | A second concurrent turn on a 1-slot box fails | Document client retry; raise that engine's session cap to 2 and let it queue; per-agent keys + Postgres later. |
+| `order: 2` misread as “low weight” (C1) | A failover box never gets new sessions | `best_effort` semantics documented; renderer warns on `order > 1 && weight > 1`. |
 | UFW does not filter Docker ports (C3) | False sense of source restriction | Address binding + `DOCKER-USER` chain + oneshot unit; `--check` verifies it. |
 | A listen address is absent | Container fails to start | Pre-flight `ip addr` check; explicit skip flag. |
 | Single-box model evicts the shared model (C11) | Every session pinned to that box pays a cold load | Renderer warning; dedicate a box or add a matrix; T6 measures cross-box correctness only. |
 | Gateway restart drops pins | One cold prefill per active session | Documented; Redis would fix it, deliberately out of scope. |
-| Laptop offline | Failover traffic may fail once | `best_effort`/order 2, cooldown, retries; laptop is not in the normal path. |
+| A failover box is offline | Failover traffic may fail once | `best_effort`/order 2, cooldown, retries; it is not in the normal path. |
 | LiteLLM config keys drift | Startup failure or silently ignored option | Pin `v1.106.6`; verify `enable_weighted_failover` and `session_affinity_repin_on_failover`; fail on config errors in the startup gate. |
-| Answers differ between TensorFold and Gufo | Same session sees a different quant/engine after failover | Affinity keeps a session on one box; document that failover may change style. |
+| Answers differ between engines | Same session sees a different quant/engine after failover | Affinity keeps a session on one box; document that failover may change style. |
 | Gateway is a SPOF | All agents lose the endpoint | Break-glass direct `:9292`; `docker compose down` is one command. |
 | Prompt/response leakage | Private code leaves the box | `LITELLM_TELEMETRY_DISABLED=true`, `turn_off_message_logging: true`, no callbacks, no DB, no public exposure. |
-| Cold load exceeds timeout | First request after a swap fails | `timeout`/`stream_timeout` 1200 s (above dgx's 900 s `healthCheckTimeout`); `--warm` optional; llama-swap default is 500 s. |
+| Cold load exceeds timeout | First request after a swap fails | `timeout`/`stream_timeout` above the box's `healthCheckTimeout` (1200 s against a 900 s one is the example); `--warm` optional; llama-swap default is 500 s. |
 
 ---
 
 ## 10. Open questions (resolve in P0/P1)
 
-1. Laptop: exact model id, base URL, NetBird IP, `GUFO_SESSIONS`, whether it is reachable at
-   all today, and whether it keeps Flash Next resident (`ttl: 0`). A laptop that unloads the
-   model cannot join the shared group (D5/R4); it stays out until `ttl: 0` is set there.
-2. dgx: is `PARALLEL=5` actually set in `/srv/tensorfold/serve.env`, or is the engine default
-   (8) in effect? Set the cap to the observed value.
+1. Each box that only joins as failover: exact model id, base URL, mesh address, engine
+   session cap, whether it is reachable at all today, and whether it keeps the shared model
+   resident (`ttl: 0`). A box that unloads the model cannot join the shared group (D5/R4); it
+   stays out until `ttl: 0` is set there.
+2. Is the engine's session cap actually pinned in that box's own `serve.env`, or is the engine
+   default in effect? Set `max_parallel` to the observed value.
 3. Do the three llama-swap configs actually enable `apiKeys`? If not, omit `api_key_env` for
    those backends (C5).
 4. Which of pi, Open WebUI, n8n and Hermes can send a stable session header? If none, document
    no-affinity and decide whether a future Postgres/virtual-key design is worth it.
-5. Confirm the NetBird CIDR (`100.64.0.0/10` is the CGNAT default) and that `192.168.122.1`
-   exists on evobox.
+5. Confirm the mesh CIDR (`100.64.0.0/10` is the CGNAT default) and that `192.168.122.1`
+   exists on the gateway host.
 6. Confirm on `v1.106.6` that `enable_weighted_failover` and
    `session_affinity_repin_on_failover` are accepted; drop the latter if it is not.
-7. Is evobox the right gateway host, given it is also a 1-slot backend? The alternative is a
-   small always-on box; the plan chooses evobox for locality and Docker.
-8. Should Strix run `GUFO_SESSIONS=2`? Memory is tight with ~94 GB weights; P3 data decides.
+7. Is running the gateway on the host that also serves as a backend the right trade-off? The
+   alternative is a small always-on box; co-locating wins on locality and on not needing
+   another Docker host.
+8. Should any box raise its engine session cap to `2`? It is memory-bound; P3 data decides.
 
 ---
 

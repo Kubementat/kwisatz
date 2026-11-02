@@ -177,7 +177,7 @@ providers:
   # to it and fails over. Uncomment after the gateway is installed and replace
   # the key with LITELLM_MASTER_KEY from /srv/llm-gateway/.env.
   # - name: gateway
-  #   baseUrl: http://192.168.178.57:4000/v1      # or the NetBird address off-LAN
+  #   baseUrl: http://<your-gateway-host>:4000/v1   # or its mesh/VPN address off-LAN
   #   apiKey: sk-replace-with-the-gateway-master-key
   #   models:
   #     - name: qwen3.8-flash-next

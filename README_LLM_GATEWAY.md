@@ -5,7 +5,8 @@ boxes. Agents (pi, opencode, Claude Code, Hermes, Open WebUI, n8n) use **one bas
 URL and one key**; the gateway chooses the box that serves each request.
 
 The gateway is [LiteLLM Proxy](https://docs.litellm.ai/docs/proxy/deploy) in one
-Docker container on **evobox**, under `/srv/llm-gateway`, on port `4000`. It keeps
+Docker container on the host that fronts your llama-swap boxes, under
+`/srv/llm-gateway`, on port `4000`. It keeps
 model groups, session pins, per-deployment capacity caps, retries and cooldowns.
 llama-swap stays the per-box front door; its behaviour does not change.
 
@@ -17,16 +18,16 @@ llama-swap stays the per-box front door; its behaviour does not change.
                           v
               +---------------------------+
               |  gateway (LiteLLM)        |
-              |  evobox:4000              |
+              |  <this host>:4000         |
               |  - model groups           |
               |  - session affinity       |
               |  - per-deployment caps    |
               |  - retries / cooldowns    |
               +---------------------------+
                  |          |          |
-        LAN      |          |          |  NetBird (failover)
+        LAN      |          |          |  mesh/VPN (failover)
                  v          v          v
-            dgx:9292   evobox:9292  laptop:9292
+            box-a:9292  box-b:9292  box-c:9292
 ```
 
 * [Setup](#setup) · [Routing config](#routing-config-gatewayyml) · [Secrets](#secrets) ·
@@ -90,45 +91,57 @@ version: 1
 
 listen:
   port: 4000
-  addresses: [192.168.178.57, 100.64.0.10, 192.168.122.1]
-  allow_from: [192.168.178.0/24, 100.64.0.0/10, 192.168.122.0/24]
+  addresses: [192.0.2.10, 100.64.0.10, 192.168.122.1]
+  allow_from: [192.0.2.0/24, 100.64.0.0/10, 192.168.122.0/24]
 
 affinity_ttl_seconds: 7200
 request_timeout_seconds: 1200
 
 backends:
-  dgx:
-    base_url: http://192.168.178.104:9292/v1
-    api_key_env: LLAMA_SWAP_KEY_DGX
-  evobox:
-    base_url: http://192.168.178.57:9292/v1
-    api_key_env: LLAMA_SWAP_KEY_EVOBOX
-  laptop:
+  box-a:
+    base_url: http://192.0.2.10:9292/v1
+    api_key_env: LLAMA_SWAP_KEY_BOX_A
+  box-b:
+    base_url: http://192.0.2.21:9292/v1
+    api_key_env: LLAMA_SWAP_KEY_BOX_B
+  box-c:
     base_url: http://100.64.0.20:9292/v1
-    api_key_env: LLAMA_SWAP_KEY_LAPTOP
+    api_key_env: LLAMA_SWAP_KEY_BOX_C
     best_effort: true          # order 2 = failover only
 
 models:
   - name: qwen3.8-flash-next    # public name agents use
     aliases: [qwen3.8-flash]
     deployments:
-      - backend: dgx
-        model: qwen3.8-flash-next          # the box's own id
-        id: dgx-qwen3.8-flash-next         # stable model_info.id
-        max_parallel: 5                    # = TensorFold PARALLEL
-        weight: 5
+      - backend: box-a          # box-a is the host running the gateway
+        model: qwen3.8-flash-next     # the box's own id
+        id: box-a-qwen3.8-flash-next  # stable model_info.id
+        max_parallel: 1               # = the engine's real session cap
+        weight: 1
         order: 1
         resident: true
-      - backend: evobox
+      - backend: box-b
         model: qwen3.8-flash-next-gufo
-        max_parallel: 1                    # = GUFO_SESSIONS
-        weight: 1
+        max_parallel: 2
+        weight: 2
         resident: true
-      - backend: laptop
+      - backend: box-c
         model: qwen3.8-flash-next-gufo
         max_parallel: 1
         resident: true
+
+  - name: qwen3.8-27b           # single-box model
+    deployments:
+      - backend: box-b
+        model: qwen3.8-27b-gufo
+        max_parallel: 1
+        resident: false
 ```
+
+The hosts and addresses above are placeholders (box-a/b/c for "a llama-swap
+box", `192.0.2.0/24` is RFC 5737 documentation space, `100.64.0.0/10` is the
+NetBird range, `192.168.122.1` the libvirt `virbr0` default). Put your own
+boxes and the addresses assigned to this host in `gateway.yml`.
 
 | Field | Default | Meaning |
 |-------|---------|---------|
@@ -136,7 +149,7 @@ models:
 | `listen.addresses` | — | Explicit IPv4 addresses; duplicates, hostnames and wildcards are rejected. |
 | `listen.allow_from` | — | IPv4 CIDRs; the default route is rejected. |
 | `affinity_ttl_seconds` | `7200` | Idle TTL of a session pin. |
-| `request_timeout_seconds` | `1200` | Rendered as `timeout` and `stream_timeout`; must exceed the backend's `healthCheckTimeout` (dgx: 900). |
+| `request_timeout_seconds` | `1200` | Rendered as `timeout` and `stream_timeout`; must exceed the backend's `healthCheckTimeout`, so a cold model load is not cut off. |
 | `backends.<name>.base_url` | — | OpenAI base URL, no credentials/query/fragment. |
 | `backends.<name>.api_key_env` | — | Env var in `.env`; omit when the box has no `apiKeys`. |
 | `backends.<name>.best_effort` | `false` | `true` ⇒ deployment defaults to `order: 2` (failover only). |
@@ -168,9 +181,9 @@ never rotate either.
 
 ```dotenv
 LITELLM_MASTER_KEY=sk-...          # generated as sk- + 64 hex characters
-LLAMA_SWAP_KEY_DGX=...             # one per backend that requires a key
-LLAMA_SWAP_KEY_EVOBOX=...
-LLAMA_SWAP_KEY_LAPTOP=...
+LLAMA_SWAP_KEY_BOX_A=...           # one per backend that requires a key
+LLAMA_SWAP_KEY_BOX_B=...
+LLAMA_SWAP_KEY_BOX_C=...
 ```
 
 * The rendered `config.yaml` contains only `os.environ/NAME`; a secret value is
@@ -213,7 +226,8 @@ all headerless clients to a single box. Per-agent virtual keys need a database
 narrows the candidates to one deployment. A second concurrent turn on a 1-slot
 box gets an immediate `429`; it does not yield to a peer (LiteLLM issue
 [#45868](https://github.com/BerriAI/litellm/issues/45868)). The client must
-retry, or raise the Strix cap (`GUFO_SESSIONS=2`) if memory allows. A **new**
+retry, or raise that deployment's `max_parallel` (and the engine's real session
+cap behind it) if memory allows. A **new**
 session that hits a full box is retried/failed over to a peer.
 
 ---
@@ -244,8 +258,8 @@ Two controls, both required:
    service.
 
 `GATEWAY_ALLOW_NO_SOURCE_FILTER=true` downgrades the chain to a loud warning and
-relies on address binding only — use it for a laptop or a deliberate teardown,
-not on a shared host.
+relies on address binding only — use it on a machine that changes networks
+often, or for a deliberate teardown, not on a shared host.
 
 ---
 
@@ -270,11 +284,31 @@ line per check and exits `0` only when everything passes:
 
 It never sends a completion, so it never loads a model.
 
+Automated coverage: 23 renderer tests (`tests/unit/test_llm_gateway_render.py`)
+and an opt-in VM case that renders, starts, converges and re-runs on a clean
+Ubuntu VM with a loopback-only fixture (`tests/fixtures/llm-gateway/gateway.test.yml`):
+
+```bash
+tests/run-vm-tests.sh --ram 6 --vcpu 4 --timeout 45 \
+  --scripts setup-basics,setup-docker,setup-llm-gateway
+```
+
+It proves rendering, container start, health, firewall convergence and
+idempotency. It does not prove an inference path — that needs the real
+llama-swap boxes (T1–T6 in the feature spec).
+
+Two things only running it on a VM caught, and both are now pinned by unit
+tests, because a mock cannot see them: `--print-plan` fields must be split so
+that a backend **without** `api_key_env` keeps its columns (tab is IFS
+whitespace, so an empty field otherwise shifts `false` into the key name), and
+the `compose.ports.yml` wildcard guard must skip comments — the generated header
+says “no `0.0.0.0` and no `::`”, which the guard used to match as a binding.
+
 Manual probes:
 
 ```bash
 KEY="$(sudo sed -n 's/^LITELLM_MASTER_KEY=//p' /srv/llm-gateway/.env)"
-G=http://192.168.178.57:4000
+G=http://192.0.2.10:4000            # any of the gateway's listen addresses
 
 curl -s -o /dev/null -w '%{http_code}\n' "$G/v1/models"                    # 401
 curl -s -H "Authorization: Bearer $KEY" "$G/v1/models" | jq -r '.data[].id' # public names
@@ -303,7 +337,7 @@ Add one gateway provider (the key is a secret; `models.yml` is gitignored):
 ```yaml
 providers:
   - name: gateway
-    baseUrl: http://192.168.178.57:4000/v1      # or the NetBird address off-LAN
+    baseUrl: http://192.0.2.10:4000/v1         # or the mesh/VPN address off-LAN
     apiKey: sk-<LITELLM_MASTER_KEY>
     models:
       - name: qwen3.8-flash-next
@@ -319,14 +353,14 @@ providers:
 ./tasks/sync-models.py --agents-only
 ```
 
-Keep the existing `local`/`dgx` provider entries for break-glass until the
+Keep the existing per-box provider entries for break-glass until the
 gateway is trusted, then remove them.
 
 **Claude Code** (optional; LiteLLM translates `/v1/messages` to the
 OpenAI-compatible upstream — point it at the gateway root, no `/v1`):
 
 ```bash
-export ANTHROPIC_BASE_URL=http://192.168.178.57:4000
+export ANTHROPIC_BASE_URL=http://192.0.2.10:4000
 export ANTHROPIC_AUTH_TOKEN=sk-<LITELLM_MASTER_KEY>
 export ANTHROPIC_MODEL=qwen3.8-flash-next
 ```

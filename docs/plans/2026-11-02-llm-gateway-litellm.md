@@ -3,7 +3,7 @@
 Date: 2026-11-02
 Status: implemented (P1 scope; P0 inventory is host work, P2/P3 rollout below)
 Feature spec: `specification/features/load-balance-inference-requests-spec.md`
-Supersedes: `2026-10-26-home-lab-llm-routing-load-balancing-architecture.md` (denkbot)
+Supersedes: `2026-10-26-home-lab-llm-routing-load-balancing-architecture.md`
 Semver impact: MINOR — new task, new optional config file, no breaking keys
 
 ## Goal
@@ -20,7 +20,7 @@ pi  opencode  Claude Code  Hermes VM  Open WebUI  n8n
                    model groups · session pins
                    per-deployment caps · retries/cooldowns
                     |           |            |
-              dgx:9292    evobox:9292   laptop:9292 (best effort)
+          box-a:9292    box-b:9292    box-c:9292 (best effort)
 ```
 
 **Non-goals:** replacing llama-swap per box, an admin UI or per-agent virtual
@@ -96,25 +96,25 @@ health, exposure and firewall state; exit `0` only if all pass.
 
 ```yaml
 listen:
-  addresses: [192.168.178.57, 100.89.x.x]   # no wildcards
+  addresses: [192.0.2.10, 100.64.0.10]      # no wildcards
   port: 4000
-  allow_from: [192.168.178.0/24, 100.64.0.0/10]
+  allow_from: [192.0.2.0/24, 100.64.0.0/10]
 
 backends:
-  dgx:    { base_url: "http://192.168.178.104:9292/v1" }
-  evobox: { base_url: "http://192.168.178.57:9292/v1" }
-  laptop:
-    base_url: "http://100.x.x.x:9292/v1"
+  box-a: { base_url: "http://192.0.2.10:9292/v1" }   # this host
+  box-b: { base_url: "http://192.0.2.21:9292/v1" }
+  box-c:
+    base_url: "http://100.64.0.20:9292/v1"          # mesh only
     best_effort: true
-    api_key_env: LLAMA_SWAP_KEY_LAPTOP
+    api_key_env: LLAMA_SWAP_KEY_BOX_C
 
 models:
   - name: qwen3.8-flash-next
     session_affinity: true
     deployments:
-      - { backend: dgx, model: qwen3.8-flash-next, max_parallel: 5 }
-      - { backend: evobox, model: qwen3.8-flash-next-gufo, max_parallel: 1 }
-      - { backend: laptop, model: qwen3.8-flash-next-gufo, max_parallel: 1 }
+      - { backend: box-b, model: qwen3.8-flash-next, max_parallel: 2 }
+      - { backend: box-a, model: qwen3.8-flash-next-gufo, max_parallel: 1 }
+      - { backend: box-c, model: qwen3.8-flash-next-gufo, max_parallel: 1 }
 ```
 
 Validation collects **all** errors (duplicate keys, unknown fields, wildcard
@@ -156,10 +156,10 @@ pinned-cap `429`, failover with a box stopped.
 
 | Phase | Scope | Exit |
 |-------|-------|------|
-| P0 | inventory the boxes (`/v1/models`, `/running`, live `ttl`, `PARALLEL`, `GUFO_SESSIONS`, `apiKeys`, NetBird IP, laptop model id) and fill `gateway.yml` | renderer clean except reviewed C11 warnings |
-| P1 | renderer + task + compose on evobox; dgx+evobox group; one agent repointed | T1–T6 pass |
-| P2 | laptop as `best_effort` failover; all agents + Hermes migrated; affinity coverage recorded | two agents land on different boxes and stay sticky |
-| P3 | Prometheus targets for llama-swap `/metrics` and gateway `/metrics`, Grafana panels | decide whether caps/weights or `GUFO_SESSIONS=2` need tuning |
+| P0 | inventory the boxes (`/v1/models`, `/running`, live `ttl`, the engine's session cap, `apiKeys`, the mesh address, the box's model ids) and fill `gateway.yml` | renderer clean except reviewed C11 warnings |
+| P1 | renderer + task + compose on the gateway host; the two-box group; one agent repointed | T1–T6 pass |
+| P2 | the third box as `best_effort` failover; all agents + Hermes migrated; affinity coverage recorded | two agents land on different boxes and stay sticky |
+| P3 | Prometheus targets for llama-swap `/metrics` and gateway `/metrics`, Grafana panels | decide whether caps/weights or the engine's session cap need tuning |
 
 ## Risks
 

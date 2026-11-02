@@ -4,7 +4,7 @@
 # =============================================================================
 #
 # Copy to gateway.yml (gitignored), then edit:
-#   - listen.addresses: the addresses assigned to THIS host (evobox)
+#   - listen.addresses: the addresses assigned to THIS host (`ip -4 addr`)
 #   - listen.allow_from: the source networks allowed to reach the port
 #   - backends.*.base_url: each llama-swap box, OpenAI base (".../v1")
 #   - backends.*.api_key_env: the .env name, only when that box sets apiKeys
@@ -13,6 +13,12 @@
 # Secrets are never written here: api_key_env names a variable in
 # /srv/llm-gateway/.env (mode 600, root). The renderer writes only
 # "os.environ/NAME" into the generated LiteLLM config.
+#
+# box-a/b/c below are placeholders for "a llama-swap box" and the addresses are
+# documentation values: 192.0.2.0/24 is RFC 5737 space, 100.64.0.0/10 is the
+# NetBird range, 192.168.122.1 is the libvirt `virbr0` default. Replace them
+# with your hosts and the addresses assigned to this host; `model` is the
+# llama-swap model id each box serves.
 #
 # Field reference and behavior: README_LLM_GATEWAY.md.
 # =============================================================================
@@ -24,16 +30,16 @@ listen:
   # Every address the port is published on. Never 0.0.0.0 or ::.
   # Each address must be assigned to a local interface at apply time.
   addresses:
-    # evobox LAN
-    - 192.168.178.57
-    # evobox NetBird (placeholder; check with: ip -4 addr show wt0)
+    # this host, LAN
+    - 192.0.2.10
+    # this host, mesh/VPN (NetBird: ip -4 addr show wt0)
     - 100.64.0.10
     # libvirt bridge, for the Hermes VM
     - 192.168.122.1
   # Source CIDRs allowed to reach the published port. Enforced in DOCKER-USER:
   # UFW cannot filter Docker-published ports (see README_LLM_GATEWAY.md).
   allow_from:
-    - 192.168.178.0/24
+    - 192.0.2.0/24
     - 100.64.0.0/10
     - 192.168.122.0/24
 
@@ -41,20 +47,23 @@ listen:
 affinity_ttl_seconds: 7200
 
 # Rendered as both `timeout` and `stream_timeout`. Must exceed the backend's
-# llama-swap healthCheckTimeout (dgx: 900), so a cold load is not cut off.
+# llama-swap healthCheckTimeout (a box that needs minutes for a cold load has a
+# much larger one), so a cold load is not cut off.
 request_timeout_seconds: 1200
 
 backends:
-  dgx:
-    base_url: http://192.168.178.104:9292/v1
+  # box-a is this host: the gateway runs here and is also a backend.
+  box-a:
+    base_url: http://192.0.2.10:9292/v1
     # Optional: omit when that box's llama-swap has no apiKeys.
-    api_key_env: LLAMA_SWAP_KEY_DGX
-  evobox:
-    base_url: http://192.168.178.57:9292/v1
-    api_key_env: LLAMA_SWAP_KEY_EVOBOX
-  laptop:
+    api_key_env: LLAMA_SWAP_KEY_BOX_A
+  box-b:
+    base_url: http://192.0.2.21:9292/v1
+    api_key_env: LLAMA_SWAP_KEY_BOX_B
+  box-c:
+    # reachable over the mesh only
     base_url: http://100.64.0.20:9292/v1
-    api_key_env: LLAMA_SWAP_KEY_LAPTOP
+    api_key_env: LLAMA_SWAP_KEY_BOX_C
     # best_effort => order 2: failover only, no new sessions (C1).
     # To give it a share, set best_effort: false, order: 1 and a low weight.
     best_effort: true
@@ -64,35 +73,35 @@ models:
   - name: qwen3.8-flash-next
     aliases: [qwen3.8-flash]
     deployments:
-      - backend: dgx
+      - backend: box-a
         model: qwen3.8-flash-next
-        id: dgx-qwen3.8-flash-next
-        # = TensorFold PARALLEL (verify the live value, P0)
-        max_parallel: 5
-        weight: 5
-        order: 1
-        resident: true
-      - backend: evobox
-        model: qwen3.8-flash-next-gufo
-        id: evobox-qwen3.8-flash-next
-        # = GUFO_SESSIONS
+        id: box-a-qwen3.8-flash-next
+        # = the engine's real session cap (verify the live value)
         max_parallel: 1
         weight: 1
         order: 1
         resident: true
-      - backend: laptop
+      - backend: box-b
         model: qwen3.8-flash-next-gufo
-        id: laptop-qwen3.8-flash-next
+        id: box-b-qwen3.8-flash-next
+        max_parallel: 2
+        weight: 2
+        order: 1
+        resident: true
+      - backend: box-c
+        model: qwen3.8-flash-next-gufo
+        id: box-c-qwen3.8-flash-next
         max_parallel: 1
         weight: 1
         resident: true
 
-  # Single-box model: one deployment; not load-balanced. On evobox this evicts
-  # Flash Next while it runs (C11) — deliberate, warned about by the renderer.
+  # Single-box model: one deployment; not load-balanced. On a box that also
+  # serves the shared group this evicts that model while it runs (C11) —
+  # deliberate, warned about by the renderer.
   - name: qwen3.8-27b
     deployments:
-      - backend: evobox
+      - backend: box-b
         model: qwen3.8-27b-gufo
-        id: evobox-qwen3.8-27b
+        id: box-b-qwen3.8-27b
         max_parallel: 1
         resident: false

@@ -22,9 +22,9 @@ FIXTURES = Path(__file__).parent / "fixtures" / "llm-gateway"
 
 DEFAULT_ENV = """\
 LITELLM_MASTER_KEY=sk-1111111111111111111111111111111111111111111111111111111111111111
-LLAMA_SWAP_KEY_DGX=sk-dgx-fixture
-LLAMA_SWAP_KEY_EVOBOX=sk-evobox-fixture
-LLAMA_SWAP_KEY_LAPTOP=sk-laptop-fixture
+LLAMA_SWAP_KEY_BOX_A=sk-box-a-fixture
+LLAMA_SWAP_KEY_BOX_B=sk-box-b-fixture
+LLAMA_SWAP_KEY_BOX_C=sk-box-c-fixture
 """
 
 
@@ -136,14 +136,14 @@ def test_u4_duplicate_public_name_alias_and_deployment_id(tmp_path, capsys):
             "name": "duplicate-model",
             "aliases": ["shared-alias"],
             "deployments": [
-                {"backend": "dgx", "model": "m", "id": "same-id", "resident": True}
+                {"backend": "box-a", "model": "m", "id": "same-id", "resident": True}
             ],
         },
         {
             "name": "duplicate-model",
             "aliases": ["shared-alias"],
             "deployments": [
-                {"backend": "evobox", "model": "m", "id": "same-id", "resident": True}
+                {"backend": "box-b", "model": "m", "id": "same-id", "resident": True}
             ],
         },
     ]
@@ -179,16 +179,16 @@ def test_u6_missing_env_keys_are_all_listed(tmp_path, capsys):
     config = base_config()
     env = (
         f"LITELLM_MASTER_KEY=sk-{'a' * 64}\n"
-        "LLAMA_SWAP_KEY_DGX=\n"
+        "LLAMA_SWAP_KEY_BOX_A=\n"
     )
 
     rc, out_dir = render(tmp_path, config, env=env)
     stderr = capsys.readouterr().err
 
     assert rc == 1
-    assert "LLAMA_SWAP_KEY_DGX" in stderr
-    assert "LLAMA_SWAP_KEY_EVOBOX" in stderr
-    assert "LLAMA_SWAP_KEY_LAPTOP" in stderr
+    assert "LLAMA_SWAP_KEY_BOX_A" in stderr
+    assert "LLAMA_SWAP_KEY_BOX_B" in stderr
+    assert "LLAMA_SWAP_KEY_BOX_C" in stderr
     assert "sk-1111" not in stderr
     assert not (out_dir / "config.yaml").exists()
 
@@ -207,7 +207,7 @@ def test_u7_shared_group_rejects_non_resident(tmp_path, capsys):
 # ── U8: best_effort / order semantics ───────────────────────────────────────
 def test_u8_best_effort_with_explicit_order_one_is_an_error(tmp_path, capsys):
     config = base_config()
-    config["backends"]["laptop"]["best_effort"] = True
+    config["backends"]["box-c"]["best_effort"] = True
     config["models"][0]["deployments"][2]["order"] = 1
 
     rc, _ = render(tmp_path, config)
@@ -249,16 +249,16 @@ def test_u10_rendered_config_holds_env_references_only(tmp_path):
     config = base_config()
     env = (
         f"LITELLM_MASTER_KEY=sk-{'f' * 64}\n"
-        "LLAMA_SWAP_KEY_DGX=sk-secret-dgx-value\n"
-        "LLAMA_SWAP_KEY_EVOBOX=sk-secret-evobox-value\n"
-        "LLAMA_SWAP_KEY_LAPTOP=sk-secret-laptop-value\n"
+        "LLAMA_SWAP_KEY_BOX_A=sk-secret-box-a-value\n"
+        "LLAMA_SWAP_KEY_BOX_B=sk-secret-box-b-value\n"
+        "LLAMA_SWAP_KEY_BOX_C=sk-secret-box-c-value\n"
     )
 
     rc, out_dir = render(tmp_path, config, env=env)
     text = (out_dir / "config.yaml").read_text(encoding="utf-8")
 
     assert rc == 0
-    assert "os.environ/LLAMA_SWAP_KEY_DGX" in text
+    assert "os.environ/LLAMA_SWAP_KEY_BOX_A" in text
     assert "os.environ/LITELLM_MASTER_KEY" in text
     assert "sk-secret" not in text
     assert "f" * 64 not in text
@@ -298,14 +298,14 @@ def test_u11_version_two_is_rejected(tmp_path, capsys):
 # ── U12: one binding per address, in document order ────────────────────────
 def test_u12_three_addresses_render_in_order_without_wildcards(tmp_path):
     config = base_config()
-    config["listen"]["addresses"] = ["192.168.178.57", "10.0.0.5", "127.0.0.1"]
+    config["listen"]["addresses"] = ["192.0.2.10", "10.0.0.5", "127.0.0.1"]
 
     rc, out_dir = render(tmp_path, config)
     text = (out_dir / "compose.ports.yml").read_text(encoding="utf-8")
 
     assert rc == 0
     assert text.count(":4000:4000") == 3
-    assert text.index("192.168.178.57") < text.index("10.0.0.5") < text.index("127.0.0.1")
+    assert text.index("192.0.2.10") < text.index("10.0.0.5") < text.index("127.0.0.1")
     assert '"0.0.0.0:' not in text
     assert '"::' not in text
 
@@ -316,17 +316,17 @@ def test_u13_backend_in_shared_and_single_model_warns(tmp_path, capsys):
     stderr = capsys.readouterr().err
 
     assert rc == 0
-    assert "backends.evobox" in stderr
+    assert "backends.box-b" in stderr
     assert "single-deployment model" in stderr
 
 
 # ── U14: api_key_env is optional ────────────────────────────────────────────
 def test_u14_backend_without_api_key_env_sends_no_api_key(tmp_path):
     config = base_config()
-    del config["backends"]["laptop"]["api_key_env"]
+    del config["backends"]["box-c"]["api_key_env"]
 
     rc, out_dir = render(tmp_path, config)
-    params = params_for(rendered_config(out_dir), "laptop-qwen3.8-flash-next")
+    params = params_for(rendered_config(out_dir), "box-c-qwen3.8-flash-next")
 
     assert rc == 0
     assert "api_key" not in params

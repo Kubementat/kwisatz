@@ -5,51 +5,51 @@ model_list:
   - model_name: qwen3.8-flash-next
     litellm_params:
       model: openai/qwen3.8-flash-next
-      api_base: http://192.168.178.104:9292/v1
-      api_key: os.environ/LLAMA_SWAP_KEY_DGX
-      max_parallel_requests: 5
-      weight: 5
-      order: 1
-      timeout: 1200
-      stream_timeout: 1200
-    model_info:
-      id: dgx-qwen3.8-flash-next
-  - model_name: qwen3.8-flash-next
-    litellm_params:
-      model: openai/qwen3.8-flash-next-gufo
-      api_base: http://192.168.178.57:9292/v1
-      api_key: os.environ/LLAMA_SWAP_KEY_EVOBOX
+      api_base: http://192.0.2.10:9292/v1
+      api_key: os.environ/LLAMA_SWAP_KEY_BOX_A
       max_parallel_requests: 1
       weight: 1
       order: 1
       timeout: 1200
       stream_timeout: 1200
     model_info:
-      id: evobox-qwen3.8-flash-next
+      id: box-a-qwen3.8-flash-next
+  - model_name: qwen3.8-flash-next
+    litellm_params:
+      model: openai/qwen3.8-flash-next-gufo
+      api_base: http://192.0.2.21:9292/v1
+      api_key: os.environ/LLAMA_SWAP_KEY_BOX_B
+      max_parallel_requests: 2
+      weight: 2
+      order: 1
+      timeout: 1200
+      stream_timeout: 1200
+    model_info:
+      id: box-b-qwen3.8-flash-next
   - model_name: qwen3.8-flash-next
     litellm_params:
       model: openai/qwen3.8-flash-next-gufo
       api_base: http://100.64.0.20:9292/v1
-      api_key: os.environ/LLAMA_SWAP_KEY_LAPTOP
+      api_key: os.environ/LLAMA_SWAP_KEY_BOX_C
       max_parallel_requests: 1
       weight: 1
       order: 2
       timeout: 1200
       stream_timeout: 1200
     model_info:
-      id: laptop-qwen3.8-flash-next
+      id: box-c-qwen3.8-flash-next
   - model_name: qwen3.8-27b
     litellm_params:
       model: openai/qwen3.8-27b-gufo
-      api_base: http://192.168.178.57:9292/v1
-      api_key: os.environ/LLAMA_SWAP_KEY_EVOBOX
+      api_base: http://192.0.2.21:9292/v1
+      api_key: os.environ/LLAMA_SWAP_KEY_BOX_B
       max_parallel_requests: 1
       weight: 1
       order: 1
       timeout: 1200
       stream_timeout: 1200
     model_info:
-      id: evobox-qwen3.8-27b
+      id: box-b-qwen3.8-27b
 router_settings:
   routing_strategy: simple-shuffle
   optional_pre_call_checks:
