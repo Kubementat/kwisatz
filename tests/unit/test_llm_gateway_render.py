@@ -7,6 +7,9 @@ YAML documents are compared structurally, except the golden-file test.
 from __future__ import annotations
 
 import importlib.util
+import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -373,6 +376,90 @@ def test_renderer_never_writes_on_validation_failure(tmp_path):
 
     assert rc == 1
     assert (out_dir / "config.yaml").read_text(encoding="utf-8") == "previous: content\n"
+
+
+def test_the_plan_parser_keeps_empty_columns():
+    """A backend without `api_key_env` must not shift `false` into the key name.
+
+    `--print-plan` separates fields with tabs, and tab is IFS *whitespace*: a
+    naive `IFS=$'\t' read` collapses the run of two tabs that marks an absent
+    key, so the caller asks for a secret literally named "false".
+    """
+    script = (REPO_ROOT / "tasks" / "setup-llm-gateway.sh").read_text(encoding="utf-8")
+    start = script.index("_parse_plan() {")
+    parse_fn = script[start : script.index("\n}\n", start) + 2]
+
+    plan = subprocess.run(
+        [
+            sys.executable,
+            str(RENDERER_PATH),
+            "--config",
+            str(REPO_ROOT / "tests" / "fixtures" / "llm-gateway" / "gateway.test.yml"),
+            "--print-plan",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+    out = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "set -euo pipefail\n"
+            "declare -a BACKEND_NAMES BACKEND_URLS BACKEND_KEYS BACKEND_EFFORT\n"
+            f"{parse_fn}\n_parse_plan \"$1\"\n"
+            'printf "names=%s keys=%s effort=%s\\n" '
+            '"${BACKEND_NAMES[*]-}" "${BACKEND_KEYS[*]-}" "${BACKEND_EFFORT[*]-}"\n',
+            "_",
+            plan,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    assert "names=testbox" in out
+    assert "keys=false" not in out
+    assert "effort=false" in out
+
+
+def test_the_compose_wildcard_guard_ignores_comments(tmp_path):
+    r"""The guard must read bindings, not the header that promises no wildcards.
+
+    `compose.ports.yml` carries the comment “no 0.0.0.0 and no ::, ever”, and a
+    plain `grep -E '0\.0\.0\.0'` over the file matches that line — so a correct
+    render looked like a wildcard and the task refused to start. This is what the
+    first VM run of the feature caught. The test drives the script's own guard
+    line against a known-good render and against a wildcarded one.
+    """
+    script = (REPO_ROOT / "tasks" / "setup-llm-gateway.sh").read_text(encoding="utf-8")
+    found = re.search(r'^\s*offenders="\$\((.+)\)"$', script, re.M)
+    assert found, "the compose wildcard guard line is no longer where the test reads it"
+    guard = found.group(1)
+
+    good = (FIXTURES / "compose.ports.yml").read_text(encoding="utf-8")
+    assert "no 0.0.0.0 and no" in good
+    assert _compose_guard_offenders(guard, tmp_path / "good.yml", good) == ""
+
+    wildcard = good.replace('      - "1', '      - "0.0.0.0:4000:0\n      - "1', 1)
+    assert "0.0.0.0" in _compose_guard_offenders(guard, tmp_path / "wild.yml", wildcard)
+
+
+def _compose_guard_offenders(guard: str, path: Path, text: str) -> str:
+    path.write_text(text, encoding="utf-8")
+    return subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'set -uo pipefail\nPORTS_FILE="$1"\noffenders=$({guard})\nprintf %s "$offenders"',
+            "_",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
 
 
 if __name__ == "__main__":  # pragma: no cover

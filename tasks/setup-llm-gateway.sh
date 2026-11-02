@@ -307,25 +307,35 @@ _probe_backend() {
 
 _parse_plan() {
   # Parse --print-plan tab-separated records into the global arrays.
-  local plan="$1" kind a b c d e
-  while IFS=$'\t' read -r kind a b c d e; do
+  #
+  # Splitting with `IFS=$'\t' read` is wrong here: tab is IFS *whitespace*, so a
+  # run of two tabs is one delimiter and the empty api_key_env field of a backend
+  # that needs no key would silently shift `false` into the key name (and the
+  # task would then demand a key called "false"). mapfile over tab-as-newline
+  # keeps every field in its column, empty ones included.
+  local plan="$1" line kind
+  local -a fields
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    mapfile -t fields <<< "${line//$'\t'/$'\n'}"
+    kind="${fields[0]}"
     case "$kind" in
-      port) CONFIG_PORT="$a" ;;
-      address) ADDRESSES+=("$a") ;;
-      allow_from) ALLOW_FROM+=("$a") ;;
+      port) CONFIG_PORT="${fields[1]}" ;;
+      address) ADDRESSES+=("${fields[1]}") ;;
+      allow_from) ALLOW_FROM+=("${fields[1]}") ;;
       backend)
-        BACKEND_NAMES+=("$a")
-        BACKEND_URLS+=("$b")
-        BACKEND_KEYS+=("$c")
-        BACKEND_EFFORT+=("$d")
+        BACKEND_NAMES+=("${fields[1]}")
+        BACKEND_URLS+=("${fields[2]}")
+        BACKEND_KEYS+=("${fields[3]}")
+        BACKEND_EFFORT+=("${fields[4]}")
         ;;
-      model) MODEL_NAMES+=("$a") ;;
+      model) MODEL_NAMES+=("${fields[1]}") ;;
       deployment)
-        DEP_MODELS+=("$a")
-        DEP_IDS+=("$b")
-        DEP_BACKENDS+=("$c")
-        DEP_ORDERS+=("$d")
-        DEP_RESIDENT+=("$e")
+        DEP_MODELS+=("${fields[1]}")
+        DEP_IDS+=("${fields[2]}")
+        DEP_BACKENDS+=("${fields[3]}")
+        DEP_ORDERS+=("${fields[4]}")
+        DEP_RESIDENT+=("${fields[5]}")
         ;;
     esac
   done <<< "$plan"
@@ -594,8 +604,12 @@ _render_gateway() {
 
 _validate_compose() {
   step "Validating the rendered compose configuration"
-  if grep -qE '0\.0\.0\.0|"\[::\]|"::' "$PORTS_FILE"; then
-    error "compose.ports.yml contains a wildcard binding — refusing to start: $(grep -nE '0\.0\.0\.0|"\[::\]|"::' "$PORTS_FILE")"
+  # Only the bindings can be wildcards: the generated header says "no 0.0.0.0
+  # and no ::, ever", so grepping the raw file would flag its own comment.
+  local offenders
+  offenders="$(sed 's/#.*//' "$PORTS_FILE" | grep -nE '0\.0\.0\.0|\[::\]|"::' || true)"
+  if [[ -n "$offenders" ]]; then
+    error "compose.ports.yml contains a wildcard binding — refusing to start: ${offenders}"
   fi
   if ! _dc config >/dev/null; then
     error "docker compose config rejected the merged files (see the output above)"
