@@ -25,6 +25,7 @@ For any request about using, understanding, explaining, configuring, or setting 
 - write implementation plans to `./docs/plans`, research to `./docs/research`, tickets to `./.tickets`
 - prefer the `codegraph_explore` tool for searching the codebase
 - keep `./AUTOMATIONS.md` up to date
+- __this is a publicly hosted Open Source project, so keep local network/machine/environment specific details out of the commited codebase!__
 
 ## Implementation Instructions
 
