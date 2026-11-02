@@ -28,3 +28,4 @@ pyinfra-debug.log
 .coverage
 .coverage.*
 htmlcov/
+.pytest_cache/
