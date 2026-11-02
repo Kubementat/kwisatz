@@ -1,0 +1,18 @@
+[Unit]
+Description=kwisatz LLM gateway source filter (DOCKER-USER)
+Documentation=file://${LLM_GATEWAY_DIR}/README_LLM_GATEWAY.md
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# DOCKER-USER is created by Docker shortly after the daemon starts; wait for it
+# instead of failing the boot-time run.
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do iptables -S DOCKER-USER >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+ExecStart=${LLM_GATEWAY_DIR}/firewall.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -35,6 +35,12 @@
 - **nanobot** — long-running AI agent in OpenClaw style
 - **whispering** — speech recognition tool for transcribing recorded audio to text
 - **model catalog** — the declarative model list (`models.yml`, gitignored, or the committed fallback `models.yml.default`); consumed by `tasks/sync-models.py` to download weights and configure llama-swap and the coding agents' model configs
+- **LLM gateway** — the private LiteLLM proxy (`setup-llm-gateway.sh`, `/srv/llm-gateway`, port `4000`) that gives clients one OpenAI/Anthropic-compatible base URL and one key in front of the llama-swap boxes; it picks the box per request, the boxes keep serving their own models
+- **deployment** — one backend a gateway model can use: a `backends` entry (box base URL) plus that box's own llama-swap model id and its real `max_parallel`
+- **model group** — a public model name in `gateway.yml` mapped to one or more deployments (one box = single deployment, several = load-balanced group)
+- **session pin / session affinity** — a client session stays on the deployment that served its first request, so llama-swap does not re-load the model on another box mid-conversation; a pinned session at its deployment's cap gets `429`, it does not spill over
+- **resident model** — a model kept loaded (`ttl: 0`) on a llama-swap box; required for every member of a shared model group, since an eviction during a swap costs a full reload
+- **break-glass path** — calling a llama-swap box directly on `:9292`, bypassing the gateway, for when routing itself is the problem
 
 ### Services
 

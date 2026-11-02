@@ -15,6 +15,7 @@
 #   9. setup-agent-sandbox.sh — bwrap sandbox prerequisites + asb wrapper
 #  10. setup-vllm.sh         — vLLM (OpenAI-compatible inference server, Docker)
 #  11. setup-monitoring.sh   — Monitoring stack (Prometheus + Grafana + Node Exporter + cAdvisor, Docker)
+#  12. setup-llm-gateway.sh  — Private LiteLLM gateway in front of the llama-swap boxes
 #
 # NOTE: `kwisatz apply` runs the enabled scripts through the pyinfra deploy
 # deploy.py, in the order they are listed in the
@@ -242,4 +243,14 @@ scripts:
       CADVISOR_IMAGE_VERSION: ghcr.io/google/cadvisor:v0.60.5
       # Set to true to re-create an existing stack (data preserved)
       MONITORING_FORCE: 'false'
+    args: []
+
+  setup-llm-gateway:
+    enabled: false
+    description: Private LiteLLM gateway in front of the llama-swap boxes
+    env:
+      LLM_GATEWAY_PORT: '4000'
+      LLM_GATEWAY_DIR: /srv/llm-gateway
+      LLM_GATEWAY_IMAGE: ghcr.io/berriai/litellm:v1.106.6
+      GATEWAY_YML: gateway.yml
     args: []

@@ -1,0 +1,98 @@
+---
+# =============================================================================
+# gateway.yml.example — private LLM gateway routing configuration
+# =============================================================================
+#
+# Copy to gateway.yml (gitignored), then edit:
+#   - listen.addresses: the addresses assigned to THIS host (evobox)
+#   - listen.allow_from: the source networks allowed to reach the port
+#   - backends.*.base_url: each llama-swap box, OpenAI base (".../v1")
+#   - backends.*.api_key_env: the .env name, only when that box sets apiKeys
+#   - models[].deployments[].model: the box's own llama-swap model id
+#
+# Secrets are never written here: api_key_env names a variable in
+# /srv/llm-gateway/.env (mode 600, root). The renderer writes only
+# "os.environ/NAME" into the generated LiteLLM config.
+#
+# Field reference and behavior: README_LLM_GATEWAY.md.
+# =============================================================================
+
+version: 1
+
+listen:
+  port: 4000
+  # Every address the port is published on. Never 0.0.0.0 or ::.
+  # Each address must be assigned to a local interface at apply time.
+  addresses:
+    # evobox LAN
+    - 192.168.178.57
+    # evobox NetBird (placeholder; check with: ip -4 addr show wt0)
+    - 100.64.0.10
+    # libvirt bridge, for the Hermes VM
+    - 192.168.122.1
+  # Source CIDRs allowed to reach the published port. Enforced in DOCKER-USER:
+  # UFW cannot filter Docker-published ports (see README_LLM_GATEWAY.md).
+  allow_from:
+    - 192.168.178.0/24
+    - 100.64.0.0/10
+    - 192.168.122.0/24
+
+# Idle TTL of a session pin (seconds). Without Redis a restart drops all pins.
+affinity_ttl_seconds: 7200
+
+# Rendered as both `timeout` and `stream_timeout`. Must exceed the backend's
+# llama-swap healthCheckTimeout (dgx: 900), so a cold load is not cut off.
+request_timeout_seconds: 1200
+
+backends:
+  dgx:
+    base_url: http://192.168.178.104:9292/v1
+    # Optional: omit when that box's llama-swap has no apiKeys.
+    api_key_env: LLAMA_SWAP_KEY_DGX
+  evobox:
+    base_url: http://192.168.178.57:9292/v1
+    api_key_env: LLAMA_SWAP_KEY_EVOBOX
+  laptop:
+    base_url: http://100.64.0.20:9292/v1
+    api_key_env: LLAMA_SWAP_KEY_LAPTOP
+    # best_effort => order 2: failover only, no new sessions (C1).
+    # To give it a share, set best_effort: false, order: 1 and a low weight.
+    best_effort: true
+
+models:
+  # Shared group: every backend must keep this model resident (ttl: 0 / matrix).
+  - name: qwen3.8-flash-next
+    aliases: [qwen3.8-flash]
+    deployments:
+      - backend: dgx
+        model: qwen3.8-flash-next
+        id: dgx-qwen3.8-flash-next
+        # = TensorFold PARALLEL (verify the live value, P0)
+        max_parallel: 5
+        weight: 5
+        order: 1
+        resident: true
+      - backend: evobox
+        model: qwen3.8-flash-next-gufo
+        id: evobox-qwen3.8-flash-next
+        # = GUFO_SESSIONS
+        max_parallel: 1
+        weight: 1
+        order: 1
+        resident: true
+      - backend: laptop
+        model: qwen3.8-flash-next-gufo
+        id: laptop-qwen3.8-flash-next
+        max_parallel: 1
+        weight: 1
+        resident: true
+
+  # Single-box model: one deployment; not load-balanced. On evobox this evicts
+  # Flash Next while it runs (C11) — deliberate, warned about by the renderer.
+  - name: qwen3.8-27b
+    deployments:
+      - backend: evobox
+        model: qwen3.8-27b-gufo
+        id: evobox-qwen3.8-27b
+        max_parallel: 1
+        resident: false
