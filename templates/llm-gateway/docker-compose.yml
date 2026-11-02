@@ -1,0 +1,38 @@
+---
+# Static service definition. The task installs this file with
+# LLM_GATEWAY_IMAGE and LLM_GATEWAY_PORT substituted; the generated
+# compose.ports.yml carries the explicit host bindings (no ports: here).
+services:
+  llm-gateway:
+    image: ${LLM_GATEWAY_IMAGE}
+    container_name: llm-gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LITELLM_TELEMETRY_DISABLED: "true"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    command:
+      - --config
+      - /app/config.yaml
+      - --port
+      - "${LLM_GATEWAY_PORT}"
+      - --num_workers
+      - "1"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:${LLM_GATEWAY_PORT}/health/liveliness')"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

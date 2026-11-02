@@ -171,3 +171,19 @@ providers:
         agent:
           contextWindow: 262144
           maxTokens: 32000
+
+  # One private gateway in front of every llama-swap box (setup-llm-gateway.sh).
+  # Agents use this single endpoint; the gateway picks the box, pins a session
+  # to it and fails over. Uncomment after the gateway is installed and replace
+  # the key with LITELLM_MASTER_KEY from /srv/llm-gateway/.env.
+  # - name: gateway
+  #   baseUrl: http://<your-gateway-host>:4000/v1   # or its mesh/VPN address off-LAN
+  #   apiKey: sk-replace-with-the-gateway-master-key
+  #   models:
+  #     - name: qwen3.8-flash-next
+  #       type: remote
+  #       agent:
+  #         contextWindow: 262144
+  #         maxTokens: 32768
+  #         reasoning: true
+  #         input: [text, image]

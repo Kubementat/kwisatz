@@ -178,6 +178,8 @@ cp machine-config.yml.example machine-config.yml
 
 A pre-configured inference stack is also available as `machine-config-inference.yml.example`,
 which enables the scripts needed for local LLM inference (llama.cpp, llama-swap, Open WebUI, vLLM, etc.).
+`setup-llm-gateway` ships disabled there: enable it only on the host that fronts several
+llama-swap boxes (see [README_LLM_GATEWAY.md](README_LLM_GATEWAY.md)).
 
 ### YAML Format
 
@@ -305,6 +307,12 @@ For a complete list of automations see [AUTOMATIONS.md](AUTOMATIONS.md)
 proxy; [README_NETBIRD.md](README_NETBIRD.md) is the flow guide for reaching your local
 network from outside the LAN — a phone on mobile data, a roaming laptop — over a
 self-hosted NetBird mesh, and it documents `setup-netbird.sh` and its routing peer.
+
+**More than one inference box?** [README_LLM_GATEWAY.md](README_LLM_GATEWAY.md) is the
+operator guide for `setup-llm-gateway.sh`: one private LiteLLM endpoint (OpenAI *and*
+Anthropic compatible) in front of several llama-swap boxes, so every agent and app is wired
+to one base URL and one key while the gateway handles model groups, session pins, per-box
+capacity caps, retries and failover. `gateway.yml` is the routing config.
 
 ---
 
@@ -515,6 +523,7 @@ There are two ways to customize the setup:
 ## Additional Documentation
 - **[README_TRAEFIK.md](README_TRAEFIK.md)** - Complete guide for the Traefik v3 reverse proxy setup script (`setup-traefik.sh`)
 - **[README_NETBIRD.md](README_NETBIRD.md)** - Making a local network reachable from the outside with self-hosted NetBird (routing peer, dashboard objects, verification)
+- **[README_LLM_GATEWAY.md](README_LLM_GATEWAY.md)** - Private LiteLLM gateway in front of the llama-swap boxes: routing config (`gateway.yml`), session affinity, exposure and firewall, agent wiring, break-glass
 - **[README_MANAGING_MODELS.md](README_MANAGING_MODELS.md)** - Guide for managing models via huggingface cli
 - **[tests/README.md](tests/README.md)** - Test suite documentation and usage guide
 - As `kubementat` is a term leaning on Frank Herbert's Dune universe this project is also [referencing dune terminology](https://dune.fandom.com/wiki/Kwisatz_Haderach).

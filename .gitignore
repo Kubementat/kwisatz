@@ -15,6 +15,7 @@ logs/
 machine-config.yml
 models.yml
 models.yml.full
+gateway.yml
 .pi-subagents/
 .omo/
 .agent-work/

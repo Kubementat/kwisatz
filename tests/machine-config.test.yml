@@ -194,6 +194,21 @@ scripts:
       VLLM_PORT: "8000"
     args: ["--cpu"]
 
+  # Kept out of the default fast suite (pulls the LiteLLM image and starts a
+  # container). Ad hoc:
+  #   tests/run-vm-tests.sh --ram 6 --vcpu 4 --timeout 45 \
+  #     --scripts setup-basics,setup-docker,setup-llm-gateway
+  # GATEWAY_YML points at a loopback-only config: no LAN addresses and no
+  # backend key, so the case is hermetic. It proves render + start + health +
+  # convergence; real inference needs the actual llama-swap boxes.
+  setup-llm-gateway:
+    enabled: false
+    description: Private LiteLLM gateway (docker) — ad-hoc via --scripts
+    env:
+      GATEWAY_YML: tests/fixtures/llm-gateway/gateway.test.yml
+      WAIT_TIMEOUT: "300"
+    args: []
+
   # Kept out of the default fast suite (source build + ~1.3 GB model download).
   # CPU backend for the GPU-less default VM; a GPU VM is needed for the vulkan
   # build + /dev/dri group access. Ad hoc via --scripts (see tests/README.md).

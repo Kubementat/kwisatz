@@ -135,6 +135,21 @@ Deploys llama-swap, a multi-model LLM proxy with hot-swap support, as a native s
 - Health check endpoint at `/health`
 - Comprehensive config with all options documented
 
+#### `setup-llm-gateway.sh`
+Deploys a **private LiteLLM gateway** (`/srv/llm-gateway`, port `4000`) in front of one or more llama-swap boxes, so agents and apps use **one OpenAI/Anthropic-compatible base URL and one key** while the gateway picks the box that serves each request. llama-swap stays the per-box front door; its behaviour does not change.
+
+**Features:**
+- Routing comes from `gateway.yml` (gitignored; `gateway.yml.example` documents every field): model **groups** with per-deployment `max_parallel`, retries/cooldowns, optional session affinity (`session_affinity` from the client's session header) and per-deployment `order` for failover
+- A shared group must keep its model resident (`ttl: 0` on the backends); the validator enforces this instead of discovering it under load
+- `tasks/render-llm-gateway-config.py` validates the whole file (duplicate keys, unknown fields, every error collected) and renders `config.yaml`, `compose.ports.yml` and `firewall.sh`; it also exposes `--print-plan`/`--print-addresses`, `--print-port` and `--exclude-address` for the bash side
+- Secrets never enter generated files: the master key lives in `/srv/llm-gateway/.env` (mode 600, root-owned) and the rendered config references `os.environ/LLM_GATEWAY_MASTER_KEY`; generated once, read back on re-runs, never rotated (`--force` recreates the container, not the key)
+- Explicit publish addresses only (`listen.addresses`); `0.0.0.0`/`::` are rejected. Source CIDRs from `listen.allow_from` are applied in the `DOCKER-USER` chain by the committed oneshot unit `llm-gateway-firewall.service`, because Docker bypasses UFW
+- Probes every backend `/v1/models` before start (a `deployment.model` missing on its box is a hard error; `GATEWAY_STRICT_BACKENDS=true` upgrades an unreachable required backend from warning to failure), validates the rendered compose file, then `docker compose up -d` + bounded health gate and optional `--warm`
+- `--check` is read-only: re-renders into a temp dir and verifies installed files, secret permissions, container health, exposure and firewall state; exit `0` only when everything passes
+- `--render-only` for config-only changes, `--interactive` to review diffs before a required recreate
+- Env: `LLM_GATEWAY_DIR` (`/srv/llm-gateway`), `GATEWAY_YML` (`<repo>/gateway.yml`), `LLM_GATEWAY_IMAGE` (`ghcr.io/berriai/litellm:v1.106.6`), `LLM_GATEWAY_PORT` (4000), `WAIT_TIMEOUT` (180), `GATEWAY_WARM`, `GATEWAY_STRICT_BACKENDS`
+- Operator guide: [`README_LLM_GATEWAY.md`](README_LLM_GATEWAY.md) — setup, affinity, exposure, agent wiring, break-glass and troubleshooting
+
 #### `setup-laya.sh`
 Installs [Laya](https://huggingface.co/convaiinnovations/laya) — a self-hosted, non-autoregressive "System 1" decision model (typed `choice`/`score`/`noul` questions, not chat) — as `laya[serve]` into an isolated Python venv at `/srv/laya/venv` and runs it as the native systemd service `laya.service`. The server binds `LAYA_HOST` (default `0.0.0.0`):`LAYA_PORT` (default `7771`) and answers typed questions on `POST /v1/systemone`; a UFW inbound rule is added for the port (skipped when bound to loopback) and a bounded HTTP health gate runs after (re)start.
 
