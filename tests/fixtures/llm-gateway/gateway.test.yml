@@ -1,0 +1,35 @@
+---
+# Minimal routing config for the VM integration suite (tests/run-vm-tests.sh).
+#
+# Loopback only: no assumptions about the VM's LAN address, nothing exposed
+# beyond the VM, and no backend api key so no upstream secret is needed. The
+# backend is intentionally not running — reachability is a warning, not a
+# failure, and the suite only proves rendering, start-up, health and
+# convergence, never an inference call.
+#
+# Used through the disabled setup-llm-gateway entry in
+# tests/machine-config.test.yml (GATEWAY_YML points here).
+version: 1
+
+listen:
+  port: 4000
+  addresses:
+    - 127.0.0.1
+  allow_from:
+    - 127.0.0.0/8
+
+affinity_ttl_seconds: 600
+request_timeout_seconds: 60
+
+backends:
+  testbox:
+    base_url: http://127.0.0.1:9292/v1
+
+models:
+  - name: vm-test-model
+    deployments:
+      - backend: testbox
+        model: vm-test-model
+        id: testbox-vm-test-model
+        max_parallel: 1
+        resident: true
