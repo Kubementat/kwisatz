@@ -90,6 +90,19 @@
   not re-render (setup-netbird refreshes its `.env` image lines on every run).
 - Renovate (`renovate.json`, `tasks/setup-renovate.sh`) proposes the bumps;
   `utilities/check-versions.sh` lists what is outdated.
+- **User override file.** `kw_pin` also reads `${KW_VERSIONS_OVERRIDE:-$KWISATZ_CONFIG_DIR/versions.yml}` when it
+  exists: a *sparse* file (only the changed entries/fields) merged per key and per field over the default file
+  (`KW_VERSIONS_FILE`, else the bundled `versions.yml`). Overriding `version` without `digest` drops the default's
+  digest. A key the default lacks is an error naming the file. Precedence: task override variable → user
+  `versions.yml` → bundled `versions.yml`. Without `KWISATZ_CONFIG_DIR` (checkout mode) there is no override file.
+
+## User-owned files: `kw_config_file`
+
+A task never writes into its own repo root — installed mode ships it read-only. User-owned files
+(`models.yml`, `gateway.yml`) are addressed with `kw_config_file <name>` (`lib/helpers.sh`): it prints
+`$KWISATZ_CONFIG_DIR/<name>` when kwisatz runs installed, else `<repo root>/<name>`. Shipped defaults
+(`*.example`, `models.yml.default`) stay read from the repo root. Python helpers apply the same rule
+inline (`KWISATZ_CONFIG_DIR` or the repo root). An explicit override variable (`GATEWAY_YML`, `MODELS_YML`) wins.
 
 ## Secrets and templating
 

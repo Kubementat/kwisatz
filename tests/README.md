@@ -139,6 +139,13 @@ Heavy build/GPU/container-farm scripts (`setup-llama-cpp`, `setup-vllm`,
 They can be tested ad hoc with `--scripts` (see below) and usually need a
 bigger VM (`--ram`, `--disk`) and a larger `--timeout`.
 
+### Installed mode (manual, run by the maintainer)
+
+Not part of `run-vm-tests.sh`. On a fresh Ubuntu VM: install uv, build the wheel (`uv build --wheel`), copy it
+over, then `uvx --from ./kwisatz-*.whl kwisatz init && uvx --from ./kwisatz-*.whl kwisatz apply setup-docker`
+(outside any checkout), and re-run the apply to see it converge. The no-VM part (wheel contents, init, status,
+versions, doctor in a tmp HOME) is covered by `tests/unit/test_payload.py` and `tests/unit/test_installed_mode.py`.
+
 ## Setting Up the Test Prerequisites
 
 The test suite requires the [virt-runner](https://github.com/Kubementat/virt-runner) CLI tool
