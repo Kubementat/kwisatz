@@ -66,45 +66,6 @@ docker run --rm \
   "$RENOVATE_IMAGE" --platform=local --dry-run=lookup > "${WORK}/renovate.log" 2>&1 \
   || { tail -n 20 "${WORK}/renovate.log" >&2; error "renovate run failed"; }
 
-python3 -I - "${WORK}/renovate.log" "$JSON" <<'PY'
-import json, sys
-
-log, as_json = sys.argv[1], sys.argv[2] == "true"
-deps, problems = [], []
-for line in open(log):
-    try:
-        rec = json.loads(line)
-    except ValueError:
-        continue
-    if rec.get("level", 0) >= 40:
-        problems.append(rec.get("msg", ""))
-    if rec.get("msg") == "packageFiles with updates":
-        for files in rec["config"].values():
-            for f in files:
-                if f.get("packageFile") == "versions.yml":
-                    deps.extend(f["deps"])
-for msg in problems:
-    print(f"[WARN]  renovate: {msg}", file=sys.stderr)
-if not deps:
-    sys.exit("[ERROR] renovate reported no dependencies for versions.yml")
-if as_json:
-    json.dump(deps, sys.stdout, indent=2)
-    print()
-    sys.exit(0)
-width = max(len(d["depName"]) for d in deps)
-for d in sorted(deps, key=lambda d: d["depName"]):
-    current = d.get("currentValue", "")
-    if d.get("currentDigest"):
-        current += f"@{d['currentDigest'][:12]}"
-    if d.get("skipReason"):
-        latest = f"(skipped: {d['skipReason']})"
-    else:
-        news = []
-        for u in d.get("updates", []):
-            new = u.get("newValue") or current
-            if u.get("updateType") == "digest" or (u.get("newDigest") and new == d.get("currentValue")):
-                new += f"@{u['newDigest'][:12]}"
-            news.append(f"{new} ({u.get('updateType')})")
-        latest = ", ".join(news) if news else "up to date"
-    print(f"{d['depName']:<{width}}  {current}  →  {latest}")
-PY
+report_args=("${WORK}/renovate.log")
+[[ "$JSON" == true ]] && report_args+=(--json)
+python3 -I "${SCRIPT_DIR}/renovate-report.py" "${report_args[@]}"

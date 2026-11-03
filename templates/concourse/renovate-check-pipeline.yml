@@ -1,0 +1,97 @@
+---
+# Renovate lookup for kwisatz: which pins in versions.yml are outdated?
+#
+# Checks out the develop branch of kwisatz and runs the Renovate image pinned
+# in its own versions.yml with --platform=local --dry-run=lookup — the same
+# check as utilities/check-versions.sh. Opens nothing, pushes nothing; the
+# build log ends with one line per entry (`key  current  →  latest`) and a
+# summary count. Runs daily (upstream releases are not commits) and on every
+# develop commit that touches versions.yml or renovate.json.
+#
+# fly -t concourse set-pipeline -p renovate-check \
+#   -c renovate-check-pipeline.yml \
+#   -v kwisatz_git_uri=https://github.com/Kubementat/kwisatz.git \
+#   -v github_token=<read-only GitHub token, or empty>
+# fly -t concourse unpause-pipeline -p renovate-check
+# fly -t concourse trigger-job -j renovate-check/renovate-lookup --watch
+#
+# Vars:
+#   kwisatz_git_uri  clone URL of the kwisatz repository (no credentials)
+#   github_token     read-only GitHub token for github-releases/-tags
+#                    lookups and the API rate limit; empty → GitHub-hosted
+#                    entries show `skipped: github-token-required`. Prefer a
+#                    credential manager over -v for a real token.
+
+resources:
+  - name: kwisatz
+    type: git
+    icon: git
+    source:
+      uri: ((kwisatz_git_uri))
+      branch: develop
+      paths:
+        - versions.yml
+        - renovate.json
+
+  - name: daily
+    type: time
+    icon: clock-outline
+    source:
+      interval: 24h
+
+jobs:
+  - name: renovate-lookup
+    build_log_retention:
+      builds: 30
+    plan:
+      - in_parallel:
+          - get: daily
+            trigger: true
+          - get: kwisatz
+            trigger: true
+      # the image comes from versions.yml: this pipeline pins no version
+      - load_var: pins
+        file: kwisatz/versions.yml
+        format: yaml
+        reveal: true
+      - task: renovate-lookup
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source:
+              repository: ((.:pins.renovate.package))
+              tag: ((.:pins.renovate.version))
+          inputs:
+            - name: kwisatz
+          params:
+            RENOVATE_GITHUB_COM_TOKEN: ((github_token))
+            LOG_LEVEL: debug
+            LOG_FORMAT: json
+            # the checkout belongs to another uid than the image user (12021)
+            GIT_CONFIG_COUNT: "1"
+            GIT_CONFIG_KEY_0: safe.directory
+            GIT_CONFIG_VALUE_0: "*"
+          run:
+            dir: kwisatz
+            path: bash
+            args:
+              - -ec
+              - |
+                log="$(mktemp)"
+                echo "renovate $(renovate --version)," \
+                  "kwisatz develop @ $(git rev-parse --short HEAD)"
+                if ! renovate --platform=local --dry-run=lookup \
+                    > "$log" 2>&1; then
+                  tail -n 20 "$log"
+                  echo "renovate run failed" >&2
+                  exit 1
+                fi
+                report="$(python3 -I utilities/renovate-report.py "$log")"
+                printf '\n%s\n\n' "$report"
+                total="$(wc -l <<< "$report")"
+                skipped="$(grep -c '(skipped: ' <<< "$report" || true)"
+                outdated="$(grep -vc -e '→  up to date$' -e '(skipped: ' \
+                  <<< "$report" || true)"
+                echo "${outdated} of ${total} entries have updates," \
+                  "${skipped} skipped"
