@@ -67,6 +67,15 @@ class Repo:
         return self.path
 
     @property
+    def run_cwd(self) -> Path:
+        """Where tasks and the deploy run: the checkout, or the state dir in installed mode.
+
+        Never the payload when installed — under `uvx` it lives inside uv's cache, and uv
+        refuses to work with a current directory there (`uv pip install` in setup-basics).
+        """
+        return self.path if self.mode == "checkout" else self.work
+
+    @property
     def logs(self) -> Path:
         return self.logs_dir or self.path / "logs"
 
