@@ -306,6 +306,10 @@ class App:
     def repo_dir(self) -> Repo:
         if self.repo is None:
             self.repo = repoio.resolve_repo(getattr(self.args, "repo", None))
+            if self.repo.mode == "installed":
+                # every task (both engines inherit os.environ) finds models.yml, gateway.yml and the
+                # sparse versions.yml here instead of next to its own file in the read-only payload
+                os.environ["KWISATZ_CONFIG_DIR"] = str(self.repo.config_dir)
         return self.repo
 
     def load_plan(self) -> tuple[Repo, orchestrator.Config, planner.Plan]:
@@ -423,12 +427,8 @@ def cmd_apply(app: App) -> int:
     app.warnings_shown = True
 
     repo.ensure_work()
-    lock = repoio.Lock(repo, float(getattr(app.args, "lock_timeout", 0) or 0))
-    lock.acquire()
-    try:
+    with repoio.held(repo, float(getattr(app.args, "lock_timeout", 0) or 0)):
         return _run_targets(app, targets, repo)
-    finally:
-        lock.release()
 
 
 def _deploy_argv(app: App, repo: Repo, names: list[str], extra: dict[str, str]) -> list[str]:
@@ -941,7 +941,13 @@ def cmd_init(app: App) -> int:
     elif getattr(app.args, "dry_run", False):
         app.out.action(f"dry run — would write {target} from {source.name}")
     else:
-        target.write_text(source.read_text())
+        if repo.mode == "installed":  # a private dir of the user's own, not a checkout
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(source.read_text())
+        else:
+            target.write_text(source.read_text())
         created = True
         app.out.ok(f"wrote {target} (from {source.name})")
 
@@ -1324,7 +1330,7 @@ def _map_models_exit(code: int | None, timed_out: bool = False) -> tuple[int, in
 def _models_status(app: App, sync: bool) -> int:
     """The catalog as the machine sees it: the file that wins, the models it names, llama-swap."""
     repo = app.repo_dir()
-    path = next((p for p in (repo.path / "models.yml", repo.path / "models.yml.example") if p.is_file()), None)
+    path = next((p for p in (repo.config_dir / "models.yml", repo.path / "models.yml.example") if p.is_file()), None)
     catalog = _catalog_summary(path) if path else {"path": "", "providers": 0, "models": 0, "names": []}
     swap = serviceio.discover(["llama-swap"])
     swap_state = serviceio.find(swap, "llama-swap")
