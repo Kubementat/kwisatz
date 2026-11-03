@@ -56,5 +56,5 @@
 A change is considered ready to merge when:
 1. All scripts pass `shellcheck` (for shell scripts) or `ruff` (for python) with no errors or warnings.
 2. `tests/lint.sh` passes.
-3. The VM integration suite passes: `tests/run-vm-tests.sh` → `SUITE: PASS`, for the scripts the change touches (or the default set, if the change is in the orchestrator, the CLI, or a shared `lib/`). Its default `--mode cli` is the one that counts; `--mode script` is the fallback used when a failure has to be attributed to the script rather than to the dispatch.
+3. The VM integration suite passes: `tests/run-vm-tests.sh` → `SUITE: PASS`, for the scripts the change touches (or the default set, if the change is in the orchestrator, the CLI, or a shared `lib/`). Its default `--mode cli` is the one that counts; `--mode script` is the fallback used when a failure has to be attributed to the script rather than to the dispatch. A change to packaging, `src/kwisatz/repo.py` or `lib/helpers.sh` also needs `--mode uvx` and `--mode tool` (installed mode from a built wheel, no checkout on the VM) to pass.
 4. Idempotency holds — the suite's second phase must pass, i.e. the second run converges rather than errors or tears anything down.

@@ -101,12 +101,14 @@ For **every enabled script** in the test config
 | **integration** | First run of the target on a **clean** VM (with its configured env vars and args, in config order) | exit 0 |
 | **idempotency** | Second run of the same target on the **same** (now provisioned) VM | exit 0 |
 
-### Two ways to run a case (`--mode`)
+### Ways to run a case (`--mode`)
 
 | Mode | What one test case is | Use it for |
 |---|---|---|
 | `cli` (default) | `./kwisatz apply <target>`, which starts a pyinfra deploy of the copied checkout (`deploy.py -y -vvv --data select=<target>`) | the command an operator or an agent uses — the entry point, the target resolution, the config `env:`/`args:`, `INTERACTIVE=false` and `/dev/null` stdin are all under test |
 | `script` | `sudo -u <vm-user> env … ./tasks/<name>.sh <args>`, i.e. the script directly | bisecting: when a case fails in `cli` mode, re-run it with `--mode script` to tell a script bug from a dispatch bug |
+| `uvx` | `uvx --from <wheel> kwisatz apply <target>` — the host builds the wheel and copies **only the wheel**, no checkout; the precheck is `kwisatz init` + `status` | installed mode as a `uvx` user meets it |
+| `tool` | the precheck runs `uv tool install <wheel>`, `kwisatz init`, `status`; each case is `~/.local/bin/kwisatz apply <target>` | installed mode as a `uv tool install` user meets it |
 
 In `script` mode the runner resolves the entry point and the config's env/args itself (yq +
 jq), which is exactly why it is the fallback and not the default: that code path is a
@@ -139,12 +141,13 @@ Heavy build/GPU/container-farm scripts (`setup-llama-cpp`, `setup-vllm`,
 They can be tested ad hoc with `--scripts` (see below) and usually need a
 bigger VM (`--ram`, `--disk`) and a larger `--timeout`.
 
-### Installed mode (manual, run by the maintainer)
+### Installed mode (`--mode uvx` / `--mode tool`)
 
-Not part of `run-vm-tests.sh`. On a fresh Ubuntu VM: install uv, build the wheel (`uv build --wheel`), copy it
-over, then `uvx --from ./kwisatz-*.whl kwisatz init && uvx --from ./kwisatz-*.whl kwisatz apply setup-docker`
-(outside any checkout), and re-run the apply to see it converge. The no-VM part (wheel contents, init, status,
-versions, doctor in a tmp HOME) is covered by `tests/unit/test_payload.py` and `tests/unit/test_installed_mode.py`.
+`tests/run-vm-tests.sh --mode uvx` and `--mode tool` run the same default set, twice each, from a wheel built
+on the host — the VM never sees a checkout, so a task that still reaches for repo-relative state fails here.
+Run both before a release that touches packaging, `src/kwisatz/repo.py` or `lib/helpers.sh`. The no-VM part
+(wheel contents, init, status, versions, doctor in a tmp HOME) is covered by `tests/unit/test_payload.py` and
+`tests/unit/test_installed_mode.py`.
 
 ## Setting Up the Test Prerequisites
 
@@ -216,6 +219,10 @@ tests/run-vm-tests.sh
 # Only a subset of scripts (comma-separated list):
 tests/run-vm-tests.sh --scripts setup-docker,setup-traefik
 
+# Installed mode from a freshly built wheel, no checkout on the VM:
+tests/run-vm-tests.sh --mode uvx
+tests/run-vm-tests.sh --mode tool
+
 # The same cases without the CLI in the loop, to tell a script bug from a dispatch bug:
 tests/run-vm-tests.sh --scripts setup-docker,setup-traefik --mode script
 
@@ -247,7 +254,8 @@ tests/run-vm-tests.sh [OPTIONS]
                      the enabled set in the test config, env/args for each
                      script are still taken from the test config)
   --mode MODE        cli (default) = ./kwisatz apply <target>; script = run the
-                     task script directly (see "Two ways to run a case")
+                     task script directly; uvx | tool = installed mode from a
+                     freshly built wheel (see "Ways to run a case")
   --config FILE      Test config file (default: tests/machine-config.test.yml)
   --release REL      Ubuntu release codename (default: resolute)
   --ram GB           VM RAM in GiB (default: 4)

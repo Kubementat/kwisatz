@@ -21,6 +21,10 @@
 #   script  run `tasks/<name>.sh` directly, the documented escape hatch. The runner
 #           resolves the entry point and the config's env/args itself, which is exactly
 #           why it is a fallback and not the default.
+#   uvx     installed mode, no checkout: `uvx --from <wheel> kwisatz apply <target>`.
+#           The precheck runs `kwisatz init` (config into ~/.config/kwisatz) first.
+#   tool    installed mode, no checkout: the precheck runs `uv tool install <wheel>`
+#           and `kwisatz init`, then every case is `~/.local/bin/kwisatz apply <target>`.
 #
 #   Each test case runs under 'sudo -u <vm-user>': this runner is one
 #   long-lived SSH session, so group membership changes made by earlier
@@ -37,10 +41,13 @@
 # USAGE:
 #   run-tests.sh --config <config.yml> --workdir <repo-dir> --out <dir> \
 #                [--timeout MIN] [--mode cli|script]
+#   run-tests.sh --config <config.yml> --wheel <kwisatz.whl> --out <dir> \
+#                [--timeout MIN] --mode uvx|tool
 #
 # REQUIREMENTS:
 #   yq, jq, uv (installed by the host orchestrator before this script runs);
-#   mode=cli additionally needs the checkout's `./kwisatz` entry point.
+#   mode=cli additionally needs the checkout's `./kwisatz` entry point;
+#   mode=uvx|tool need only the wheel (and uv).
 #
 # EXIT CODES:
 #   0 all test cases passed
@@ -52,6 +59,7 @@ set -uo pipefail
 
 CONFIG=""
 WORKDIR=""
+WHEEL=""
 OUT=""
 TIMEOUT_MIN=30
 MODE="cli"
@@ -64,11 +72,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --config)  CONFIG="$2"; shift 2 ;;
     --workdir) WORKDIR="$2"; shift 2 ;;
+    --wheel)   WHEEL="$2"; shift 2 ;;
     --out)     OUT="$2"; shift 2 ;;
     --timeout) TIMEOUT_MIN="$2"; shift 2 ;;
     --mode)    MODE="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -78,20 +87,27 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$CONFIG" || -z "$WORKDIR" || -z "$OUT" ]]; then
-  echo "run-tests.sh: --config, --workdir and --out are required" >&2
-  exit 2
-fi
+case "$MODE" in
+  cli|script) INSTALLED=false ;;
+  uvx|tool)   INSTALLED=true ;;
+  *) echo "run-tests.sh: --mode must be cli, script, uvx or tool, got: $MODE" >&2; exit 2 ;;
+esac
 
-if [[ "$MODE" != "cli" && "$MODE" != "script" ]]; then
-  echo "run-tests.sh: --mode must be cli or script, got: $MODE" >&2
+if [[ -z "$CONFIG" || -z "$OUT" ]] \
+   || { ! $INSTALLED && [[ -z "$WORKDIR" ]]; } || { $INSTALLED && [[ -z "$WHEEL" ]]; }; then
+  echo "run-tests.sh: --config and --out are required, plus --workdir (cli|script) or --wheel (uvx|tool)" >&2
   exit 2
 fi
 
 command -v yq &>/dev/null || { echo "run-tests.sh: yq not found" >&2; exit 1; }
 command -v jq &>/dev/null || { echo "run-tests.sh: jq not found" >&2; exit 1; }
 [[ -f "$CONFIG" ]] || { echo "run-tests.sh: config not found: $CONFIG" >&2; exit 1; }
-[[ -d "$WORKDIR/tasks" ]] || { echo "run-tests.sh: no tasks/ in workdir: $WORKDIR" >&2; exit 1; }
+if $INSTALLED; then
+  [[ -f "$WHEEL" ]] || { echo "run-tests.sh: wheel not found: $WHEEL" >&2; exit 1; }
+  command -v uv &>/dev/null || { echo "run-tests.sh: uv not found" >&2; exit 1; }
+else
+  [[ -d "$WORKDIR/tasks" ]] || { echo "run-tests.sh: no tasks/ in workdir: $WORKDIR" >&2; exit 1; }
+fi
 if [[ "$MODE" == "cli" && ! -x "$WORKDIR/kwisatz" ]]; then
   echo "run-tests.sh: mode=cli needs the checkout's ./kwisatz entry point: $WORKDIR/kwisatz" >&2
   exit 1
@@ -145,9 +161,26 @@ echo "run-tests.sh: testing ${#SCRIPTS[@]} script(s) x 2 phases (timeout ${TIMEO
 # Precheck: the entry point must be able to read the test config. There is one entry
 # point in both modes — `kwisatz status` — script mode only differs in what it runs after.
 # ---------------------------------------------------------------------------
+# Installed modes run from $HOME — never inside a checkout — and their precheck is the
+# operator's first contact: (tool) `uv tool install`, then `init`, then `status`.
+case "$MODE" in
+  uvx)  KW=(uvx --from "$WHEEL" kwisatz) ;;
+  tool) KW=("$HOME/.local/bin/kwisatz") ;;
+  *)    KW=("$WORKDIR/kwisatz") ;;
+esac
 PRE_NAME="kwisatz status"
 PRE_LOG="$OUT/logs/precheck-kwisatz-status.log"
-( cd "$WORKDIR" && ./kwisatz status --config "$CONFIG" ) > "$PRE_LOG" 2>&1
+if $INSTALLED; then
+  PRE_NAME="kwisatz init + status ($MODE)"
+  (
+    cd "$HOME" || exit 1
+    if [[ "$MODE" == "tool" ]]; then uv tool install "$WHEEL" || exit 1; fi
+    "${KW[@]}" --version && "${KW[@]}" init && "${KW[@]}" status --config "$CONFIG" \
+      && "${KW[@]}" status --json --config "$CONFIG" | jq -e '.repo.mode == "installed"' >/dev/null
+  ) > "$PRE_LOG" 2>&1
+else
+  ( cd "$WORKDIR" && ./kwisatz status --config "$CONFIG" ) > "$PRE_LOG" 2>&1
+fi
 PRE_RC=$?
 record "$PRE_NAME" "precheck" "$PRE_RC" 0 "$PRE_LOG"
 echo "run-tests.sh: [PRECHECK] $PRE_NAME rc=$PRE_RC"
@@ -155,7 +188,7 @@ echo "run-tests.sh: [PRECHECK] $PRE_NAME rc=$PRE_RC"
 # Interpreter for `tasks/*.py` entrypoints: the project venv the precheck's `uv run`
 # just created, so a .py task imports the repo's dependencies exactly as deploy.py's
 # sys.executable does. Falls back to the system python3.
-if [[ -x "$WORKDIR/.venv/bin/python" ]]; then
+if [[ -n "$WORKDIR" && -x "$WORKDIR/.venv/bin/python" ]]; then
   PY_BIN="$WORKDIR/.venv/bin/python"
 else
   PY_BIN="python3"
@@ -182,16 +215,19 @@ for phase in integration idempotency; do
     [[ -n "${SSH_CLIENT:-}" ]] && sshp+=("SSH_CLIENT=${SSH_CLIENT}")
 
     start=$(date +%s)
-    if [[ "$MODE" == "cli" ]]; then
+    if [[ "$MODE" == "cli" ]] || $INSTALLED; then
       # The operator's own command. Everything a run means — which file is the entry
       # point, the config's env:/args:, INTERACTIVE=false, /dev/null stdin, the project
       # venv strip — comes from machine-config.yml + deploy.py here. That is the point of
       # mode=cli: the suite must not re-implement the dispatch it is testing.
       # `--repo` is explicit because the case runs with the SSH session's cwd, not the
       # checkout's, and the CLI resolves the checkout from where it is standing.
+      # Installed modes (uvx|tool) pass no --repo: the payload inside the wheel is the point.
+      repo_arg=()
+      $INSTALLED || repo_arg=(--repo "$WORKDIR")
       timeout --kill-after=60 "${TIMEOUT_MIN}m" \
         sudo -u "${VM_USER}" env ${sshp[@]+"${sshp[@]}"} \
-          "$WORKDIR/kwisatz" apply "$name" --repo "$WORKDIR" --config "$CONFIG" \
+          "${KW[@]}" apply "$name" ${repo_arg[@]+"${repo_arg[@]}"} --config "$CONFIG" \
           --timeout "$(( TIMEOUT_MIN * 60 ))" > "$log" 2>&1
       rc=$?
     else
