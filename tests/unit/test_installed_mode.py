@@ -47,6 +47,16 @@ def test_no_checkout_falls_back_to_the_payload(installed):
     assert repoio.resolve_config(repo) == home / "cfg" / "kwisatz" / "machine-config.yml"
 
 
+def test_tasks_never_run_inside_the_payload(installed):
+    """Under uvx the payload sits in uv's cache, where `uv pip install` refuses to run."""
+    payload, home, work = installed
+    assert repoio.resolve_repo(start=work).run_cwd == home / "state" / "kwisatz"
+
+
+def test_checkout_tasks_still_run_in_the_checkout(installed, repo):
+    assert repoio.resolve_repo(start=repo.path).run_cwd == repo.path
+
+
 def test_kwisatz_home_moves_the_config_dir_only(installed, monkeypatch, tmp_path):
     monkeypatch.setenv("KWISATZ_HOME", str(tmp_path / "kh"))
     repo = repoio.resolve_repo(start=tmp_path)

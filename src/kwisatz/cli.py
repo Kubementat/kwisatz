@@ -526,7 +526,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
             app.out.verbose("  script " + shlex.join(target.task.argv))
             outcome = runner.run_task(
                 target.task,
-                root=repo.path,
+                root=repo.run_cwd,
                 interactive=True,
                 extra_env=extra,
                 log_path=log,
@@ -546,7 +546,7 @@ def _run_targets(app: App, targets: list[planner.Target], repo: Repo) -> int:
             app.out.verbose("  deploy " + shlex.join(deploy))
             outcome = runner.run_deploy(
                 argv=deploy,
-                root=repo.path,
+                root=repo.run_cwd,
                 env=runner.deploy_env(repo.path),
                 log_path=log,
                 timeout=budget,
@@ -1345,9 +1345,10 @@ def _models_sync(app: App) -> int:
         return Exit.OK
     task = orchestrator.Task(name="sync-models", argv=argv, env={"INTERACTIVE": "false"}, secrets=frozenset())
     timeout = float(getattr(app.args, "timeout", 3600) or 3600)
+    repo.ensure_work()
     outcome = runner.run_task(
         task,
-        root=repo.path,
+        root=repo.run_cwd,
         log_path=repo.logs / f"kwisatz-{now_iso().replace(':', '')}-sync-models.log",
         timeout=timeout,
         echo_stdout=not app.out.json,
@@ -1586,7 +1587,7 @@ def cmd_run(app: App) -> int:
     with repoio.held(repo, float(getattr(app.args, "lock_timeout", 0) or 0)):
         outcome = runner.run_task(
             task,
-            root=repo.path,
+            root=repo.run_cwd,
             extra_env=_env_overrides(app),
             log_path=log,
             timeout=timeout,
