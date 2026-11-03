@@ -58,7 +58,8 @@ trap 'rm -rf "$WORK"' EXIT
 cp "${REPO_DIR}/versions.yml" "${REPO_DIR}/renovate.json" "$WORK/"
 chmod -R a+rX "$WORK"
 
-info "Looking up versions.yml with ${RENOVATE_IMAGE}"
+# stderr: stdout carries only the report (or the --json document)
+info "Looking up versions.yml with ${RENOVATE_IMAGE}" >&2
 docker run --rm \
   -v "${WORK}:/usr/src/app:ro" -w /usr/src/app \
   -e LOG_LEVEL=debug -e LOG_FORMAT=json \
