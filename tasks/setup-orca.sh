@@ -118,8 +118,8 @@ Examples (run as a regular user with sudo privileges — sudo is used internally
   ORCA_PAIRING_ADDRESS=100.64.1.20 ./setup-orca.sh
   ORCA_VERSION=v1.4.218 ORCA_MOBILE_PAIRING=true ./setup-orca.sh
 
-ORCA_VERSION=latest moves to the newest release on every run and restarts the
-service when it does. Pin a tag to stay put.
+Setting ORCA_VERSION=latest moves to the newest release on every run and
+restarts the service when it does. Pin a tag to stay put.
 
 After setup, paste the printed pairing URL into
 Settings -> Remote Orca Servers -> Add Server on your client.

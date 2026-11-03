@@ -42,8 +42,8 @@ INLINE_IMAGE = re.compile(r"^\s*image:\s*(?P<value>[^\s$\"'][^\s\"']*)")
 # a full commit SHA or an image digest anywhere
 HASH = re.compile(r"\b(?P<value>sha256:[0-9a-f]{64}|[0-9a-f]{40})\b")
 HOST_PORT = re.compile(r"^[0-9.]+:[0-9]+$")
-# values that are not a version even when the variable name says so
-NOT_A_PIN = re.compile(r"^(?:[0-9]+|true|false|unknown|-.*|/.*|https?://.*)$|^[A-Z_]+$|\$")
+# values that are not a version even when the variable name says so (`<…>`: a placeholder)
+NOT_A_PIN = re.compile(r"^(?:[0-9]+|true|false|unknown|-.*|/.*|<.*|https?://.*)$|^[A-Z_]+$|\$")
 # (script, variable) pairs that are constraints or local names, not installs
 ALLOWED = {
     ("setup-gufo-strix-halo-qwen38-flash.sh", "HSA_OVERRIDE_GFX_VERSION"),

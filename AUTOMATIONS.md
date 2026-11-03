@@ -153,7 +153,7 @@ Deploys a **private LiteLLM gateway** (`/srv/llm-gateway`, port `4000`) in front
 - Probes every backend `/v1/models` before start (a `deployment.model` missing on its box is a hard error; `GATEWAY_STRICT_BACKENDS=true` upgrades an unreachable required backend from warning to failure), validates the rendered compose file, then `docker compose up -d` + bounded health gate and optional `--warm`
 - `--check` is read-only: re-renders into a temp dir and verifies installed files, secret permissions, container health, exposure and firewall state; exit `0` only when everything passes
 - `--render-only` for config-only changes, `--interactive` to review diffs before a required recreate
-- Env: `LLM_GATEWAY_DIR` (`/srv/llm-gateway`), `GATEWAY_YML` (`<repo>/gateway.yml`), `LLM_GATEWAY_IMAGE` (`ghcr.io/berriai/litellm:v1.106.6`), `LLM_GATEWAY_PORT` (4000), `WAIT_TIMEOUT` (180), `GATEWAY_WARM`, `GATEWAY_STRICT_BACKENDS`
+- Env: `LLM_GATEWAY_DIR` (`/srv/llm-gateway`), `GATEWAY_YML` (`<repo>/gateway.yml`), `LLM_GATEWAY_IMAGE` (versions.yml key `litellm`), `LLM_GATEWAY_PORT` (4000), `WAIT_TIMEOUT` (180), `GATEWAY_WARM`, `GATEWAY_STRICT_BACKENDS`
 - Operator guide: [`README_LLM_GATEWAY.md`](README_LLM_GATEWAY.md) — setup, affinity, exposure, agent wiring, break-glass and troubleshooting
 
 #### `setup-laya.sh`

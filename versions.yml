@@ -43,6 +43,12 @@ openwebui:
   package: ghcr.io/open-webui/open-webui
   version: "v0.11.1"
 
+litellm:
+  # setup-llm-gateway
+  datasource: docker
+  package: ghcr.io/berriai/litellm
+  version: "v1.106.6"
+
 renovate:
   datasource: docker
   package: renovate/renovate
