@@ -183,10 +183,12 @@ matrix-postgres:
 # ── forgejo, excalidraw, planka ───────────────────────────────────────────────
 
 forgejo:
-  # was the floating :14 until versions.yml
+  # HELD <16: stay on the 15 LTS line (security fixes until 2027-07-15); a major
+  # runs one-way DB migrations — back up /srv/forgejo, then move the hold to the
+  # next LTS here and in renovate.json
   datasource: docker
   package: codeberg.org/forgejo/forgejo
-  version: "14.0.5"
+  version: "15.0.11"
 
 forgejo-postgres:
   # HELD <15: the data volume is tied to the major, upgrade needs pg_upgrade
