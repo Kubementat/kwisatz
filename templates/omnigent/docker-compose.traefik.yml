@@ -48,7 +48,7 @@ services:
       - artifact-data:/data
 
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    image: ${POSTGRES_IMAGE}
     container_name: omnigent-postgres
     restart: unless-stopped
     environment:

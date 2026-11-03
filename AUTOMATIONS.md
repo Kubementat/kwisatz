@@ -4,6 +4,12 @@ The list of all automated software components in this repository.
 For each of the scripts you can run the script with the `--help` parameter to display all environment configuration and script parameters.
 E.g. `./tasks/setup-basics.sh --help`
 
+Every upstream version the tasks install (images, GitHub releases, PyPI packages, git
+commits) is pinned in [`versions.yml`](versions.yml); the scripts read their defaults from it
+(`kw_image` / `kw_version` / `kw_pin` in `lib/helpers.sh`) and every `*_IMAGE` / `*_VERSION`
+override still wins. `utilities/check-versions.sh` lists what is outdated; `setup-renovate.sh`
+opens the bump PRs.
+
 To install one of them, prefer the CLI over the bare script — it applies the config's
 `env:`/`args:` and records the run: `kwisatz apply <name>` (`./kwisatz apply basics` also
 resolves `setup-basics`). `kwisatz info <name>` shows the same `--help` text plus the target's
@@ -147,7 +153,7 @@ Deploys a **private LiteLLM gateway** (`/srv/llm-gateway`, port `4000`) in front
 - Probes every backend `/v1/models` before start (a `deployment.model` missing on its box is a hard error; `GATEWAY_STRICT_BACKENDS=true` upgrades an unreachable required backend from warning to failure), validates the rendered compose file, then `docker compose up -d` + bounded health gate and optional `--warm`
 - `--check` is read-only: re-renders into a temp dir and verifies installed files, secret permissions, container health, exposure and firewall state; exit `0` only when everything passes
 - `--render-only` for config-only changes, `--interactive` to review diffs before a required recreate
-- Env: `LLM_GATEWAY_DIR` (`/srv/llm-gateway`), `GATEWAY_YML` (`<repo>/gateway.yml`), `LLM_GATEWAY_IMAGE` (`ghcr.io/berriai/litellm:v1.106.6`), `LLM_GATEWAY_PORT` (4000), `WAIT_TIMEOUT` (180), `GATEWAY_WARM`, `GATEWAY_STRICT_BACKENDS`
+- Env: `LLM_GATEWAY_DIR` (`/srv/llm-gateway`), `GATEWAY_YML` (`<repo>/gateway.yml`), `LLM_GATEWAY_IMAGE` (versions.yml key `litellm`), `LLM_GATEWAY_PORT` (4000), `WAIT_TIMEOUT` (180), `GATEWAY_WARM`, `GATEWAY_STRICT_BACKENDS`
 - Operator guide: [`README_LLM_GATEWAY.md`](README_LLM_GATEWAY.md) — setup, affinity, exposure, agent wiring, break-glass and troubleshooting
 
 #### `setup-laya.sh`
@@ -450,6 +456,19 @@ Deploys a private, self-hosted **Matrix** team chat behind the shared Traefik pr
 #### `setup-concourse.sh`
 Deploys **Concourse CI** (web, TSA, worker, PostgreSQL) with Docker Compose, generates TSA/session/worker keys, and configures a `fly` CLI target. Supports direct port exposure or Traefik reverse-proxy integration.
 
+#### `setup-renovate.sh`
+Runs a **self-hosted Renovate** on a systemd timer against Forgejo (default repository
+`denkfabrik/kwisatz`): it keeps a *Dependency Dashboard* issue current — the overview of what is
+outdated — and opens bump PRs against `develop` for the pins in `versions.yml`, following the
+repository's `renovate.json` (HELD pins, groups, majors behind dashboard approval). Nothing is
+merged automatically: VM-test a bump before merging it.
+- `/srv/renovate/.env` (mode 600): `RENOVATE_TOKEN` (Forgejo bot PAT) and the optional read-only
+  `RENOVATE_GITHUB_COM_TOKEN` — read back on re-runs, never rotated
+- `/srv/renovate/config.js`: platform, `RENOVATE_ENDPOINT`, `RENOVATE_REPOSITORIES` (no secrets)
+- `renovate.service` (oneshot `docker run` of the image pinned in `versions.yml`) +
+  `renovate.timer` (`RENOVATE_SCHEDULE`, default `daily`)
+- Ends with one run and fails if it fails (`--no-run` skips it)
+
 #### `setup-dagu.sh`
 Deploys **Dagu** (self-hostable workflow orchestrator) via Docker Compose. The host Docker socket is mounted so workflows can run container steps. No Traefik integration — accessed via configurable bind address.
 
@@ -665,6 +684,13 @@ sudo /usr/local/bin/borg-backup-mybox restore mybox-2026-09-13T04:29:18 --dest /
 ---
 
 ## Utility Scripts (`utilities/`)
+
+### `check-versions.sh`
+Looks up every entry of `versions.yml` with the Renovate image pinned there
+(`--platform=local --dry-run=lookup`, nothing is opened or pushed) and prints
+`key  current → latest`; `--json` prints Renovate's per-dependency result. Needs only docker;
+GitHub-hosted entries need a token (`RENOVATE_GITHUB_COM_TOKEN`, `GITHUB_TOKEN`, or a logged-in
+`gh`). Run it before a release.
 
 ### `run-llama-server.sh`
 A generalized launcher for llama.cpp's llama-server with sensible defaults based on your manual configuration. Automatically enables flash attention, GPU layers, and KV cache settings. When run without `--model`, it lists all available `.gguf` models in `$HOME/.lmstudio/models/`.

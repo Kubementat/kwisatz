@@ -8,7 +8,7 @@
 #   Installs essential system packages and tools for development environment.
 #
 # Environment Variables (optional):
-#   NVM_VERSION        - NVM version to install (default: 0.40.4)
+#   NVM_VERSION        - NVM version to install (default: versions.yml key nvm)
 #   NVM_DIR            - NVM installation directory (default: $HOME/.nvm)
 #   HF_CLI_INSTALL_SHA256   - expected SHA-256 of https://hf.co/cli/install.sh
 #                             (optional; the digest is always logged)
@@ -47,7 +47,7 @@ ${BOLD}Options:${RESET}
   -h, --help    Show this help and exit
 
 ${BOLD}Environment variables${RESET} (all optional):
-  NVM_VERSION     NVM version to install (default: 0.40.4)
+  NVM_VERSION     NVM version to install (default: $(kw_version nvm | sed "s/^v//"))
   NVM_DIR         NVM installation directory (default: $HOME/.nvm)
   HF_CLI_INSTALL_SHA256   Pin the SHA-256 of the huggingface-cli installer
                           (default: unset — the digest is logged every run)
@@ -69,8 +69,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Configuration
-: "${NVM_VERSION:=0.40.4}"
+# Configuration (NVM_VERSION's default is read after the apt step: versions.yml
+# needs python3-yaml, which this script is what installs)
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 
 # Installer checksums (ticket improvements-2/17). Each installer is downloaded to
@@ -99,6 +99,7 @@ declare -a APT_PACKAGES=(
   git
   python3-pip
   python3-full
+  python3-yaml
   jq
   yq
   net-tools
@@ -146,6 +147,7 @@ else
 fi
 
 # Install NVM
+NVM_VERSION="${NVM_VERSION:-$(kw_version nvm | sed "s/^v//")}"
 step "Installing NVM v${NVM_VERSION}"
 if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
   success "NVM already installed at ${NVM_DIR}"

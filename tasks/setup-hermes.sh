@@ -80,11 +80,9 @@ HERMES_VM_DISK="${HERMES_VM_DISK:-50}"
 # Empty = address .50 on the libvirt network (resolved once the network is known).
 HERMES_VM_IP="${HERMES_VM_IP:-}"
 # Pinned on purpose: the official installer follows the moving `main` branch
-# unless a commit is given. Default looked up 2026-10-01: release
-# "Hermes Agent v0.21.5", git tag v2026.9.24 (2026-09-24), which is on main.
-# Update deliberately: git ls-remote --tags https://github.com/NousResearch/hermes-agent
-# (use the peeled `^{}` SHA of the release tag).
-HERMES_COMMIT="${HERMES_COMMIT:-f97608f178d1ffeca59860195ab7da295f7c8e5f}"
+# unless a commit is given. The default is the commit of the release tag pinned
+# in versions.yml (key hermes, field digest), kept current by Renovate.
+HERMES_COMMIT="${HERMES_COMMIT:-$(kw_pin hermes digest)}"
 HERMES_HOST_DIRECTORY="${HERMES_HOST_DIRECTORY:-/srv/hermes}"
 HERMES_ALLOWED_ENDPOINTS="${HERMES_ALLOWED_ENDPOINTS:-}"
 HERMES_SERVE="${HERMES_SERVE:-false}"
@@ -144,7 +142,7 @@ ${BOLD}Environment variables${RESET} (all optional unless noted):
   HERMES_VM_IP              Static address of the VM on the libvirt 'default'
                             network (default: address .50 on that network)
   HERMES_COMMIT             hermes-agent commit to install (default:
-                            ${HERMES_COMMIT:0:12}…, release v0.21.5 — pinned;
+                            commit of tag $(kw_version hermes) — pinned;
                             override with a full 40-char SHA that is on main)
   HERMES_HOST_DIRECTORY     Host directory shared with the VM (default: /srv/hermes)
                               <dir>/workspace -> /workspace   in the guest

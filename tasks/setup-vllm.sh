@@ -44,8 +44,9 @@ source "${SCRIPT_DIR}/../lib/helpers.sh"
 # (consistent with the aarch64 guard), Entrypoint=["vllm","serve"] (A1's
 # nvcr.io/*-only prefix is correct for AMD), PYTORCH_ROCM_ARCH includes gfx1151
 # (= AMD Strix Halo / evobox: prebuilt kernels at the pin). Re-run the F21
-# registry probe before bumping either pin.
-VLLM_DEFAULT_TAG="v0.27.1"
+# registry probe before merging a bump of the pin (versions.yml key vllm — the
+# tag of both tracks; the -rocm image name is composed below).
+VLLM_DEFAULT_TAG="$(kw_version vllm)"
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 PROJECT_DIR="${PROJECT_DIR:-/srv/vllm}"

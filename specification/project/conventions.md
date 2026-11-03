@@ -72,6 +72,25 @@
 
 - **Firewall:** Always use `ufw`. Never use `iptables` directly.
 
+## Version pins
+
+- Every upstream version a task installs — docker image tag/digest, GitHub release or tag,
+  PyPI version, git commit — is pinned in `versions.yml` at the repo root, one entry per
+  component (`datasource`, `package`, `version`, optional `digest`/`versioning`; values
+  quoted). No version literal lives in `tasks/*.sh`; `tests/unit/test_versions.py` fails on one.
+- Scripts read the pin as the *default* of their override variable, as a plain assignment
+  after `lib/helpers.sh` is sourced, so a missing key aborts under `set -e`:
+  `OPENWEBUI_IMAGE="${OPENWEBUI_IMAGE:-$(kw_image openwebui)}"` (`kw_version`, `kw_pin <key>
+  <field>` for split tags, digests and commits). `--help` prints the value from the file.
+- A floating default (`latest`, `stable`, a bare major) is a pin too: pin the exact release;
+  scripts may still accept `latest` as an explicit override.
+- A pin whose next major breaks persisted data carries `# HELD <reason>` in `versions.yml`
+  **and** an `allowedVersions` rule in `renovate.json`; the guard test keeps both in sync.
+- Re-runs must pick a bumped pin up: never freeze an image tag into a file the script does
+  not re-render (setup-netbird refreshes its `.env` image lines on every run).
+- Renovate (`renovate.json`, `tasks/setup-renovate.sh`) proposes the bumps;
+  `utilities/check-versions.sh` lists what is outdated.
+
 ## Secrets and templating
 
 - Secrets (passwords, keys, tokens, URLs containing credentials) are **never**

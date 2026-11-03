@@ -36,7 +36,7 @@
 #   OMNIVOICE_LANG           Default --lang label; empty = server default (None)
 #   OMNIVOICE_NO_FA          Pass --no-fa (disable flash attention) (default: false)
 #   OMNIVOICE_CLAMP_FP16     Pass --clamp-fp16 (clamp hidden states to FP16) (default: false)
-#   OMNIVOICE_REF            Source ref to build (default: master; pin a tag for repro builds)
+#   OMNIVOICE_REF            Source ref to build: commit, tag or branch (default: versions.yml key omnivoice)
 #   OMNIVOICE_REPO_URL       Upstream git URL (default: https://github.com/ServeurpersoCom/omnivoice.cpp.git)
 #   OMNIVOICE_HEALTH_TIMEOUT Seconds to wait for GET /health (default: 600)
 #
@@ -126,7 +126,7 @@ OMNIVOICE_USER="${OMNIVOICE_USER:-omnivoice}"
 OMNIVOICE_LANG="${OMNIVOICE_LANG:-}"
 OMNIVOICE_NO_FA="${OMNIVOICE_NO_FA:-false}"
 OMNIVOICE_CLAMP_FP16="${OMNIVOICE_CLAMP_FP16:-false}"
-OMNIVOICE_REF="${OMNIVOICE_REF:-master}"
+OMNIVOICE_REF="${OMNIVOICE_REF:-$(kw_pin omnivoice digest)}"
 OMNIVOICE_REPO_URL="${OMNIVOICE_REPO_URL:-https://github.com/ServeurpersoCom/omnivoice.cpp.git}"
 OMNIVOICE_HEALTH_TIMEOUT="${OMNIVOICE_HEALTH_TIMEOUT:-600}"
 
@@ -190,7 +190,8 @@ ${BOLD}Environment variables${RESET} (all optional, OMNIVOICE_*):
   OMNIVOICE_LANG           Default --lang label (default: empty = server default None)
   OMNIVOICE_NO_FA          Pass --no-fa to disable flash attention (default: false)
   OMNIVOICE_CLAMP_FP16     Pass --clamp-fp16 to clamp hidden states (default: false)
-  OMNIVOICE_REF            Source ref to build (default: master; pin a tag to repro)
+  OMNIVOICE_REF            Source ref to build: commit, tag or branch
+                           (default: $(kw_pin omnivoice digest | cut -c1-12), master)
   OMNIVOICE_REPO_URL       Upstream git URL (default: https://github.com/ServeurpersoCom/omnivoice.cpp.git)
   OMNIVOICE_HEALTH_TIMEOUT Seconds to wait for GET /health (default: 600)
 EOF
@@ -408,8 +409,11 @@ if [[ -d "${OMNIVOICE_SRC}/.git" ]]; then
   git -C "${OMNIVOICE_SRC}" submodule update --init --recursive
 else
   info "Cloning into ${OMNIVOICE_SRC} at ${OMNIVOICE_REF} (ggml is a submodule)…"
-  git clone --recurse-submodules --branch "${OMNIVOICE_REF}" \
-    "${OMNIVOICE_REPO_URL}" "${OMNIVOICE_SRC}"
+  # clone, then check out: --branch cannot take the commit SHA the default pins
+  git clone "${OMNIVOICE_REPO_URL}" "${OMNIVOICE_SRC}"
+  git -C "${OMNIVOICE_SRC}" checkout "${OMNIVOICE_REF}" \
+    || error "OMNIVOICE_REF '${OMNIVOICE_REF}' not found in ${OMNIVOICE_REPO_URL}"
+  git -C "${OMNIVOICE_SRC}" submodule update --init --recursive
 fi
 success "Source ready at ${OMNIVOICE_SRC}."
 

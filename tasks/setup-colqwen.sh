@@ -31,8 +31,8 @@ TEMPLATE_DIR="${SCRIPT_DIR}/../templates/colqwen"
 PROJECT_DIR="${PROJECT_DIR:-/srv/colqwen}"
 COLQWEN_MODEL_DIR="${COLQWEN_MODEL_DIR:-}"   # empty = default (HF cache)
 COLQWEN_MODEL="${COLQWEN_MODEL:-vidore/colqwen2.5-v0.2}"
-COLPALI_VERSION="${COLPALI_VERSION:-0.3.13}"
-NGC_PYTORCH_TAG="${NGC_PYTORCH_TAG:-25.10-py3}"
+COLPALI_VERSION="${COLPALI_VERSION:-$(kw_version colpali-engine)}"
+NGC_PYTORCH_TAG="${NGC_PYTORCH_TAG:-$(kw_version ngc-pytorch)}"
 COLQWEN_PORT="${COLQWEN_PORT:-8100}"
 
 FORCE=0
@@ -59,8 +59,8 @@ usage() {
   echo "  --model <id-or-path>      Model to load: HF model ID (resolved offline"
   echo "                            from the mounted cache) or absolute model dir"
   echo "                            path  (default: vidore/colqwen2.5-v0.2)"
-  echo "  --colpali-version <ver>   colpali-engine version  (default: 0.3.13)"
-  echo "  --ngc-tag <tag>           NGC PyTorch base image tag  (default: 25.10-py3)"
+  echo "  --colpali-version <ver>   colpali-engine version  (default: $(kw_version colpali-engine))"
+  echo "  --ngc-tag <tag>           NGC PyTorch base image tag  (default: $(kw_version ngc-pytorch))"
   echo "  --port <n>                Host port for the service  (default: 8100)"
   echo "  --force                   Re-generate over an existing project"
   echo "  --interactive             Offer tear-down/re-create of an existing stack (default: converge)"

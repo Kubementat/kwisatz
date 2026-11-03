@@ -52,10 +52,10 @@ source "${LIB_PATH}" || {
 # └─────────────────────────────────────────────────────────────────────────┘
 
 TRAEFIK_HOME="${TRAEFIK_HOME:-/opt/traefik}"
-TRAEFIK_IMAGE="${TRAEFIK_IMAGE:-traefik:v3}"
+TRAEFIK_IMAGE="${TRAEFIK_IMAGE:-$(kw_image traefik)}"
 # Pinned on purpose: this container fronts /var/run/docker.sock.
-# Update deliberately: docker buildx imagetools inspect ghcr.io/tecnativa/docker-socket-proxy:<tag>
-: "${SOCKET_PROXY_IMAGE:=ghcr.io/tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459}"
+# Tag + digest live in versions.yml (key socket-proxy); Renovate keeps both current.
+SOCKET_PROXY_IMAGE="${SOCKET_PROXY_IMAGE:-$(kw_image socket-proxy)}"
 export SOCKET_PROXY_IMAGE
 TRAEFIK_DOMAIN="${TRAEFIK_DOMAIN:-traefik.example.com}"
 TRAEFIK_DASHBOARD="${TRAEFIK_DASHBOARD:-false}"
@@ -121,9 +121,9 @@ printed with the exact re-create command; they are never applied silently.
 
 ${BOLD}Environment variables${RESET} (all optional):
   TRAEFIK_HOME        Config directory (default: /opt/traefik)
-  TRAEFIK_IMAGE       Traefik image tag (default: traefik:v3)
+  TRAEFIK_IMAGE       Traefik image tag (default: $(kw_image traefik))
   SOCKET_PROXY_IMAGE  Docker socket-proxy image, pinned tag+digest (default:
-                      ghcr.io/tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459)
+                      $(kw_image socket-proxy))
   TRAEFIK_DOMAIN      Traefik's own domain (default: traefik.example.com)
   TRAEFIK_DASHBOARD   Enable dashboard: true/false (default: false)
   ACME_EMAIL          Let's Encrypt email (default: admin@example.com)

@@ -51,8 +51,8 @@ ${BOLD}Environment variables${RESET} (all optional):
 
   Application:
     PLANKA_HOME             Data directory (default: /srv/planka)
-    PLANKA_IMAGE            Container image (default: ghcr.io/plankanban/planka:latest)
-    POSTGRES_IMAGE          Database image (default: postgres:16-alpine, pinned)
+    PLANKA_IMAGE            Container image (default: $(kw_image planka))
+    POSTGRES_IMAGE          Database image (default: $(kw_image planka-postgres), pinned)
     CONTAINER_NAME          Container name (default: planka)
     BASE_URL                Base URL for Planka, and the allowlist of origins Planka
                             accepts socket.io (WebSocket) connections from.
@@ -138,11 +138,11 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 
 PLANKA_HOME="${PLANKA_HOME:-/srv/planka}"
-PLANKA_IMAGE="${PLANKA_IMAGE:-ghcr.io/plankanban/planka:latest}"
+PLANKA_IMAGE="${PLANKA_IMAGE:-$(kw_image planka)}"
 # Database image — pinned per stack (ticket improvements-2/17): the tag is the one
 # these templates already used, now overridable instead of hard-coded.
 # Update deliberately: docker buildx imagetools inspect library/postgres
-POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:16-alpine}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-$(kw_image planka-postgres)}"
 CONTAINER_NAME="${CONTAINER_NAME:-planka}"
 
 HTTP_PORT="${HTTP_PORT:-1337}"

@@ -1,0 +1,463 @@
+# =============================================================================
+# versions.yml — every upstream version kwisatz installs, in one place
+# =============================================================================
+#
+# Task scripts read their defaults from here with the kw_* helpers in
+# lib/helpers.sh (kw_image / kw_version / kw_pin); every override variable
+# (`OPENWEBUI_IMAGE=… ./tasks/setup-openwebui.sh`, `env:` in machine-config.yml,
+# `kwisatz apply --env`) still wins over the value below.
+#
+# Renovate (renovate.json, tasks/setup-renovate.sh) reads this file with one
+# jsonata manager and opens bump PRs against `develop`;
+# utilities/check-versions.sh prints what is outdated without opening anything.
+#
+# Entry fields (1:1 Renovate dependency fields):
+#   datasource  docker|github-releases|github-tags|pypi|git-refs|custom
+#               (custom: not looked up by Renovate)
+#   package     image / owner/repo / PyPI name / git URL
+#   version     the pinned tag/version — always a quoted string
+#   digest      optional; image digest or commit, Renovate keeps it current
+#   versioning  optional; Renovate versioning for odd tag schemes
+#
+# A pin whose next major breaks persisted data carries a `# HELD <reason>`
+# comment on the entry AND an allowedVersions rule in renovate.json
+# (tests/unit/test_versions.py keeps the two in sync).
+# =============================================================================
+# image digests and commit SHAs do not fit 80 columns
+# yamllint disable rule:line-length
+---
+agentsview:
+  datasource: github-releases
+  package: kenn-io/agentsview
+  version: "v0.44.0"
+
+hermes:
+  # release v0.21.5; the script installs the commit, Renovate compares tags
+  datasource: github-tags
+  package: NousResearch/hermes-agent
+  version: "v2026.9.24"
+  digest: "f97608f178d1ffeca59860195ab7da295f7c8e5f"
+
+openwebui:
+  datasource: docker
+  package: ghcr.io/open-webui/open-webui
+  version: "v0.11.1"
+
+litellm:
+  # setup-llm-gateway
+  datasource: docker
+  package: ghcr.io/berriai/litellm
+  version: "v1.106.6"
+
+renovate:
+  datasource: docker
+  package: renovate/renovate
+  version: "44.193.0"
+
+# ── monitoring (setup-monitoring) ────────────────────────────────────────────
+prometheus:
+  datasource: docker
+  package: prom/prometheus
+  version: "v3.13.2"
+
+grafana:
+  datasource: docker
+  package: grafana/grafana
+  version: "13.1.1"
+
+node-exporter:
+  datasource: docker
+  package: quay.io/prometheus/node-exporter
+  version: "v1.12.1"
+
+cadvisor:
+  datasource: docker
+  package: ghcr.io/google/cadvisor
+  version: "v0.60.5"
+
+# ── postiz (setup-postiz) ─────────────────────────────────────────────────────
+
+postiz:
+  datasource: docker
+  package: ghcr.io/gitroomhq/postiz-app
+  version: "v2.24.0"
+
+postiz-postgres:
+  # HELD <18: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "17-alpine"
+
+temporal-postgres:
+  # HELD <17: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "16"
+
+postiz-redis:
+  datasource: docker
+  package: redis
+  version: "7.2"
+
+elasticsearch:
+  # HELD <8: Temporal's visibility store needs Elasticsearch 7
+  datasource: docker
+  package: elasticsearch
+  version: "7.17.27"
+
+temporal:
+  datasource: docker
+  package: temporalio/auto-setup
+  version: "1.28.1"
+
+temporal-ui:
+  datasource: docker
+  package: temporalio/ui
+  version: "2.34.0"
+
+# ── nextcloud (setup-nextcloud) ───────────────────────────────────────────────
+
+nextcloud:
+  # HELD <35: Nextcloud upgrades one major at a time — move the major here
+  # and in renovate.json deliberately, after a backup
+  datasource: docker
+  package: nextcloud
+  version: "34-apache"
+
+nextcloud-postgres:
+  # HELD <18: the data volume is tied to the major, upgrade needs pg_upgrade
+  # (the script keeps an existing install on its db/PG_VERSION major)
+  datasource: docker
+  package: postgres
+  version: "17-alpine"
+
+nextcloud-redis:
+  datasource: docker
+  package: redis
+  version: "7-alpine"
+
+# ── matrix (setup-matrix) — grouped in renovate.json ──────────────────────────
+
+synapse:
+  datasource: docker
+  package: matrixdotorg/synapse
+  version: "v1.164.0"
+
+mas:
+  datasource: docker
+  package: ghcr.io/element-hq/matrix-authentication-service
+  version: "1.28.0"
+
+element:
+  datasource: docker
+  package: vectorim/element-web
+  version: "v1.12.33"
+
+matrix-wellknown:
+  datasource: docker
+  package: nginx
+  version: "1.30-alpine"
+
+livekit:
+  datasource: docker
+  package: livekit/livekit-server
+  version: "v1.13.11"
+
+lk-jwt:
+  datasource: docker
+  package: ghcr.io/element-hq/lk-jwt-service
+  version: "0.9.0"
+
+ketesa:
+  datasource: docker
+  package: ghcr.io/etkecc/ketesa
+  version: "v1.5.2"
+
+matrix-postgres:
+  # HELD <18: the data volume is tied to the major, upgrade needs pg_upgrade
+  # (the script keeps an existing install on its db/PG_VERSION major)
+  datasource: docker
+  package: postgres
+  version: "17-alpine"
+
+# ── forgejo, excalidraw, planka ───────────────────────────────────────────────
+
+forgejo:
+  # was the floating :14 until versions.yml
+  datasource: docker
+  package: codeberg.org/forgejo/forgejo
+  version: "14.0.5"
+
+forgejo-postgres:
+  # HELD <15: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "14"
+
+excalidraw:
+  # upstream publishes no release tags: latest, pinned by digest
+  datasource: docker
+  package: excalidraw/excalidraw
+  version: "latest"
+  digest: "sha256:f7ee194addd607bf831d2af0f0a34463dd4225e426cf35199ef0b12a803398e9"
+
+planka:
+  # was the floating :latest until versions.yml
+  datasource: docker
+  package: ghcr.io/plankanban/planka
+  version: "2.2.1"
+
+planka-postgres:
+  # HELD <17: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "16-alpine"
+
+# ── traefik + n8n, concourse, kestra, dagu ────────────────────────────────────
+
+traefik:
+  # was the floating :v3 in setup-traefik; n8n's sidecar shares this entry
+  datasource: docker
+  package: traefik
+  version: "v3.7.16"
+
+socket-proxy:
+  # fronts /var/run/docker.sock: tag AND digest pinned
+  datasource: docker
+  package: ghcr.io/tecnativa/docker-socket-proxy
+  version: "v0.5.0"
+  digest: "sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459"
+
+n8n:
+  datasource: docker
+  package: docker.n8n.io/n8nio/n8n
+  version: "2.37.4"
+
+n8n-postgres:
+  # HELD <16: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "15-alpine"
+
+concourse:
+  datasource: docker
+  package: concourse/concourse
+  version: "8.3.0"
+
+concourse-postgres:
+  # HELD <16: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "15"
+
+kestra:
+  datasource: docker
+  package: kestra/kestra
+  version: "v2.0.0"
+
+kestra-postgres:
+  # HELD <17: the data volume is tied to the major (Kestra docs: 16/17 data-dir issue)
+  datasource: docker
+  package: postgres
+  version: "16"
+
+dagu:
+  datasource: docker
+  package: ghcr.io/dagucloud/dagu
+  version: "2.16.2"
+
+# ── opencode, nvidia-container ────────────────────────────────────────────────
+
+opencode:
+  # also the @opencode/cli npm version the script installs
+  datasource: docker
+  package: ghcr.io/anomalyco/opencode
+  version: "2.2.0"
+
+nvidia-smoke:
+  # base image for the CDI smoke test (no CUDA needed)
+  # HELD to LTS releases (YY.04)
+  datasource: docker
+  package: ubuntu
+  version: "24.04"
+
+# ── omnigent (setup-omnigent) ─────────────────────────────────────────────────
+
+omnigent-server:
+  # was the floating :latest until versions.yml
+  datasource: docker
+  package: ghcr.io/omnigent-ai/omnigent-server
+  version: "v0.20.0"
+
+omnigent-postgres:
+  # HELD <17: the data volume is tied to the major, upgrade needs pg_upgrade
+  datasource: docker
+  package: postgres
+  version: "16-alpine"
+
+# ── netbird (setup-netbird) — server/dashboard/client move together ───────────
+
+netbird-server:
+  datasource: docker
+  package: netbirdio/netbird-server
+  version: "0.77.1"
+
+netbird-dashboard:
+  datasource: docker
+  package: netbirdio/dashboard
+  version: "v2.91.1"
+
+netbird-client:
+  datasource: docker
+  package: netbirdio/netbird
+  version: "0.77.1"
+
+# ── gufo (setup-gufo-strix-halo-qwen38-flash/-27b) ────────────────────────────
+
+gufo:
+  # registry tags carry no "v"; a bump changes serve flags — read the source
+  # of the new tag before merging
+  datasource: docker
+  package: ghcr.io/gufo-org/toolboxes/gufo-runtime
+  version: "0.8.1"
+  digest: "sha256:56f0a052e784fdfd43ebe2aba590336c8fb5b05c5a813aaebb5ac98d61010afd"
+
+# ── vllm, vllm-omni ───────────────────────────────────────────────────────────
+
+vllm:
+  # also the tag of vllm/vllm-openai-rocm (composed in setup-vllm); re-run the
+  # F21 registry probe (see the script) before merging a bump
+  datasource: docker
+  package: vllm/vllm-openai
+  version: "v0.27.1"
+
+vllm-omni:
+  # was the floating :latest until versions.yml; aarch64 hosts append -aarch64
+  datasource: docker
+  package: vllm/vllm-omni
+  version: "v0.32.0"
+
+vllm-omni-rocm:
+  # ROCm builds lag the CUDA image and publish no :latest
+  datasource: docker
+  package: vllm/vllm-omni-rocm
+  version: "v0.30.0"
+
+# ── colqwen (setup-colqwen) ───────────────────────────────────────────────────
+
+ngc-pytorch:
+  # must match the host driver (CUDA) and the torch pin of colpali-engine;
+  # tested: 25.10-py3 + colpali-engine 0.3.13 on DGX Spark
+  datasource: docker
+  package: nvcr.io/nvidia/pytorch
+  version: "25.10-py3"
+  versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)-py(?<compatibility>\\d+)$"
+
+colpali-engine:
+  # HELD <0.3.14: 0.3.14+ need transformers 5.x, which drops the LoRA weights
+  # of vidore/colqwen2.5-v0.2 (see templates/colqwen/env.template)
+  datasource: pypi
+  package: colpali-engine
+  version: "0.3.13"
+
+# ── tensorfold (setup-tensorfold-spark-qwen38-flash/-27b) ─────────────────────
+
+tensorfold-flash-recipe:
+  # recipe repo commit (main @ 2026-10-12); the engine pin lives inside the
+  # recipe, and setup-tensorfold-spark-qwen38-flash names its local image after it
+  datasource: git-refs
+  package: https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
+  version: "main"
+  digest: "4e1239ddb9d9a4cc3c748e771ae4725335c46a95"
+
+tensorfold-27b-recipe:
+  # recipe repo commit (main @ 2026-10-01); moves together with the prebuilt image
+  datasource: git-refs
+  package: https://github.com/MiaAI-Lab/Qwen3.8-27B-DGX-Spark-TensorFold
+  version: "main"
+  digest: "c11ff138871cf43d12898d79dbfa4dc952d17ca4"
+
+tensorfold-27b-prebuilt:
+  # <TF_VERSION>-<patches hash>; the script derives the local tag from it
+  datasource: docker
+  package: ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold
+  version: "v0.6.0-fb91a0019fdc"
+  versioning: "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>[0-9a-f]+)$"
+
+# ── host tools: GitHub releases / tags, PyPI, git, vendor ─────────────────────
+
+nvm:
+  # setup-basics strips the leading "v"
+  datasource: github-releases
+  package: nvm-sh/nvm
+  version: "v0.40.4"
+
+laya:
+  datasource: pypi
+  package: laya
+  version: "0.3.19"
+
+ace-step:
+  # project version 1.5.0 is published under v0.1.x tags
+  datasource: github-tags
+  package: ACE-Step/ACE-Step-1.5
+  version: "v0.1.8"
+
+lm-studio:
+  # not looked up by Renovate (vendor download site). setup-lm-studio uses it
+  # as the "auto-detect latest" default
+  datasource: custom
+  package: lmstudio.ai
+  version: "0.4.6-1"
+
+orca:
+  # was the floating "latest" until versions.yml
+  datasource: github-releases
+  package: stablyai/orca
+  version: "v1.4.244"
+
+llama-swap:
+  # was the floating "latest" until versions.yml
+  datasource: github-releases
+  package: mostlygeek/llama-swap
+  version: "v268"
+
+neovim:
+  # was the floating "stable" until versions.yml
+  datasource: github-releases
+  package: neovim/neovim
+  version: "v0.12.6"
+
+ollaya:
+  # was "latest release" until versions.yml; setup-ollaya strips the "v"
+  datasource: github-releases
+  package: ollaya-dev/ollaya
+  version: "v0.18.0"
+
+whispering:
+  # was resolved to the latest release at runtime until versions.yml;
+  # setup-whispering strips the "v"
+  datasource: github-releases
+  package: EpicenterHQ/epicenter
+  version: "v7.11.0"
+
+llama-cpp:
+  # build tags b<N>, several a day; was "newest tag at runtime" until versions.yml
+  datasource: github-releases
+  package: ggml-org/llama.cpp
+  version: "b11981"
+  versioning: "regex:^b(?<major>\\d+)$"
+
+nanobot:
+  # was "newest tag at runtime" until versions.yml
+  datasource: github-tags
+  package: HKUDS/nanobot
+  version: "v0.4.0"
+
+omnivoice:
+  # no release tags upstream: the commit (digest) follows master, the script
+  # builds the commit
+  datasource: git-refs
+  package: https://github.com/ServeurpersoCom/omnivoice.cpp
+  version: "master"
+  digest: "1a468d8b9d65b3544ca1004d2d7c05dfc65d1f3e"

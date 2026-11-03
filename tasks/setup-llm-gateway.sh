@@ -47,7 +47,7 @@
 # ENVIRONMENT (defaults):
 #   LLM_GATEWAY_DIR                /srv/llm-gateway
 #   LLM_GATEWAY_PORT               <listen.port from gateway.yml>; a mismatch is exit 1
-#   LLM_GATEWAY_IMAGE              ghcr.io/berriai/litellm:v1.106.6
+#   LLM_GATEWAY_IMAGE              versions.yml key litellm
 #   GATEWAY_YML                    <repo>/gateway.yml
 #   WAIT_TIMEOUT                   180
 #   GATEWAY_WARM                   false
@@ -104,7 +104,7 @@ ${BOLD}Options:${RESET}
 ${BOLD}Environment variables${RESET} (all optional):
   LLM_GATEWAY_DIR                 Generated project directory (/srv/llm-gateway)
   LLM_GATEWAY_PORT                Effective port; must equal listen.port
-  LLM_GATEWAY_IMAGE               Pinned image (ghcr.io/berriai/litellm:v1.106.6)
+  LLM_GATEWAY_IMAGE               Pinned image ($(kw_image litellm))
   GATEWAY_YML                     Routing config (default: <repo>/gateway.yml)
   WAIT_TIMEOUT                    Health/smoke wait in seconds (180)
   GATEWAY_WARM                    Warm shared models after start (false)
@@ -162,7 +162,7 @@ if [[ "$INTERACTIVE" == "true" && ! -t 0 ]]; then
 fi
 
 : "${LLM_GATEWAY_DIR:=/srv/llm-gateway}"
-: "${LLM_GATEWAY_IMAGE:=ghcr.io/berriai/litellm:v1.106.6}"
+LLM_GATEWAY_IMAGE="${LLM_GATEWAY_IMAGE:-$(kw_image litellm)}"
 : "${WAIT_TIMEOUT:=180}"
 : "${GATEWAY_STRICT_BACKENDS:=false}"
 : "${GATEWAY_ALLOW_MISSING_ADDRESSES:=false}"

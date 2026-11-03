@@ -24,6 +24,8 @@
 - **library** — the `lib/` directory containing common functionality shared between task scripts
 - **template** — configuration file templates in `templates/` that get converted/rendered into actual config files for installed services/tools
 - **idempotent** — safe to re-execute (no data loss on repeated runs)
+- **version pin** — the exact upstream version (image tag/digest, release, PyPI version, commit) a task installs by default; every pin lives in `versions.yml` and is read with `kw_image` / `kw_version` / `kw_pin` from `lib/helpers.sh`
+- **HELD pin** — a version pin Renovate must not move past a major, because the next one breaks persisted data (postgres data dirs, Nextcloud's one-major-at-a-time rule); marked `# HELD` in `versions.yml` and mirrored by an `allowedVersions` rule in `renovate.json`
 
 ### AI/ML
 

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "baseBranchPatterns": [
+    "develop"
+  ],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Dependency Dashboard (versions.yml)",
+  "enabledManagers": [
+    "custom.jsonata",
+    "pep621"
+  ],
+  "customManagers": [
+    {
+      "customType": "jsonata",
+      "description": "versions.yml — one entry per upstream component kwisatz installs",
+      "fileFormat": "yaml",
+      "managerFilePatterns": [
+        "/^versions\\.yml$/"
+      ],
+      "matchStrings": [
+        "$each($[0], function($v, $k) { $v.datasource != 'custom' ? { 'depName': $k, 'packageName': $v.package, 'datasource': $v.datasource, 'currentValue': $v.version, 'currentDigest': $v.digest, 'versioning': $v.versioning } })"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Majors wait for approval on the Dependency Dashboard",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Matrix stack (setup-matrix): released and tested together",
+      "groupName": "matrix",
+      "matchDepNames": [
+        "synapse",
+        "mas",
+        "element",
+        "matrix-wellknown",
+        "livekit",
+        "lk-jwt",
+        "ketesa"
+      ]
+    },
+    {
+      "description": "NetBird server, dashboard and client must move together",
+      "groupName": "netbird",
+      "matchDepNames": [
+        "netbird-server",
+        "netbird-dashboard",
+        "netbird-client"
+      ]
+    },
+    {
+      "description": "the 27b recipe pins the engine version of its prebuilt image",
+      "groupName": "tensorfold-27b",
+      "matchDepNames": [
+        "tensorfold-27b-recipe",
+        "tensorfold-27b-prebuilt"
+      ]
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "postiz-postgres"
+      ],
+      "allowedVersions": "/^17(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "temporal-postgres"
+      ],
+      "allowedVersions": "/^16(\\D|$)/"
+    },
+    {
+      "description": "HELD: Temporal's visibility store needs Elasticsearch 7",
+      "matchDepNames": [
+        "elasticsearch"
+      ],
+      "allowedVersions": "/^7\\./"
+    },
+    {
+      "description": "HELD: Nextcloud upgrades one major at a time",
+      "matchDepNames": [
+        "nextcloud"
+      ],
+      "allowedVersions": "/^34(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "nextcloud-postgres"
+      ],
+      "allowedVersions": "/^17(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "matrix-postgres"
+      ],
+      "allowedVersions": "/^17(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "forgejo-postgres"
+      ],
+      "allowedVersions": "/^14(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "planka-postgres"
+      ],
+      "allowedVersions": "/^16(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "n8n-postgres"
+      ],
+      "allowedVersions": "/^15(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "concourse-postgres"
+      ],
+      "allowedVersions": "/^15(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "kestra-postgres"
+      ],
+      "allowedVersions": "/^16(\\D|$)/"
+    },
+    {
+      "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
+      "matchDepNames": [
+        "omnigent-postgres"
+      ],
+      "allowedVersions": "/^16(\\D|$)/"
+    },
+    {
+      "description": "HELD: 0.3.14+ need transformers 5.x (breaks vidore/colqwen2.5-v0.2)",
+      "matchDepNames": [
+        "colpali-engine"
+      ],
+      "allowedVersions": "<0.3.14"
+    },
+    {
+      "description": "HELD: Ubuntu LTS releases only",
+      "matchDepNames": [
+        "nvidia-smoke"
+      ],
+      "allowedVersions": "/^\\d\\d\\.04$/"
+    }
+  ]
+}

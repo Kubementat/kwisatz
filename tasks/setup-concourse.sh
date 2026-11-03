@@ -32,8 +32,8 @@
 #   CONCOURSE_TRAEFIK    - Enable Traefik integration (default: false)
 #   CONCOURSE_DOMAIN     - Domain for Traefik routing (required when TRAEFIK=true)
 #   CONCOURSE_FLY_TARGET - Target name in ~/.flyrc (default: concourse)
-#   CONCOURSE_IMAGE      - Concourse image (default: concourse/concourse:8.3.0, pinned)
-#   POSTGRES_IMAGE       - Concourse DB image (default: postgres:15, pinned)
+#   CONCOURSE_IMAGE      - Concourse image (default: versions.yml key concourse, pinned)
+#   POSTGRES_IMAGE       - Concourse DB image (default: versions.yml key concourse-postgres, pinned)
 #
 # DEPENDENCIES:
 #   - Docker: Must be installed and daemon must be running
@@ -80,12 +80,8 @@ CONCOURSE_FLY_TARGET="${CONCOURSE_FLY_TARGET:-concourse}"   # Target name in ~/.
 
 # Container images — pinned on purpose (ticket improvements-2/17): an unpinned
 # tag makes every generated docker-compose.yml pull a moving reference.
-# Defaults looked up 2026-08-31 from
-#   https://github.com/concourse/concourse/releases (latest release v8.3.0) and
-#   the postgres tag already in use in templates/concourse/.
-# Update deliberately: docker buildx imagetools inspect concourse/concourse
-: "${CONCOURSE_IMAGE:=concourse/concourse:8.3.0}"
-: "${POSTGRES_IMAGE:=postgres:15}"
+# The defaults live in versions.yml (Renovate keeps them current) and are
+# read below, once lib/helpers.sh is sourced.
 
 # Traefik integration (optional)
 CONCOURSE_TRAEFIK="${CONCOURSE_TRAEFIK:-false}"             # Set to "true" to enable
@@ -99,6 +95,10 @@ PROXY_NETWORK="${PROXY_NETWORK:-proxy}"                     # Traefik's network 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../lib/helpers.sh"
+
+# Version defaults: versions.yml, read with kw_* (lib/helpers.sh)
+CONCOURSE_IMAGE="${CONCOURSE_IMAGE:-$(kw_image concourse)}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-$(kw_image concourse-postgres)}"
 
 # Warn (never fail) if an operator override moved the image off a version tag.
 warn_moving_image "${CONCOURSE_IMAGE}" "CONCOURSE_IMAGE"
@@ -136,9 +136,9 @@ ${BOLD}Environment variables${RESET} (all optional):
   CONCOURSE_TRAEFIK         Enable Traefik integration: true/false (default: false)
   CONCOURSE_DOMAIN          Domain for Traefik routing (required when CONCOURSE_TRAEFIK=true)
   PROXY_NETWORK             Traefik's network name (default: proxy)
-  CONCOURSE_IMAGE           Concourse image (default: concourse/concourse:8.3.0,
+  CONCOURSE_IMAGE           Concourse image (default: $(kw_image concourse),
                             pinned — override with an explicit version tag)
-  POSTGRES_IMAGE            Concourse DB image (default: postgres:15, pinned)
+  POSTGRES_IMAGE            Concourse DB image (default: $(kw_image concourse-postgres), pinned)
   WAIT_TIMEOUT              Max seconds to wait for the stack to come up and
                             become healthy after 'docker compose up -d'
                             (default: 180)

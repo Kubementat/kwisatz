@@ -17,6 +17,7 @@ For any request about using, understanding, explaining, configuring, or setting 
 ## Core Facts
 
 - entry point: the `kwisatz` CLI (`./kwisatz apply [target]`, `status`, `list`, `info`, `doctor`, `config`, `services`, `logs`, `run`, `commands --json`); it executes its targets **through** the pyinfra deploy `deploy.py` (`uv run pyinfra @local deploy.py -y -vvv [--data select=<name>]`), so there is one engine, not two. Running `tasks/<name>.sh` by hand stays the manual fallback
+- every upstream version a task installs is pinned in `versions.yml` and read with `kw_image` / `kw_version` / `kw_pin` (`lib/helpers.sh`) — never hard-code a version in `tasks/`; Renovate (`renovate.json`, `tasks/setup-renovate.sh`) proposes bumps, `utilities/check-versions.sh` lists what is outdated
 - use `./kwisatz <cmd> --json` rather than scraping human output; the exit codes are a contract (`specification/features/kwisatz-cli/behaviors.md` §7)
 - systemd-based unix deployments and docker-based deployments; setup scripts generate `docker-compose.yml` for each service
 - `ufw` is the firewall on the target ubuntu server; `traefik` is the reverse proxy — integration examples: [setup-forgejo.sh](tasks/setup-forgejo.sh) and [setup-openwebui.sh](tasks/setup-openwebui.sh)

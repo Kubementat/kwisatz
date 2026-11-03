@@ -20,7 +20,7 @@
 #
 # IMPORTANT VARIABLES:
 #   FORGEJO_HOME       - Host directory for persistent data (default: /srv/forgejo)
-#   FORGEJO_IMAGE      - Docker image tag to use (default: codeberg.org/forgejo/forgejo:14)
+#   FORGEJO_IMAGE      - Docker image tag to use (default: versions.yml, key forgejo)
 #   CONTAINER_NAME     - Docker container name (default: forgejo)
 #   HTTP_PORT          - Host port for web UI (default: 89)
 #   SSH_PORT           - Host port for Git SSH access (default: 2223)
@@ -53,12 +53,17 @@
 
 set -euo pipefail
 
+# Shared helpers (kw_image for the version defaults, health gate, …)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../lib/helpers.sh"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION — edit these variables before running
 # ─────────────────────────────────────────────────────────────────────────────
 
 FORGEJO_HOME="${FORGEJO_HOME:-/srv/forgejo}"          # Host directory for persistent data
-FORGEJO_IMAGE="${FORGEJO_IMAGE:-codeberg.org/forgejo/forgejo:14}"  # Docker image to use
+FORGEJO_IMAGE="${FORGEJO_IMAGE:-$(kw_image forgejo)}"  # Docker image to use
 CONTAINER_NAME="${CONTAINER_NAME:-forgejo}"
 
 # User/group IDs the Forgejo process runs as inside the container
@@ -129,7 +134,7 @@ Options:
 
 Environment variables (all optional):
   FORGEJO_HOME        Host directory for persistent data (default: /srv/forgejo)
-  FORGEJO_IMAGE       Docker image tag (default: codeberg.org/forgejo/forgejo:14)
+  FORGEJO_IMAGE       Docker image tag (default: $(kw_image forgejo))
   CONTAINER_NAME      Docker container name (default: forgejo)
   USER_UID            UID inside container (default: 1000)
   USER_GID            GID inside container (default: 1000)
@@ -182,11 +187,6 @@ if ! docker info &>/dev/null; then
 fi
 
 success "Docker $(docker --version | awk '{print $3}' | tr -d ',') detected and running."
-
-# Shared helpers (health gate, …) — idempotent; colors above are kept
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../lib/helpers.sh"
 
 # Traefik pre-flight (only when opt-in)
 if [[ "$FORGEJO_TRAEFIK" == "true" ]]; then
@@ -354,10 +354,11 @@ fi
 # ── Database service (postgres only) ─────────────────────────────────────────
 SECTION_DB_SERVICE=""
 if [[ "$DB_TYPE" == "postgres" ]]; then
+  FORGEJO_DB_IMAGE="$(kw_image forgejo-postgres)"
   SECTION_DB_SERVICE=$(cat <<DB_SERVICE
 
   db:
-    image: postgres:14
+    image: ${FORGEJO_DB_IMAGE}
     container_name: ${CONTAINER_NAME}-db
     restart: always
     environment:

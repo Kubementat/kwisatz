@@ -5,10 +5,10 @@
 # Description:
 #   Installs Neovim directly on the host machine (Ubuntu/Debian) with lazy.nvim
 #   plugin manager, LSP support via nvim-lspconfig, and essential productivity
-#   plugins. Installed via official PPA for latest stable version.
+#   plugins. Installed from the official GitHub release pinned in versions.yml.
 #
 # Architecture:
-#   - Installs Neovim from official PPA (latest stable)
+#   - Installs Neovim from its GitHub release (versions.yml key neovim)
 #   - Configures in ~/.config/nvim with lazy.nvim
 #
 # Pre-requisites:
@@ -44,7 +44,7 @@ ${BOLD}Options:${RESET}
   -h, --help    Show this help and exit
 
 ${BOLD}Environment variables${RESET} (all optional):
-  NEOVIM_VERSION    Release tag to install (default: stable)
+  NEOVIM_VERSION    Release tag to install, or stable (default: $(kw_version neovim))
 EOF
 }
 
@@ -64,7 +64,7 @@ done
 # =============================================================================
 # Configuration
 # =============================================================================
-NEOVIM_VERSION="${NEOVIM_VERSION:-stable}"  # GitHub release tag, e.g. "v0.10.4" or "stable"
+NEOVIM_VERSION="${NEOVIM_VERSION:-$(kw_version neovim)}"  # GitHub release tag or "stable"
 
 # =============================================================================
 # Functions

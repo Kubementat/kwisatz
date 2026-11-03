@@ -219,3 +219,34 @@ scripts:
       OMNIVOICE_BACKEND: cpu
       OMNIVOICE_PORT: "8977"
     args: []
+
+  # Ad-hoc tier for the versions.yml migration (one task per pin pattern):
+  #   tests/run-vm-tests.sh --scripts setup-basics,setup-docker,setup-traefik,\
+  #     setup-openwebui,setup-agentsview,setup-laya,setup-neovim,setup-renovate
+  setup-openwebui:
+    enabled: false
+    description: Open WebUI (docker, full image ref from versions.yml) — ad-hoc via --scripts
+    env: {}
+    args: []
+
+  setup-agentsview:
+    enabled: false
+    description: agentsview (github release from versions.yml) — ad-hoc via --scripts
+    env: {}
+    args: []
+
+  setup-laya:
+    enabled: false
+    description: laya (PyPI pin from versions.yml) — ad-hoc via --scripts
+    env: {}
+    args: []
+
+  # No Forgejo in the VM: --no-run installs and converges the units without the
+  # verification run (which needs a reachable endpoint and a real token).
+  setup-renovate:
+    enabled: false
+    description: Renovate timer (systemd + docker) — ad-hoc via --scripts
+    env:
+      RENOVATE_ENDPOINT: "https://forgejo.invalid/api/v1"
+      RENOVATE_TOKEN: "vmtest-dummy-token"
+    args: ["--no-run"]

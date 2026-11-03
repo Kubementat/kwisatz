@@ -30,12 +30,12 @@
 #
 # IMPORTANT VARIABLES:
 #   NETBIRD_HOME           - Host directory for config/data (default: /srv/netbird)
-#   NETBIRD_SERVER_IMAGE   - Combined server image (default: netbirdio/netbird-server)
-#   NETBIRD_SERVER_TAG     - Combined server tag (default: 0.77.1)
-#   NETBIRD_DASHBOARD_IMAGE- Dashboard image (default: netbirdio/dashboard)
-#   NETBIRD_DASHBOARD_TAG  - Dashboard tag (default: v2.91.1)
-#   NETBIRD_CLIENT_IMAGE   - Client image for routing peer (default: netbirdio/netbird)
-#   NETBIRD_CLIENT_TAG     - Client tag (default: 0.77.1)
+#   NETBIRD_SERVER_IMAGE   - Combined server image (default: versions.yml key netbird-server)
+#   NETBIRD_SERVER_TAG     - Combined server tag (default: versions.yml key netbird-server)
+#   NETBIRD_DASHBOARD_IMAGE- Dashboard image (default: versions.yml key netbird-dashboard)
+#   NETBIRD_DASHBOARD_TAG  - Dashboard tag (default: versions.yml key netbird-dashboard)
+#   NETBIRD_CLIENT_IMAGE   - Client image for routing peer (default: versions.yml key netbird-client)
+#   NETBIRD_CLIENT_TAG     - Client tag (default: versions.yml key netbird-client)
 #   NETBIRD_DOMAIN         - Public domain routed by Traefik (required)
 #   STUN_PORT              - UDP STUN port published on the host (default: 3478)
 #   PROXY_NETWORK          - Traefik's external Docker network (default: proxy)
@@ -73,9 +73,9 @@
 #   NETBIRD_DOMAIN=netbird.example.com NETBIRD_CLIENT_ENABLED=true \
 #     NETBIRD_SETUP_KEY=<KEY> ./tasks/setup-netbird.sh
 #
-#   # Upgrade: change NETBIRD_SERVER_TAG / NETBIRD_DASHBOARD_TAG and re-run.
-#   # Delete ${NETBIRD_HOME}/.env and docker-compose.yml first only if you
-#   # want the new values re-persisted into them.
+#   # Upgrade: bump the netbird-* entries in versions.yml (or set
+#   # NETBIRD_SERVER_TAG / NETBIRD_DASHBOARD_TAG) and re-run — every run
+#   # refreshes the image pins in ${NETBIRD_HOME}/.env.
 #
 #   # Show help:
 #   ./tasks/setup-netbird.sh --help
@@ -93,12 +93,6 @@ set -euo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 
 NETBIRD_HOME="${NETBIRD_HOME:-/srv/netbird}"
-NETBIRD_SERVER_IMAGE="${NETBIRD_SERVER_IMAGE:-netbirdio/netbird-server}"
-NETBIRD_SERVER_TAG="${NETBIRD_SERVER_TAG:-0.77.1}"
-NETBIRD_DASHBOARD_IMAGE="${NETBIRD_DASHBOARD_IMAGE:-netbirdio/dashboard}"
-NETBIRD_DASHBOARD_TAG="${NETBIRD_DASHBOARD_TAG:-v2.91.1}"
-NETBIRD_CLIENT_IMAGE="${NETBIRD_CLIENT_IMAGE:-netbirdio/netbird}"
-NETBIRD_CLIENT_TAG="${NETBIRD_CLIENT_TAG:-0.77.1}"
 NETBIRD_DOMAIN="${NETBIRD_DOMAIN:-}"              # required
 STUN_PORT="${STUN_PORT:-3478}"                    # UDP, published on the host
 PROXY_NETWORK="${PROXY_NETWORK:-proxy}"
@@ -116,6 +110,14 @@ NETBIRD_LOG_LEVEL="${NETBIRD_LOG_LEVEL:-info}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../lib/helpers.sh"
+
+# Version defaults: versions.yml, read with kw_* (lib/helpers.sh)
+NETBIRD_SERVER_IMAGE="${NETBIRD_SERVER_IMAGE:-$(kw_pin netbird-server package)}"
+NETBIRD_SERVER_TAG="${NETBIRD_SERVER_TAG:-$(kw_version netbird-server)}"
+NETBIRD_DASHBOARD_IMAGE="${NETBIRD_DASHBOARD_IMAGE:-$(kw_pin netbird-dashboard package)}"
+NETBIRD_DASHBOARD_TAG="${NETBIRD_DASHBOARD_TAG:-$(kw_version netbird-dashboard)}"
+NETBIRD_CLIENT_IMAGE="${NETBIRD_CLIENT_IMAGE:-$(kw_pin netbird-client package)}"
+NETBIRD_CLIENT_TAG="${NETBIRD_CLIENT_TAG:-$(kw_version netbird-client)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # USAGE / HELP
@@ -140,12 +142,12 @@ ${BOLD}Options:${RESET}
 ${BOLD}Environment variables${RESET} (all optional except NETBIRD_DOMAIN):
   NETBIRD_DOMAIN           Public domain routed by Traefik (required)
   NETBIRD_HOME             Host directory for config/data (default: /srv/netbird)
-  NETBIRD_SERVER_IMAGE     Combined server image (default: netbirdio/netbird-server)
-  NETBIRD_SERVER_TAG       Combined server tag (default: 0.77.1)
-  NETBIRD_DASHBOARD_IMAGE  Dashboard image (default: netbirdio/dashboard)
-  NETBIRD_DASHBOARD_TAG    Dashboard tag (default: v2.91.1)
-  NETBIRD_CLIENT_IMAGE     Client image for routing peer (default: netbirdio/netbird)
-  NETBIRD_CLIENT_TAG       Client tag (default: 0.77.1)
+  NETBIRD_SERVER_IMAGE     Combined server image (default: $(kw_pin netbird-server package))
+  NETBIRD_SERVER_TAG       Combined server tag (default: $(kw_version netbird-server))
+  NETBIRD_DASHBOARD_IMAGE  Dashboard image (default: $(kw_pin netbird-dashboard package))
+  NETBIRD_DASHBOARD_TAG    Dashboard tag (default: $(kw_version netbird-dashboard))
+  NETBIRD_CLIENT_IMAGE     Client image for routing peer (default: $(kw_pin netbird-client package))
+  NETBIRD_CLIENT_TAG       Client tag (default: $(kw_version netbird-client))
   STUN_PORT                UDP STUN port published on the host (default: 3478)
   PROXY_NETWORK            Traefik's external Docker network (default: proxy)
   NETBIRD_ADMIN_EMAIL      Optional bootstrap owner user (with NETBIRD_ADMIN_PASSWORD)
@@ -269,7 +271,7 @@ sudo chown -R "$(id -un):$(id -gn)" "${NETBIRD_HOME}"
 success "Directory ready: ${NETBIRD_HOME}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GENERATE .env (create once — never overwritten)
+# GENERATE .env (secrets created once — never rotated; image pins refreshed)
 # ─────────────────────────────────────────────────────────────────────────────
 
 step "Generating environment file"
@@ -277,7 +279,18 @@ step "Generating environment file"
 ENV_FILE="${NETBIRD_HOME}/.env"
 
 if [[ -f "$ENV_FILE" ]]; then
-  info "Existing .env found at ${ENV_FILE} — leaving it unchanged."
+  info "Existing .env found at ${ENV_FILE} — keeping it, refreshing only the image pins."
+  # compose reads the image refs from .env, so a bumped pin (versions.yml or the
+  # NETBIRD_*_IMAGE/_TAG overrides) has to land there for a re-run to converge.
+  ENV_TMP="$(mktemp)"
+  { grep -vE '^NETBIRD_(SERVER|DASHBOARD|CLIENT)_(IMAGE|TAG)=' "$ENV_FILE" || true
+    printf '%s\n' \
+      "NETBIRD_SERVER_IMAGE=${NETBIRD_SERVER_IMAGE}" "NETBIRD_SERVER_TAG=${NETBIRD_SERVER_TAG}" \
+      "NETBIRD_DASHBOARD_IMAGE=${NETBIRD_DASHBOARD_IMAGE}" "NETBIRD_DASHBOARD_TAG=${NETBIRD_DASHBOARD_TAG}" \
+      "NETBIRD_CLIENT_IMAGE=${NETBIRD_CLIENT_IMAGE}" "NETBIRD_CLIENT_TAG=${NETBIRD_CLIENT_TAG}"
+  } > "$ENV_TMP"
+  env_file_write "$ENV_FILE" < "$ENV_TMP"
+  rm -f "$ENV_TMP"
 else
   NETBIRD_AUTH_SECRET="$(openssl rand -hex 32)"
   NETBIRD_STORE_ENCRYPTION_KEY="$(openssl rand -base64 32)"

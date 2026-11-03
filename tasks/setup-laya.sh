@@ -29,7 +29,7 @@
 #
 # IMPORTANT VARIABLES:
 #   LAYA_DIR      - Install directory for the venv (default: /srv/laya)
-#   LAYA_VERSION  - laya[serve] version to pin (default: 0.3.19)
+#   LAYA_VERSION  - laya[serve] version to pin (default: versions.yml key laya)
 #   LAYA_PORT     - Bind port for the API server (default: 7771)
 #   LAYA_HOST     - Bind address (default: 0.0.0.0)
 #   LAYA_DEVICE   - cpu|cuda for LAYA_DEVICE env var (default: auto-detect)
@@ -104,7 +104,7 @@ source "${LIB_PATH}"
 # ─────────────────────────────────────────────────────────────────────────────
 
 LAYA_DIR="${LAYA_DIR:-/srv/laya}"
-LAYA_VERSION="${LAYA_VERSION:-0.3.19}"
+LAYA_VERSION="${LAYA_VERSION:-$(kw_version laya)}"
 LAYA_PORT="${LAYA_PORT:-7771}"
 LAYA_HOST="${LAYA_HOST:-0.0.0.0}"
 LAYA_DEVICE="${LAYA_DEVICE:-}"   # empty = auto-detect below
@@ -144,7 +144,7 @@ ${BOLD}Options:${RESET}
 
 ${BOLD}Environment variables${RESET} (all optional):
   LAYA_DIR           Install directory for the venv (default: /srv/laya)
-  LAYA_VERSION       laya[serve] version to pin (default: 0.3.19)
+  LAYA_VERSION       laya[serve] version to pin (default: $(kw_version laya))
   LAYA_PORT          Bind port for the API server (default: 7771)
   LAYA_HOST          Bind address (default: 0.0.0.0; use 127.0.0.1 to keep
                      the API local-only — no UFW rule is added then)

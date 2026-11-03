@@ -26,11 +26,11 @@
 #
 # IMPORTANT VARIABLES:
 #   OMNIGENT_HOME                    - Host directory for persistent data (default: /srv/omnigent)
-#   OMNIGENT_IMAGE                   - Docker image tag to use (default: ghcr.io/omnigent-ai/omnigent-server)
-#   OMNIGENT_IMAGE_TAG               - Docker image tag (default: latest)
+#   OMNIGENT_IMAGE                   - Docker image to use (default: versions.yml key omnigent-server)
+#   OMNIGENT_IMAGE_TAG               - Docker image tag (default: versions.yml key omnigent-server)
 #   POSTGRES_IMAGE                   - Postgres image for the bundled db service
-#                                      (default: postgres:16-alpine, pinned;
-#                                      resolved by compose from the template)
+#                                      (default: versions.yml key omnigent-postgres,
+#                                      pinned; written to .env for compose)
 #   OMNIGENT_PORT                    - Host port for direct web UI access (default: 8008)
 #   OMNIGENT_TRAEFIK                 - Set to "true" to enable Traefik routing (default: false)
 #   OMNIGENT_DOMAIN                  - Domain for Traefik access (required when Traefik=true)
@@ -90,8 +90,8 @@ Options:
 
 Environment Variables:
   OMNIGENT_HOME                    Data directory (default: /srv/omnigent)
-  OMNIGENT_IMAGE                   Docker image (default: ghcr.io/omnigent-ai/omnigent-server)
-  OMNIGENT_IMAGE_TAG               Image tag (default: latest)
+  OMNIGENT_IMAGE                   Docker image (default: $(kw_pin omnigent-server package))
+  OMNIGENT_IMAGE_TAG               Image tag (default: $(kw_version omnigent-server))
   OMNIGENT_PORT                    Host port, direct mode (default: 8008)
   OMNIGENT_TRAEFIK                 Enable Traefik: "true" or "false" (default: false)
   OMNIGENT_DOMAIN                  Domain for Traefik access (required when Traefik=true)
@@ -105,7 +105,7 @@ Environment Variables:
   POSTGRES_USER                    Postgres user (default: omnigent)
   POSTGRES_DB                      Postgres database name (default: omnigent)
   POSTGRES_IMAGE                   Postgres image for the bundled db service
-                                   (default: postgres:16-alpine — pinned so a
+                                   (default: $(kw_image omnigent-postgres) — pinned so a
                                    re-run cannot silently major-bump the db)
   WAIT_TIMEOUT                     Max seconds to wait for the stack to come up
                                    and become healthy after 'docker compose up -d'
@@ -156,8 +156,9 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 
 OMNIGENT_HOME="${OMNIGENT_HOME:-/srv/omnigent}"            # Host directory for persistent data
-OMNIGENT_IMAGE="${OMNIGENT_IMAGE:-ghcr.io/omnigent-ai/omnigent-server}"  # Docker image
-OMNIGENT_IMAGE_TAG="${OMNIGENT_IMAGE_TAG:-latest}"         # Docker image tag
+OMNIGENT_IMAGE="${OMNIGENT_IMAGE:-$(kw_pin omnigent-server package)}"  # Docker image
+OMNIGENT_IMAGE_TAG="${OMNIGENT_IMAGE_TAG:-$(kw_version omnigent-server)}"         # Docker image tag
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-$(kw_image omnigent-postgres)}"  # bundled db, HELD on its major
 OMNIGENT_PORT="${OMNIGENT_PORT:-8008}"                     # Host port (direct mode)
 
 # Traefik reverse-proxy integration (opt-in)
@@ -369,6 +370,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
 
   set_or_replace_kv OMNIGENT_IMAGE_TAG "$OMNIGENT_IMAGE_TAG"
   info "Set OMNIGENT_IMAGE_TAG."
+
+  set_or_replace_kv POSTGRES_IMAGE "$POSTGRES_IMAGE"
+  info "Set POSTGRES_IMAGE."
 
   set_or_replace_kv OMNIGENT_PORT "$OMNIGENT_PORT"
   info "Set OMNIGENT_PORT."

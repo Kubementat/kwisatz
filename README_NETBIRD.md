@@ -374,10 +374,9 @@ docker exec netbird-client netbird forwarding list
 
 ## 10. Upgrades, backup, security
 
-- **Upgrade**: bump `NETBIRD_SERVER_TAG` / `NETBIRD_CLIENT_TAG` / `NETBIRD_DASHBOARD_TAG`,
-  then re-run the script. If you want the new tags persisted into the frozen `.env`,
-  delete `.env` **and** `config.yaml` **and** `docker-compose.yml` together first —
-  that rotates secrets, so back them up. Check both release pages: the optional
+- **Upgrade**: bump the `netbird-*` entries in `versions.yml` (Renovate opens one grouped PR)
+  or set `NETBIRD_SERVER_TAG` / `NETBIRD_CLIENT_TAG` / `NETBIRD_DASHBOARD_TAG`, then re-run
+  the script — every run rewrites the image lines of `.env`, secrets stay. Check both release pages: the optional
   reverse-proxy container must never be newer than the management, and a mobile
   client that is far ahead of a pinned management will not stay in sync.
 - **Backup**: back up `netbird-data`, `/srv/netbird/config.yaml`, `/srv/netbird/.env`.

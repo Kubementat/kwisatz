@@ -19,7 +19,7 @@
 # Environment Variables:
 #   OPENCODE_SERVICE         - Install the opencode systemd service (default: false)
 #   USE_DOCKER               - Use Docker Compose mode (default: false)
-#   OPENCODE_VERSION         - Version to install (default: 2.2.0). Drives both the
+#   OPENCODE_VERSION         - Version to install (default: versions.yml key opencode). Drives both the
 #                              npm package and the default server image.
 #   OPENCODE_PORT            - Server port (default: 4096)
 #   OPENCODE_HOSTNAME        - Bind address (default: 0.0.0.0; alias: OPENCODE_HOST)
@@ -71,10 +71,9 @@ load_config() {
     # Pinned on purpose (ticket improvements-2/17): `:latest` made the generated
     # docker-compose.yml pull a moving reference — and on this registry `latest`
     # is still the 1.x line, so only versioned tags are V2 images.
-    # Default looked up 2026-10-28 from https://github.com/anomalyco/opencode/releases
-    # (v2.2.0; the GHCR tag carries no leading 'v').
-    # Update deliberately: docker buildx imagetools inspect ghcr.io/anomalyco/opencode
-    OPENCODE_VERSION="${OPENCODE_VERSION:-2.2.0}"
+    # The default lives in versions.yml (key opencode — the GHCR tag, no leading
+    # 'v'; the npm package carries the same version).
+    OPENCODE_VERSION="${OPENCODE_VERSION:-$(kw_version opencode)}"
     OPENCODE_IMAGE="${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}}"
     warn_moving_image "${OPENCODE_IMAGE}" "OPENCODE_IMAGE"
 }

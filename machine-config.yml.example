@@ -221,11 +221,9 @@ scripts:
       # stored in a mode-600 .env)
       GRAFANA_ADMIN_USER: admin
       # GRAFANA_ADMIN_PASSWORD: ''
-      # Image tags (defaults shown; override to pin a different version)
-      PROMETHEUS_IMAGE_VERSION: prom/prometheus:v3.13.2
-      GRAFANA_IMAGE_VERSION: grafana/grafana:13.1.1
-      NODE_EXPORTER_IMAGE_VERSION: quay.io/prometheus/node-exporter:v1.12.1
-      CADVISOR_IMAGE_VERSION: ghcr.io/google/cadvisor:v0.60.5
+      # Images: pinned in versions.yml (kept current by Renovate) — set one
+      # only to deviate on this machine, e.g.
+      # PROMETHEUS_IMAGE_VERSION: prom/prometheus:<tag>
       # Set to true to re-create an existing stack (data preserved)
       MONITORING_FORCE: 'false'
     args: []
@@ -312,8 +310,9 @@ scripts:
     enabled: false
     description: Install Orca remote server (headless orca serve under systemd)
     env:
-      # Release tag (e.g. v1.4.218) or 'latest'; pairing address clients dial
-      ORCA_VERSION: latest
+      # Release tag or 'latest' (default: versions.yml);
+      # ORCA_PAIRING_ADDRESS: the address clients dial
+      # ORCA_VERSION: latest
       ORCA_PORT: '6768'
       # ORCA_VERSION latest updates and restarts each apply; a tag pins it
       ORCA_PAIRING_ADDRESS: ''
@@ -329,6 +328,19 @@ scripts:
     enabled: false
     description: Install Forgejo (self-hosted Git service)
     env: {}
+    args: []
+  setup-renovate:
+    enabled: false
+    description: Self-hosted Renovate on a timer — bump PRs for versions.yml on Forgejo
+    env:
+      # Forgejo API URL (required on the first run, stored in config.js)
+      RENOVATE_ENDPOINT: https://git.example.com/api/v1
+      RENOVATE_REPOSITORIES: denkfabrik/kwisatz
+      # RENOVATE_SCHEDULE: daily          # systemd OnCalendar
+      # Tokens: pass once (kwisatz apply renovate --env RENOVATE_TOKEN=...),
+      # they are stored in /srv/renovate/.env (mode 600), never here.
+      # RENOVATE_TOKEN: ''                # Forgejo bot PAT
+      # RENOVATE_GITHUB_COM_TOKEN: ''     # read-only GitHub token
     args: []
   setup-n8n:
     enabled: false
@@ -412,7 +424,7 @@ scripts:
     enabled: false
     description: agentsview session viewer + optional pg push service
     env:
-      # AGENTSVIEW_VERSION: "0.44.0"
+      # AGENTSVIEW_VERSION: latest   # default: versions.yml
       # AGENTSVIEW_MACHINE_NAME: ""   # default: hostname
       # Hub mode: agent|dir|machine-id, ';'-separated
       # AGENTSVIEW_SESSION_SOURCES: "claude|/srv/s/claude|<id>"
@@ -455,9 +467,8 @@ scripts:
       KESTRA_BIND_IP: 127.0.0.1
       # Host port for the web UI (default: 8084)
       KESTRA_PORT: '8084'
-      # Pinned images (defaults shown; override to pin a different version)
-      KESTRA_IMAGE: kestra/kestra:v2.0.0
-      POSTGRES_IMAGE: postgres:16
+      # Images: pinned in versions.yml — set only to deviate on this machine
+      # KESTRA_IMAGE: kestra/kestra:<tag>
       # Web UI basic-auth username — must be a mail address (default:
       # admin@example.com). Password auto-generated if empty; stored in .env, 600
       KESTRA_USERNAME: admin@example.com

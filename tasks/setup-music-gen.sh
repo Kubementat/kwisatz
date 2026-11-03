@@ -48,10 +48,10 @@ source "${LIB_PATH}" || {
 # ---------------------------------------------------------------------------
 MUSIC_GEN_MODE="${MUSIC_GEN_MODE:-server}"
 MUSIC_GEN_PORT="${MUSIC_GEN_PORT:-9294}"
-# Pinned ACE-Step release tag. Upstream (ACE-Step/ACE-Step-1.5) publishes
-# git tags v0.1.0..v0.1.8 while the project itself is versioned 1.5.0 — there
-# is NO v1.5 tag; v0.1.8 is the current release of ACE-Step 1.5.
-ACESTEP_VERSION="${ACESTEP_VERSION:-v0.1.8}"
+# Pinned ACE-Step release tag (versions.yml key ace-step). Upstream
+# (ACE-Step/ACE-Step-1.5) publishes git tags v0.1.x while the project itself is
+# versioned 1.5.0 — there is NO v1.5 tag.
+ACESTEP_VERSION="${ACESTEP_VERSION:-$(kw_version ace-step)}"
 ACESTEP_CHECKPOINTS_DIR="${ACESTEP_CHECKPOINTS_DIR:-/opt/ace-step/models}"
 # DiT checkpoint the acestep-api service loads at startup (its argparse has
 # no --config_path; the server reads ACESTEP_CONFIG_PATH from the environment).
@@ -89,7 +89,7 @@ PREVIEW_CLI="$HOME/music-preview"
 # Help
 # ---------------------------------------------------------------------------
 show_help() {
-  cat << 'EOF'
+  cat <<EOF
 Usage: setup-music-gen.sh [OPTIONS]
 
 Install ACE-Step 1.5 text-to-song generation (server mode, AMD ROCm or
@@ -103,7 +103,7 @@ Options:
 Environment variables (all optional):
   MUSIC_GEN_MODE          'server' (default; ACE-Step 1.5 + systemd, requires
                           an AMD or NVIDIA GPU host) or 'preview'
-                          (CPU-only musicgen-small CLI in $HOME).
+                          (CPU-only musicgen-small CLI in \$HOME).
   MUSIC_GEN_GPU_VENDOR    'auto' (default: detect /dev/kfd vs NVIDIA), 'amd',
                           or 'nvidia' — picks the torch wheel flavor.
   MUSIC_GEN_TORCH_INDEX   Override the PyTorch wheel index URL. Empty
@@ -114,9 +114,9 @@ Environment variables (all optional):
   ROCM_TORCH_INDEX        ROCm wheel index on AMD hosts (default:
                           https://download.pytorch.org/whl/rocm7.1)
   MUSIC_GEN_PORT          acestep-api listen port (default: 9294)
-  ACESTEP_VERSION         Pinned ACE-Step git tag (default: v0.1.8 — the
-                          latest upstream release of ACE-Step 1.5; the repo
-                          tags are v0.1.x, there is no v1.5 tag)
+  ACESTEP_VERSION         Pinned ACE-Step git tag (default: $(kw_version ace-step) —
+                          a release of ACE-Step 1.5; the repo tags are
+                          v0.1.x, there is no v1.5 tag)
   ACESTEP_CONFIG_PATH     DiT checkpoint the server loads at startup, passed
                           to the service via its .env (default:
                           acestep-v15-xl-turbo)
@@ -320,7 +320,7 @@ setup_server() {
     # "v1.5" — the repo tags its ACE-Step 1.5 releases as v0.1.x).
     step "Checking ${ACESTEP_VERSION} exists upstream"
     if ! git ls-remote --exit-code "${ACESTEP_REPO_URL}" "refs/tags/${ACESTEP_VERSION}" >/dev/null 2>&1; then
-      error "ACESTEP_VERSION='${ACESTEP_VERSION}' is not a tag of ${ACESTEP_REPO_URL} — ACE-Step 1.5 is published under v0.1.x tags (v0.1.0..v0.1.8, project version 1.5.0; there is no v1.5 tag). Set ACESTEP_VERSION to a real tag, e.g. v0.1.8."
+      error "ACESTEP_VERSION='${ACESTEP_VERSION}' is not a tag of ${ACESTEP_REPO_URL} — ACE-Step 1.5 is published under v0.1.x tags (project version 1.5.0; there is no v1.5 tag). Set ACESTEP_VERSION to a real tag, e.g. $(kw_version ace-step)."
     fi
     step "Cloning ${ACESTEP_REPO_URL} @ ${ACESTEP_VERSION}"
     git clone --branch "${ACESTEP_VERSION}" --depth 1 "${ACESTEP_REPO_URL}" "${ACESTEP_DIR}"

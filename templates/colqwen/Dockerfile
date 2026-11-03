@@ -1,12 +1,13 @@
 # ColQwen2.5 embedding service image.
 # NGC_PYTORCH_TAG and COLPALI_VERSION are supplied as build args by
 # docker-compose from the generated .env - edit .env and rebuild to change
-# them. Model weights are NEVER part of this image (mounted at runtime).
-ARG NGC_PYTORCH_TAG=25.10-py3
+# them (the defaults come from versions.yml). Model weights are NEVER part of
+# this image (mounted at runtime).
+ARG NGC_PYTORCH_TAG
 
 FROM nvcr.io/nvidia/pytorch:${NGC_PYTORCH_TAG}
 
-ARG COLPALI_VERSION=0.3.13
+ARG COLPALI_VERSION
 
 WORKDIR /app
 

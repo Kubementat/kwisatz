@@ -42,7 +42,7 @@ services:
       - "${OMNIGENT_PORT}:8000"
 
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    image: ${POSTGRES_IMAGE}
     container_name: omnigent-postgres
     restart: unless-stopped
     environment:

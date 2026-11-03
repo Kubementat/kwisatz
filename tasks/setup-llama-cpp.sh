@@ -19,9 +19,9 @@
 #   --help            Show help
 #
 # Environment Variables (optional):
-#   LLAMA_CPP_REF - source ref to build: "latest" (default) resolves at run
-#                   time to the most recently published tag in the source repo;
-#                   any concrete tag/branch name pins a reproducible build
+#   LLAMA_CPP_REF - source ref to build (default: versions.yml key llama-cpp);
+#                   "latest" resolves at run time to the most recently
+#                   published tag; any other tag/branch name is built as-is
 #   LLAMA_CPP_REPO_URL - upstream git URL to clone/fetch from
 #                        (default: https://github.com/ggml-org/llama.cpp)
 #
@@ -48,14 +48,12 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/llama.cpp}"
 # Canonical upstream repo. The project moved from github.com/ggerganov/llama.cpp
 # to ggml-org/llama.cpp (the old URL no longer serves the repo).
 LLAMA_CPP_REPO_URL="${LLAMA_CPP_REPO_URL:-https://github.com/ggml-org/llama.cpp}"
-# Source ref to build. Default "latest" resolves at run time to the most
-# recently published tag in the source repo (newest tag-creation date, via
-# `git for-each-ref --sort=-creatordate refs/tags` after the tag fetch), so
-# every run builds the newest available tag. Set LLAMA_CPP_REF to a concrete
-# tag or branch name to pin a reproducible build instead (that was the
-# behaviour pinned by ticket improvements-2/17; it now requires an explicit
-# ref).
-: "${LLAMA_CPP_REF:=latest}"
+# Source ref to build. The default is the build tag pinned in versions.yml (key
+# llama-cpp, kept current by Renovate), so a run is reproducible. "latest"
+# resolves at run time to the most recently published tag in the source repo
+# (newest tag-creation date, via `git for-each-ref --sort=-creatordate
+# refs/tags` after the tag fetch); any other tag or branch name is built as-is.
+LLAMA_CPP_REF="${LLAMA_CPP_REF:-$(kw_version llama-cpp)}"
 # Refs reach git as --branch/checkout arguments — keep them ref-shaped so a stray
 # option (a leading '-') or shell metacharacter can never reach git.
 if [[ ! "${LLAMA_CPP_REF}" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
@@ -82,10 +80,10 @@ ${BOLD}Options:${RESET}
   --help            Show this help
 
 ${BOLD}Environment variables${RESET} (all optional):
-  LLAMA_CPP_REF     Source ref to build. "latest" (default) builds the most
-                    recently published tag, resolved at run time. Set a
-                    concrete tag or branch name to pin a reproducible build.
-                    (default: latest)
+  LLAMA_CPP_REF     Source ref to build. "latest" builds the most recently
+                    published tag, resolved at run time; any other tag or
+                    branch name is built as-is.
+                    (default: $(kw_version llama-cpp))
   LLAMA_CPP_REPO_URL Upstream git URL to clone/fetch from.
                      (default: https://github.com/ggml-org/llama.cpp)
 EOF
@@ -324,7 +322,7 @@ case "${BACKEND}" in
     ;;
 esac
 
-# Clone / update repo. LLAMA_CPP_REF=latest (the default) builds the most
+# Clone / update repo. LLAMA_CPP_REF=latest builds the most
 # recently published tag, resolved after the tag fetch below; a concrete
 # tag/branch name is built as-is.
 step "Fetching llama.cpp source (ref: ${LLAMA_CPP_REF})"

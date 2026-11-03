@@ -49,7 +49,7 @@
 #   NVIDIA_CDI_REFRESH_BIN  Refresh helper path        (default /usr/local/sbin/nvidia-cdi-refresh)
 #   NVIDIA_CDI_APT_HOOK     Install the apt hook       (default true)
 #   NVIDIA_SMOKE_TEST       Run the container test     (default true)
-#   NVIDIA_SMOKE_IMAGE      Image for the smoke test   (default ubuntu:24.04)
+#   NVIDIA_SMOKE_IMAGE      Image for the smoke test   (default: versions.yml key nvidia-smoke)
 #
 # Usage:
 #   ./setup-nvidia-container.sh
@@ -80,7 +80,7 @@ NVIDIA_SMOKE_TEST="${NVIDIA_SMOKE_TEST:-true}"
 # nvidia-smi is itself mounted into the container by the CDI spec, so the smoke
 # test needs no CUDA image — a plain base image proves the injection works and
 # keeps the pull small.
-NVIDIA_SMOKE_IMAGE="${NVIDIA_SMOKE_IMAGE:-ubuntu:24.04}"
+NVIDIA_SMOKE_IMAGE="${NVIDIA_SMOKE_IMAGE:-$(kw_image nvidia-smoke)}"
 
 APT_HOOK_PATH="/etc/apt/apt.conf.d/99-nvidia-cdi-refresh"
 TOOLKIT_KEY_URL="https://nvidia.github.io/libnvidia-container/gpgkey"
@@ -113,7 +113,7 @@ while [[ $# -gt 0 ]]; do
       echo "  NVIDIA_CDI_REFRESH_BIN  Refresh helper path       (default /usr/local/sbin/nvidia-cdi-refresh)"
       echo "  NVIDIA_CDI_APT_HOOK     Install the apt hook      (default true)"
       echo "  NVIDIA_SMOKE_TEST       Run the container test    (default true)"
-      echo "  NVIDIA_SMOKE_IMAGE      Smoke-test image          (default ubuntu:24.04)"
+      echo "  NVIDIA_SMOKE_IMAGE      Smoke-test image          (default $(kw_image nvidia-smoke))"
       echo ""
       echo "Behaviour:"
       echo "  Idempotent. Does NOT install the GPU driver — that comes from the"

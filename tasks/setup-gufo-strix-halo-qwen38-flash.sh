@@ -83,10 +83,11 @@ GUFO_MODEL_NAME="qwen3.8-flash-next-gufo"
 GUFO_CONTAINER="qwen38-flash-gufo"
 
 # ── Pinned engine ─────────────────────────────────────────────────────────────
-GUFO_IMAGE_REPO="ghcr.io/gufo-org/toolboxes/gufo-runtime"
+GUFO_IMAGE_REPO="$(kw_pin gufo package)"
 # The tag is what makes the reference readable, the digest is what makes it
-# reproducible; both default to a value verified against the registry, not
-# copied from a post. Checked 2026-10-17 against the ghcr HTTP API:
+# reproducible; both default to the gufo entry in versions.yml (shared by both
+# gufo scripts; Renovate moves tag and digest together). Verified 2026-10-17
+# against the ghcr HTTP API:
 #
 #   tok=$(curl -s "https://ghcr.io/token?scope=repository:gufo-org/toolboxes/gufo-runtime:pull" | jq -r .token)
 #   curl -s -D- -o /dev/null -H "Authorization: Bearer $tok" \
@@ -94,15 +95,15 @@ GUFO_IMAGE_REPO="ghcr.io/gufo-org/toolboxes/gufo-runtime"
 #   -> HTTP 200, docker-content-digest: sha256:56f0a052e784…
 #   /tags/list -> 0.8.0, 0.8.1, … 0.17.0 (current), and NO "v"-prefixed tag.
 #
-# So `v0.8.0` never existed: the tag is `0.8.0`, and 0.8.1 is its patch. Bump
-# deliberately — tag AND digest together — then re-read the serve flags from the
-# new tag's source, because a flag rename shows up as a container that exits at
+# So `v0.8.0` never existed: the tag is `0.8.0`, and 0.8.1 is its patch. Review
+# a bump deliberately — tag AND digest move together — and re-read the serve
+# flags from the new tag's source, because a flag rename shows up as a container that exits at
 # once rather than as a slow load.
-GUFO_IMAGE_TAG="${GUFO_IMAGE_TAG:-0.8.1}"
+GUFO_IMAGE_TAG="${GUFO_IMAGE_TAG:-$(kw_version gufo)}"
 # Leave empty to pin by tag only. Set it to a registry digest (sha256:…) to
 # make the reference immutable; docker then ignores the tag, and the recorded
 # image id still tells --check what actually ran.
-GUFO_IMAGE_DIGEST="${GUFO_IMAGE_DIGEST:-sha256:56f0a052e784fdfd43ebe2aba590336c8fb5b05c5a813aaebb5ac98d61010afd}"
+GUFO_IMAGE_DIGEST="${GUFO_IMAGE_DIGEST:-$(kw_pin gufo digest)}"
 GUFO_IMAGE="${GUFO_IMAGE:-${GUFO_IMAGE_REPO}:${GUFO_IMAGE_TAG}}"
 if [[ -n "$GUFO_IMAGE_DIGEST" && "$GUFO_IMAGE" == "${GUFO_IMAGE_REPO}:${GUFO_IMAGE_TAG}" ]]; then
   GUFO_IMAGE="${GUFO_IMAGE_REPO}@${GUFO_IMAGE_DIGEST}"

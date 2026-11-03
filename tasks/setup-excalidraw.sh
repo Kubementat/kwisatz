@@ -31,7 +31,7 @@
 #
 # IMPORTANT VARIABLES:
 #   HOST_PORT            - Host port for direct access (default: 5005)
-#   EXCALIDRAW_IMAGE     - Docker image tag to use (default: excalidraw/excalidraw:latest)
+#   EXCALIDRAW_IMAGE     - Docker image tag to use (default: versions.yml, key excalidraw)
 #   CONTAINER_NAME       - Container name (default: excalidraw)
 #   EXCALIDRAW_TRAEFIK   - Set to "true" to enable Traefik labels (default: false)
 #   EXCALIDRAW_DOMAIN    - Domain for Traefik routing (required when EXCALIDRAW_TRAEFIK=true)
@@ -60,12 +60,17 @@
 
 set -euo pipefail
 
+# Shared helpers (kw_image for the version defaults, health gate, …)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../lib/helpers.sh"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION — edit these variables before running
 # ─────────────────────────────────────────────────────────────────────────────
 
 HOST_PORT="${HOST_PORT:-5005}"                  # Host port for direct access
-EXCALIDRAW_IMAGE="${EXCALIDRAW_IMAGE:-excalidraw/excalidraw:latest}"  # Docker image to use
+EXCALIDRAW_IMAGE="${EXCALIDRAW_IMAGE:-$(kw_image excalidraw)}"  # Docker image to use
 CONTAINER_NAME="${CONTAINER_NAME:-excalidraw}"
 
 # Traefik reverse-proxy integration (opt-in)
@@ -108,7 +113,7 @@ Options:
 
 Environment variables (all optional):
   HOST_PORT           Host port for direct access (default: 5005)
-  EXCALIDRAW_IMAGE    Docker image tag to use (default: excalidraw/excalidraw:latest)
+  EXCALIDRAW_IMAGE    Docker image tag to use (default: $(kw_image excalidraw))
   CONTAINER_NAME      Container name (default: excalidraw)
   EXCALIDRAW_TRAEFIK  Set to "true" to enable Traefik labels (default: false)
   EXCALIDRAW_DOMAIN   Domain for Traefik routing (required when EXCALIDRAW_TRAEFIK=true)
@@ -155,10 +160,7 @@ fi
 success "Docker $(docker --version | awk '{print $3}' | tr -d ',') detected and running."
 
 # Traefik pre-flight (only when opt-in)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "$EXCALIDRAW_TRAEFIK" == "true" ]]; then
-  # shellcheck disable=SC1091
-  source "${SCRIPT_DIR}/../lib/helpers.sh"
   ensure_proxy_network
   if [[ -z "$EXCALIDRAW_DOMAIN" ]]; then
     error "EXCALIDRAW_DOMAIN must be set when EXCALIDRAW_TRAEFIK=true."
