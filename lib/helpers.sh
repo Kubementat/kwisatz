@@ -410,6 +410,12 @@ fi
 #   Reads with the system python3 + PyYAML (`python3 -I`, no venv). A missing
 #   file, key, field or PyYAML prints an error and returns 1. KW_VERSIONS_FILE
 #   points at another file (tests).
+#
+#   A user file layered over it — ${KW_VERSIONS_OVERRIDE:-$KWISATZ_CONFIG_DIR/versions.yml},
+#   when it exists — is SPARSE: only the entries/fields the user changed, merged per key and
+#   per field over the default. An override of `version` without `digest` drops the default's
+#   digest (it pinned the old version). A key the default lacks is an error naming the file.
+#   Precedence stays: task override variable > user versions.yml > bundled versions.yml.
 # ---------------------------------------------------------------------------
 _KW_VERSIONS_DEFAULT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/versions.yml"
 
@@ -417,21 +423,39 @@ if ! declare -F kw_pin > /dev/null 2>&1; then
   kw_pin() {
     local key="${1:-}" field="${2:-version}"
     [[ -n "$key" ]] || { err_msg "kw_pin: no key given"; return 1; }
-    python3 -I - "${KW_VERSIONS_FILE:-$_KW_VERSIONS_DEFAULT}" "$key" "$field" <<'PY'
+    python3 -I - "${KW_VERSIONS_FILE:-$_KW_VERSIONS_DEFAULT}" "$key" "$field" \
+      "${KW_VERSIONS_OVERRIDE:-${KWISATZ_CONFIG_DIR:+$KWISATZ_CONFIG_DIR/versions.yml}}" <<'PY'
+import os
 import sys
-path, key, field = sys.argv[1:]
+path, key, field, override = sys.argv[1:]
 try:
     import yaml
 except ImportError:
     sys.exit("[ERROR] kw_pin: PyYAML is missing — sudo apt-get install -y python3-yaml (setup-basics installs it)")
-try:
-    with open(path) as handle:
-        data = yaml.safe_load(handle) or {}
-except (OSError, yaml.YAMLError) as e:
-    sys.exit(f"[ERROR] kw_pin: cannot read {path}: {e}")
+def load(p):
+    try:
+        with open(p) as handle:
+            return yaml.safe_load(handle) or {}
+    except (OSError, yaml.YAMLError) as e:
+        sys.exit(f"[ERROR] kw_pin: cannot read {p}: {e}")
+data = load(path)
 entry = data.get(key)
 if not isinstance(entry, dict):
     sys.exit(f"[ERROR] kw_pin: no entry '{key}' in {path}")
+if override and os.path.isfile(override):
+    # the user file is sparse: per key and per field over the default; a key the default does
+    # not know is a typo, and silently ignoring it would pin nothing
+    user = load(override)
+    unknown = sorted(str(k) for k in user if k not in data)
+    if unknown:
+        sys.exit(f"[ERROR] kw_pin: {override} overrides unknown component(s): {', '.join(unknown)}"
+                 " — kwisatz versions unset <component>")
+    part = user.get(key)
+    if isinstance(part, dict):
+        entry = {**entry, **part}
+        # a digest belongs to the version it was pinned with
+        if "version" in part and "digest" not in part:
+            entry.pop("digest", None)
 if field == "image":
     value = f"{entry['package']}:{entry['version']}"
     if entry.get("digest"):
