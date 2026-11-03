@@ -28,6 +28,7 @@ from . import logs as logsio
 from . import plan as planner
 from . import repo as repoio
 from . import services as serviceio
+from . import versions as versionio
 from .errors import EXIT_CODES, CliError, Exit, config_error, usage
 from .output import Out
 from .repo import Repo
@@ -252,6 +253,31 @@ COMMANDS: tuple[CommandSpec, ...] = (
         milestone="M2",
     ),
     CommandSpec(
+        "versions",
+        "the pinned upstream versions, and your overrides of them",
+        "the bundled versions.yml is the default; <config dir>/versions.yml holds only the pins you "
+        "changed (per component, per field) and wins over it. A task's own override variable "
+        "(`FORGEJO_IMAGE`, `env:` in the config, `apply --env`) still wins over both.",
+        subcommands=(
+            CommandSpec("list", "every effective pin and whether it is the default or yours"),
+            CommandSpec(
+                "set",
+                "pin a component to another version in your override file",
+                args=(("COMPONENT", "a key of the bundled versions.yml"), ("VALUE", "the version (or digest, image) to pin")),
+                flags=(Flag(("--field",), "version (default) | image | digest", "<field>"),),
+                mutates=True,
+            ),
+            CommandSpec(
+                "unset",
+                "drop your override of a component",
+                args=(("COMPONENT", "the component"),),
+                mutates=True,
+            ),
+            CommandSpec("check", "which effective pins have a newer upstream release (needs docker)"),
+        ),
+        mutates=True,
+    ),
+    CommandSpec(
         "run",
         "run a task script with arguments the CLI never parses",
         # the `--` rule sits here because it is what the parser cannot enforce for you:
@@ -284,6 +310,7 @@ HANDLERS = {
     "logs": "cmd_logs",
     "state": "cmd_state",
     "models": "cmd_models",
+    "versions": "cmd_versions",
     "run": "cmd_run",
 }
 
@@ -800,6 +827,7 @@ def cmd_doctor(app: App) -> int:
         app.warnings.extend(planner.check_prerequisite_order(list(app.plan.enabled), config, table["requires"]))
         app.warnings.extend(checks.fact_advisories(list(app.plan.enabled), table))
 
+    app.warnings.extend(_version_override_warnings(repo))
     running = serviceio.discover(names)
     conflicts = checks.port_conflicts(config, running) if config is not None else []
     broken = serviceio.unhealthy(running)
@@ -842,6 +870,22 @@ def cmd_doctor(app: App) -> int:
     if code and not app.out.json:
         app.out.note("kwisatz doctor --json lists every check and the exact fix")
     return code
+
+
+def _version_override_warnings(repo: Repo) -> list[str]:
+    """Stale and unknown pins in the user's versions.yml, for doctor."""
+    path = versionio.user_file()
+    try:
+        default, user = versionio.load(repo.path / "versions.yml"), versionio.load(path)
+    except CliError as e:
+        return [e.message]
+    found = [f"{path}: overrides unknown component '{k}' — kwisatz versions unset {k}" for k in versionio.unknown(default, user)]
+    found += [
+        f"{r['component']}: your pin {r['version']} is older than the bundled {r['default_version']} — "
+        f"kwisatz versions unset {r['component']} to follow the bundled default"
+        for r in versionio.rows(default, user) if r["stale"]
+    ]
+    return found
 
 
 def cmd_commands(app: App) -> int:
@@ -1366,6 +1410,119 @@ def _catalog_summary(path: Path) -> dict:
     providers = doc.get("providers") or []
     names = [str(m.get("name")) for p in providers if isinstance(p, dict) for m in (p.get("models") or []) if isinstance(m, dict)]
     return {"path": str(path), "providers": len(providers), "models": len(names), "names": names}
+
+
+def cmd_versions(app: App) -> int:
+    """The effective pins (bundled default under the user's sparse override) and how to change them."""
+    repo = app.repo_dir()
+    user_path = versionio.user_file()
+    default = versionio.load(repo.path / "versions.yml")
+    user = versionio.load(user_path)
+    verb = getattr(app.args, "subcommand", None)
+    if verb in ("set", "unset"):
+        return _versions_write(app, repo, default, user_path, verb)
+    wrong = versionio.unknown(default, user)
+    rows = versionio.rows(default, user)
+    if verb == "check":
+        return _versions_check(app, repo, default, user, wrong)
+    app.result = {"versions": rows, "override_file": str(user_path) if user_path else None, "unknown": wrong}
+    if not app.out.json:
+        width = max((len(r["component"]) for r in rows), default=0)
+        for r in rows:
+            note = "  (yours, older than the bundled " + r["default_version"] + ")" if r["stale"] else (
+                "  (yours)" if r["source"] == "user" else "")
+            app.out.result(f"{r['component']:<{width}}  {r['version']}{note}")
+        for name in wrong:
+            app.out.warning(f"{user_path}: overrides unknown component '{name}' — kwisatz versions unset {name}")
+    return Exit.OK
+
+
+def _versions_write(app: App, repo: Repo, default: dict, user_path: Path | None, verb: str) -> int:
+    if user_path is None:
+        raise usage(
+            "this checkout has no override file — edit versions.yml in the checkout (Renovate maintains it)",
+            hint="set KWISATZ_HOME, or use kwisatz from `uv tool install kwisatz`",
+        )
+    name = app.args.component
+    if verb == "set" and name not in default:
+        raise usage(f"unknown component '{name}'", hint="kwisatz versions list")
+    field_name = "version"
+    if verb == "set":
+        raw_field = getattr(app.args, "field", None) or "version"
+        field_name = versionio.FIELD_ALIASES.get(raw_field, raw_field)
+        if field_name not in versionio.FIELDS:
+            raise usage(f"--field must be one of version, image, digest — got '{raw_field}'")
+        value = str(app.args.value).strip()
+        if not value:
+            raise usage("the value to pin is empty")
+    repo.ensure_work()
+    with repoio.held(repo, float(getattr(app.args, "lock_timeout", 0) or 0)):
+        doc = configio._yml().load(user_path.read_text()) if user_path.is_file() else None
+        if doc is None:
+            doc = configio._map()
+        if verb == "set":
+            from ruamel.yaml.scalarstring import DoubleQuotedScalarString
+
+            if not isinstance(doc.get(name), dict):
+                doc[name] = configio._map()
+            doc[name][field_name] = DoubleQuotedScalarString(value)
+            if field_name == "version" and default[name].get("digest") and "digest" not in doc[name]:
+                app.warn(f"{name}: the bundled digest does not apply to {value}; kwisatz drops it "
+                         f"(pin one with --field digest)")
+        else:
+            if name not in doc:
+                raise usage(f"no override of '{name}' in {user_path}", hint="kwisatz versions list")
+            del doc[name]
+        user_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        configio.dump(doc, user_path, backup=configio.backup_path(repo.work, user_path))
+    rows = [r for r in versionio.rows(default, versionio.load(user_path)) if r["component"] == name]
+    app.result = {"component": name, "override_file": str(user_path), "action": verb, "pin": rows[0] if rows else None}
+    app.out.ok(f"{name}: " + (f"{field_name} pinned to {value} in {user_path}" if verb == "set"
+                              else f"override removed from {user_path}"))
+    return Exit.OK
+
+
+def _versions_check(app: App, repo: Repo, default: dict, user: dict, wrong: list[str]) -> int:
+    """Run the bundled utilities/check-versions.sh (Renovate lookup) against the effective pins."""
+    script = repo.path / "utilities" / "check-versions.sh"
+    if not script.is_file():
+        raise CliError(Exit.PREREQUISITE, f"{script}: the lookup script is missing")
+    if wrong:
+        raise CliError(Exit.CONFIG, f"overrides of unknown components: {', '.join(wrong)}", hint="kwisatz versions unset <component>")
+    if not shutil.which("docker"):
+        raise CliError(Exit.PREREQUISITE, "versions check runs Renovate in docker, and docker is not installed")
+    import tempfile
+
+    import yaml
+
+    with tempfile.TemporaryDirectory() as tmp:
+        merged = Path(tmp) / "versions.yml"
+        merged.write_text(yaml.safe_dump(versionio.effective(default, user), sort_keys=True))
+        app.out.progress("looking up upstream releases (this pulls the Renovate image)")
+        done = subprocess.run(
+            ["bash", str(script), "--json"],
+            capture_output=True, text=True, check=False, timeout=900,
+            env={**os.environ, "KW_CHECK_VERSIONS_FILE": str(merged)},
+        )
+    if done.returncode != 0:
+        raise CliError(Exit.TASK_FAILED, "the version lookup failed: " + (done.stderr.strip().splitlines() or ["no output"])[-1])
+    try:
+        deps = json.loads(done.stdout)
+    except ValueError as e:
+        raise CliError(Exit.TASK_FAILED, f"the version lookup printed no JSON ({e})") from e
+    outdated = [
+        {"component": d["depName"], "current": d.get("currentValue", ""),
+         "newer": [u.get("newValue") for u in d.get("updates", []) if u.get("newValue")]}
+        for d in deps if d.get("updates") and not d.get("skipReason")
+    ]
+    outdated = [o for o in outdated if o["newer"]]
+    app.result = {"outdated": sorted(outdated, key=lambda o: o["component"]), "checked": len(deps)}
+    if not app.out.json:
+        for o in app.result["outdated"]:
+            app.out.result(f"{o['component']}  {o['current']}  ->  {', '.join(o['newer'])}")
+        if not outdated:
+            app.out.ok(f"all {len(deps)} pins are up to date")
+    return Exit.OK
 
 
 def cmd_run(app: App) -> int:
