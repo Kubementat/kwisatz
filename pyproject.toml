@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kwisatz"
-version = "1.2.0"
+dynamic = ["version"]
 description = "One command for a kwisatz-managed machine: apply, status, list, info, doctor."
 requires-python = ">=3.10"
 dependencies = [
@@ -18,6 +18,9 @@ kwisatz = "kwisatz.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.hatch.version]
+path = "src/kwisatz/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kwisatz"]

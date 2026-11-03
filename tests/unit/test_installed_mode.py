@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 
@@ -110,3 +111,43 @@ def test_task_env_names_the_config_dir_in_installed_mode(installed, monkeypatch)
     monkeypatch.setattr(cli, "cmd_doctor", lambda app: 0)
     assert cli.main(["init", "--json"]) == 0
     assert os.environ.pop("KWISATZ_CONFIG_DIR") == str(installed[1] / "cfg" / "kwisatz")
+
+
+def test_install_is_a_noop_in_installed_mode(installed, monkeypatch, capsys):
+    monkeypatch.chdir(installed[2])
+    assert cli.main(["install", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["result"]["installed"] is True
+
+
+def test_init_import_validates_then_copies(installed, monkeypatch, tmp_path):
+    payload, home, work = installed
+    monkeypatch.chdir(work)
+    monkeypatch.setattr(cli, "cmd_doctor", lambda app: 0)
+    (payload / "tasks" / "stub-a.sh").write_text("#!/bin/sh\n")
+    bad = tmp_path / "bad.yml"
+    bad.write_text("nothing: here\n")
+    assert cli.main(["init", "--import", str(bad), "--json"]) == 3
+    good = tmp_path / "good.yml"
+    good.write_text("scripts:\n  stub-a:\n    enabled: true\n")
+    assert cli.main(["init", "--import", str(good), "--json"]) == 0
+    assert (home / "cfg" / "kwisatz" / "machine-config.yml").read_text() == good.read_text()
+
+
+def test_envelope_reports_mode_and_locations(installed, monkeypatch, capsys):
+    monkeypatch.chdir(installed[2])
+    cli.main(["install", "--json"])
+    repo = json.loads(capsys.readouterr().out)["repo"]
+    assert repo["mode"] == "installed"
+    assert repo["config_dir"] == str(installed[1] / "cfg" / "kwisatz")
+    assert repo["state"] == str(installed[1] / "state" / "kwisatz")
+
+
+def test_the_version_has_one_source():
+    import re
+
+    import tomllib
+
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    assert "version" in project["project"]["dynamic"]
+    assert project["tool"]["hatch"]["version"]["path"] == "src/kwisatz/__init__.py"
+    assert re.search(r'^__version__ = "', (REPO_ROOT / "src/kwisatz/__init__.py").read_text(), re.M)

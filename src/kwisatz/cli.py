@@ -98,7 +98,7 @@ GLOBAL_FLAGS: tuple[Flag, ...] = (
 COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec(
         "install",
-        "make `kwisatz` available on PATH for this user",
+        "make `kwisatz` available on PATH for this user (deprecated: uv tool install kwisatz)",
         "syncs the project venv, writes ~/.local/bin/kwisatz and the config file that records "
         "the checkout. uv must already be installed — kwisatz does not download and run an "
         "installer on its own, but `--with-uv <version>` will (pinned official installer, and "
@@ -116,6 +116,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
         flags=(
             Flag(("--from-example",), "base | inference", "<which>"),
             Flag(("--force",), "overwrite an existing machine-config.yml"),
+            Flag(("--import",), "copy this existing machine-config.yml in instead of an example", "<file>"),
         ),
         mutates=True,
     ),
@@ -783,6 +784,7 @@ def cmd_info(app: App) -> int:
         "prerequisites": prerequisites,
         "help_excerpt": help_excerpt,
         "last_apply": (state.read(repo, target.name, 1) or [{}])[0],
+        "version": __version__,
     }
     if not app.out.json:
         app.out.result(target.name)
@@ -828,6 +830,9 @@ def cmd_doctor(app: App) -> int:
         app.warnings.extend(checks.fact_advisories(list(app.plan.enabled), table))
 
     app.warnings.extend(_version_override_warnings(repo))
+    if repo.mode == "installed" and os.geteuid() == 0:
+        app.warn(f"running as root: config is read from {repo.config_dir} and state goes under {repoio.state_home()}, "
+                 "not your user's — run kwisatz as your own user (it uses sudo itself)")
     running = serviceio.discover(names)
     conflicts = checks.port_conflicts(config, running) if config is not None else []
     broken = serviceio.unhealthy(running)
@@ -848,10 +853,14 @@ def cmd_doctor(app: App) -> int:
         "unhealthy": [s.as_dict() for s in broken],
         "prerequisites": checks.load_prerequisites(),
         "ok": code == Exit.OK,
+        "version": __version__,
         "missing": [c.name for c in missing],
         "doctor_exit_code": code,
     }
-    app.out.progress(f"kwisatz {__version__} · repo {repo.path} ({repo.branch or 'no branch'} {repo.git_sha})")
+    if repo.mode == "installed":
+        app.out.progress(f"kwisatz {__version__} · installed · config {repo.config_dir} · state {repo.work}")
+    else:
+        app.out.progress(f"kwisatz {__version__} · repo {repo.path} ({repo.branch or 'no branch'} {repo.git_sha})")
     for check in found:
         detail = f"{check.name}: {check.detail}" if check.detail else check.name
         if check.ok:
@@ -908,6 +917,11 @@ def cmd_commands(app: App) -> int:
 def cmd_install(app: App) -> int:
     """R-INS-001: put `kwisatz` on PATH for this user, and touch nothing else."""
     repo = app.repo_dir()
+    if repo.mode == "installed":
+        app.result = {"installed": True, "version": __version__, "config_dir": str(repo.config_dir)}
+        app.out.ok(f"kwisatz {__version__} is already installed (uv tool install kwisatz); nothing to do")
+        return Exit.OK
+    app.warn("`kwisatz install` is deprecated: `uv tool install kwisatz` replaces it (removal only in a future major)")
     pin = getattr(app.args, "with_uv", None)
     if shutil.which("uv") is None:
         if not pin:
@@ -976,7 +990,15 @@ def cmd_init(app: App) -> int:
     source = repo.path / (
         "machine-config-inference.yml.example" if which == "inference" else "machine-config.yml.example"
     )
-    if not source.is_file():
+    imported = getattr(app.args, "import", None)
+    if imported:  # migrating a checkout's config: validate it the way `config validate` would first
+        source = Path(imported).expanduser().resolve()
+        if not source.is_file():
+            raise CliError(Exit.CONFIG, f"{source}: no such file to import")
+        found = configio.problems(source, repo.path)
+        if found:
+            raise CliError(Exit.CONFIG, f"{source}: not importable — {found[0]}", hint="kwisatz config validate -c " + str(source))
+    elif not source.is_file():
         raise CliError(Exit.CONFIG, f"{source}: the example config is missing", hint=f"repo {repo.path}")
 
     created = False
