@@ -16,7 +16,10 @@
 #        In the default mode each run is ./kwisatz apply <target>, so the task executes
 #        inside a pyinfra deploy of the copied checkout — the command an operator or an
 #        agent uses. "--mode script" keeps the old behaviour of running tasks/<name>.sh
-#        directly, which is the documented escape hatch.
+#        directly, which is the documented escape hatch. "--mode uvx" / "--mode tool"
+#        test installed mode: the host builds the wheel, only the wheel is copied (no
+#        checkout on the VM), and each case is `uvx --from <wheel> kwisatz apply` or,
+#        after `uv tool install <wheel>`, `kwisatz apply`.
 #     4. Destroy the test VM (virt-runner destroy) — unless --keep-vm
 #     5. Write a Markdown test report to tests/reports/vmtest-<ts>/report.md
 #
@@ -28,7 +31,8 @@
 #                      the enabled set in the test config, env/args for each
 #                      script are still taken from the test config)
 #   --mode MODE        cli (default) = drive ./kwisatz apply <target>; script = run
-#                      tasks/<name>.sh directly (the fallback path)
+#                      tasks/<name>.sh directly (the fallback path); uvx | tool =
+#                      installed mode from a freshly built wheel, no checkout on the VM
 #   --config FILE      Test config file (default: tests/machine-config.test.yml)
 #   --release REL      Ubuntu release codename (default: resolute)
 #   --ram GB           VM RAM in GiB (default: 4)
@@ -98,8 +102,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$MODE" != "cli" && "$MODE" != "script" ]]; then
-  echo "run-vm-tests.sh: --mode must be cli or script, got: $MODE" >&2
+if [[ "$MODE" != "cli" && "$MODE" != "script" && "$MODE" != "uvx" && "$MODE" != "tool" ]]; then
+  echo "run-vm-tests.sh: --mode must be cli, script, uvx or tool, got: $MODE" >&2
   exit 2
 fi
 
@@ -261,6 +265,17 @@ log "VM ready: ${VM_NAME} at ${VM_IP}"
 REMOTE_HOME="$(remote_ssh 'echo "$HOME"')"
 [[ -n "$REMOTE_HOME" ]] || fail "cannot determine remote home directory"
 REMOTE_DIR="${REMOTE_HOME}/kwisatz"
+REMOTE_WHEEL=""
+if [[ "$MODE" == "uvx" || "$MODE" == "tool" ]]; then
+  # Installed mode: the wheel is the only thing the VM gets — no checkout, on purpose.
+  log "Building the wheel and copying it (only it) to the VM"
+  uv build --wheel --project "$REPO_ROOT" -o "$REPORT_DIR/dist" > "$REPORT_DIR/build.log" 2>&1 \
+    || fail "uv build failed — see $REPORT_DIR/build.log"
+  wheel="$(ls "$REPORT_DIR"/dist/kwisatz-*.whl)"
+  REMOTE_WHEEL="${REMOTE_HOME}/$(basename "$wheel")"
+  scp "${SSH_OPTS[@]}" "$wheel" "${VM_USER}@${VM_IP}:${REMOTE_WHEEL}" > "$REPORT_DIR/scp.log" 2>&1 \
+    || fail "cannot copy the wheel to the VM — see $REPORT_DIR/scp.log"
+else
 log "Copying repository to ${VM_USER}@${VM_IP}:${REMOTE_DIR}"
 remote_ssh "mkdir -p '${REMOTE_DIR}'" || fail "cannot create remote dir"
 if ! scp "${SSH_OPTS[@]}" -r "${REPO_ROOT}/." "${VM_USER}@${VM_IP}:${REMOTE_DIR}/" \
@@ -276,6 +291,7 @@ fi
 log "Dropping the copied .venv / .kwisatz so the VM builds its own"
 remote_ssh "rm -rf '${REMOTE_DIR}/.venv' '${REMOTE_DIR}/.kwisatz'" \
   || log "WARN: could not clean .venv/.kwisatz on the VM — the precheck may need to be re-run"
+fi
 
 # Explicit copy of the active test config (may be generated outside the repo)
 readonly TEST_CONFIG_REMOTE="/tmp/test-config.yml"
@@ -302,9 +318,14 @@ if ! scp "${SSH_OPTS[@]}" "${SCRIPT_DIR}/remote/run-tests.sh" \
       "${VM_USER}@${VM_IP}:/tmp/run-tests.sh" > /dev/null 2>&1; then
   fail "cannot copy run-tests.sh to VM"
 fi
+if [[ -n "$REMOTE_WHEEL" ]]; then
+  SOURCE_ARG="--wheel '${REMOTE_WHEEL}'"
+else
+  SOURCE_ARG="--workdir '${REMOTE_DIR}'"
+fi
 remote_ssh "bash /tmp/run-tests.sh \
     --config '${TEST_CONFIG_REMOTE}' \
-    --workdir '${REMOTE_DIR}' \
+    ${SOURCE_ARG} \
     --out '/tmp/vmtest' \
     --mode '${MODE}' \
     --timeout '${TIMEOUT_MIN}'" \
@@ -384,6 +405,10 @@ write_report() {
     echo "- **Per-script timeout:** ${TIMEOUT_MIN}m"
     if [[ "${MODE}" == "cli" ]]; then
       echo "- **How it ran:** \`./kwisatz apply <target>\` — one pyinfra deploy per target"
+    elif [[ "${MODE}" == "uvx" ]]; then
+      echo "- **How it ran:** \`uvx --from <wheel> kwisatz apply <target>\` — installed mode, no checkout on the VM"
+    elif [[ "${MODE}" == "tool" ]]; then
+      echo "- **How it ran:** \`uv tool install <wheel>\`, then \`kwisatz apply <target>\` — installed mode, no checkout on the VM"
     else
       echo "- **How it ran:** \`tasks/<name>.sh\` directly (fallback mode, no CLI in the loop)"
     fi
