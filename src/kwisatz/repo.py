@@ -327,4 +327,12 @@ def _utcnow() -> str:
 
 
 def repo_dict(repo: Repo) -> dict:
-    return {"path": str(repo.path), "git_sha": repo.git_sha, "branch": repo.branch}
+    return {
+        "path": str(repo.path),
+        "git_sha": repo.git_sha,
+        "branch": repo.branch,
+        "mode": repo.mode,
+        "payload": str(repo.payload),
+        "config_dir": str(repo.config_dir),
+        "state": str(repo.work),
+    }
