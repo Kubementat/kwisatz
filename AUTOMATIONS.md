@@ -7,7 +7,8 @@ E.g. `./tasks/setup-basics.sh --help`
 Every upstream version the tasks install (images, GitHub releases, PyPI packages, git
 commits) is pinned in [`versions.yml`](versions.yml); the scripts read their defaults from it
 (`kw_image` / `kw_version` / `kw_pin` in `lib/helpers.sh`) and every `*_IMAGE` / `*_VERSION`
-override still wins. `utilities/check-versions.sh` lists what is outdated; `setup-renovate.sh`
+override still wins; an installed kwisatz (`uvx kwisatz`) layers a sparse user `versions.yml`
+from its config dir over them (`kwisatz versions`). `utilities/check-versions.sh` lists what is outdated; `setup-renovate.sh`
 opens the bump PRs.
 
 To install one of them, prefer the CLI over the bare script — it applies the config's

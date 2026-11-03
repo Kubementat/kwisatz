@@ -25,6 +25,10 @@
 - **template** — configuration file templates in `templates/` that get converted/rendered into actual config files for installed services/tools
 - **idempotent** — safe to re-execute (no data loss on repeated runs)
 - **version pin** — the exact upstream version (image tag/digest, release, PyPI version, commit) a task installs by default; every pin lives in `versions.yml` and is read with `kw_image` / `kw_version` / `kw_pin` from `lib/helpers.sh`
+- **payload** — the read-only tree kwisatz runs from: `tasks/`, `lib/`, `templates/`, `deploy.py`, `versions.yml`, the `*.example` files. In a checkout it is the repo root; installed, it is `kwisatz/payload/` inside the wheel
+- **installed mode** — kwisatz run from `uvx kwisatz` / `uv tool install kwisatz` instead of a checkout; the payload is read-only, user files live in the **config dir**
+- **config dir** — where the user's own files live: `$KWISATZ_HOME`, else `${XDG_CONFIG_HOME:-~/.config}/kwisatz/` (the repo root in a checkout); passed to every task as `KWISATZ_CONFIG_DIR`
+- **version override** — the sparse `versions.yml` in the config dir; only the pins the user changed, merged per key and field over the bundled one (`kwisatz versions set|unset`)
 - **HELD pin** — a version pin Renovate must not move past a major, because the next one breaks persisted data (postgres data dirs, Nextcloud's one-major-at-a-time rule); marked `# HELD` in `versions.yml` and mirrored by an `allowedVersions` rule in `renovate.json`
 
 ### AI/ML
