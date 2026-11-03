@@ -373,7 +373,7 @@ check_status() {
   strix_status_engine_image "$GUFO_IMAGE"
   strix_status_disk "$HF_CACHE_DIR" "$STRIX_FLASH_MIN_FREE_GB"
   echo
-  strix_status_catalog "${REPO_ROOT}/models.yml" "$GUFO_MODEL_NAME"
+  strix_status_catalog "$(kw_config_file models.yml)" "$GUFO_MODEL_NAME"
   strix_status_llama_swap_entry "${LLAMA_SWAP_DIR}/config/config.yaml" "$GUFO_MODEL_NAME"
   strix_status_llama_swap_writable "${LLAMA_SWAP_DIR}/config/config.yaml"
   strix_status_container "$GUFO_CONTAINER"
@@ -546,7 +546,7 @@ strix_checkpoint_revision_recheck "${STATE_DIR}/prepared" "$GUFO_MODEL_REPO"
 # ── 9. Catalog ───────────────────────────────────────────────────────────────
 # shellcheck disable=SC2016  # envsubst expects the literal variable list
 strix_merge_model_entry "${TEMPLATE_DIR}/models-entry.yml" \
-  "${REPO_ROOT}/models.yml" "${REPO_ROOT}/models.yml.default" \
+  "$(kw_config_file models.yml)" "${REPO_ROOT}/models.yml.default" \
   "$GUFO_MODEL_NAME" "$FORCE" \
   '${PROJECT_DIR} ${STATE_DIR} ${HF_CACHE_DIR} ${GUFO_MODEL_CACHE_NAME} ${GUFO_PORT} ${LLAMA_SWAP_PORT}
    ${GUFO_MODEL_NAME} ${GUFO_CONTAINER_NAME} ${GUFO_CONTEXT_WINDOW} ${GUFO_MAX_TOKENS}' \

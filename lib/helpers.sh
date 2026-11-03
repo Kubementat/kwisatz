@@ -380,6 +380,22 @@ if ! declare -F env_file_write > /dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
+# kw_config_file — where a user-owned file (models.yml, gateway.yml, …) lives
+#
+#   kw_config_file <name>   prints $KWISATZ_CONFIG_DIR/<name> when kwisatz runs
+#                           installed (`uvx kwisatz`, `uv tool install`), else
+#                           <repo root>/<name> — the path every checkout used
+#                           before. The payload (tasks/, lib/, *.default,
+#                           *.example) is read-only there, so a task must never
+#                           write into its own repo root.
+# ---------------------------------------------------------------------------
+if ! declare -F kw_config_file > /dev/null 2>&1; then
+  kw_config_file() {
+    printf '%s/%s\n' "${KWISATZ_CONFIG_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}" "${1:?kw_config_file: no name given}"
+  }
+fi
+
+# ---------------------------------------------------------------------------
 # Version pins — versions.yml at the repo root (one file, kept current by Renovate)
 #
 #   kw_pin     <key> [field]   prints one field of an entry (default: version)
