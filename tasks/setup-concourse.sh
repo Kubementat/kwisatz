@@ -310,25 +310,27 @@ success "Directories created."
 
 step "Generating RSA key pairs for TSA authentication"
 
-# Generate keys only if they don't exist (idempotent)
+# Generate keys only if they don't exist (idempotent). keys/ is root-only (700,
+# set below), so the existence checks run as root — a plain [[ -f ]] as the
+# invoking user sees nothing on a re-run and ssh-keygen stops at its overwrite prompt.
 # ssh-keygen is used (not openssl) to produce the OpenSSH key format Concourse requires
-if [[ ! -f "${CONCOURSE_HOME}/keys/web/tsa_host_key" ]]; then
+if ! sudo test -f "${CONCOURSE_HOME}/keys/web/tsa_host_key"; then
   info "Generating TSA host key pair..."
   sudo ssh-keygen -t rsa -b 4096 -m PEM -f "${CONCOURSE_HOME}/keys/web/tsa_host_key" -N ""
 fi
 
-if [[ ! -f "${CONCOURSE_HOME}/keys/web/session_signing_key" ]]; then
+if ! sudo test -f "${CONCOURSE_HOME}/keys/web/session_signing_key"; then
   info "Generating session signing key pair..."
   sudo ssh-keygen -t rsa -b 4096 -m PEM -f "${CONCOURSE_HOME}/keys/web/session_signing_key" -N ""
 fi
 
-if [[ ! -f "${CONCOURSE_HOME}/keys/worker/worker_key" ]]; then
+if ! sudo test -f "${CONCOURSE_HOME}/keys/worker/worker_key"; then
   info "Generating worker key pair..."
   sudo ssh-keygen -t rsa -b 4096 -m PEM -f "${CONCOURSE_HOME}/keys/worker/worker_key" -N ""
 fi
 
 # Create authorized_worker_keys (copy of worker public key)
-if [[ ! -f "${CONCOURSE_HOME}/keys/web/authorized_worker_keys" ]]; then
+if ! sudo test -f "${CONCOURSE_HOME}/keys/web/authorized_worker_keys"; then
   sudo cp "${CONCOURSE_HOME}/keys/worker/worker_key.pub" \
      "${CONCOURSE_HOME}/keys/web/authorized_worker_keys"
 fi

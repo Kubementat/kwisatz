@@ -31,7 +31,8 @@
 #   --help    Display this help message
 #
 # Environment Variables (all optional):
-#   ORCA_VERSION          Release tag or 'latest' (default: versions.yml key orca)
+#   ORCA_VERSION          Release tag (vX.Y.Z) or 'latest' (default: versions.yml
+#                         key orca); any other value is ignored with a warning
 #   ORCA_PORT             serve listen port (default: 6768)
 #   ORCA_PAIRING_ADDRESS  Address clients should dial — Tailscale/LAN IP or
 #                         hostname, or a full https://…/runtime reverse-proxy
@@ -67,6 +68,14 @@ source "${LIB_PATH}" || {
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+# Orca's own terminals export ORCA_VERSION (an internal build id such as
+# 0.1.0+17ab00fcbb7f), so running this script from one must not read it as a
+# release override: only 'latest' or a release tag (vX.Y.Z) counts as one.
+if [[ -n "${ORCA_VERSION:-}" && "${ORCA_VERSION}" != "latest" \
+      && ! "${ORCA_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  warn "Ignoring ORCA_VERSION='${ORCA_VERSION}': not 'latest' or a release tag (vX.Y.Z) — Orca terminals export their own ORCA_VERSION. Using the versions.yml pin."
+  ORCA_VERSION=""
+fi
 ORCA_VERSION="${ORCA_VERSION:-$(kw_version orca)}"
 : "${ORCA_PORT:=6768}"
 : "${ORCA_PAIRING_ADDRESS:=}"
@@ -99,7 +108,9 @@ Options:
   --help     Display this help message
 
 Environment Variables (all optional):
-  ORCA_VERSION          Release tag or 'latest' (default: $(kw_version orca))
+  ORCA_VERSION          Release tag (vX.Y.Z) or 'latest' (default: $(kw_version orca));
+                        any other value — e.g. the build id Orca's own terminals
+                        export as ORCA_VERSION — is ignored with a warning
   ORCA_PORT             serve listen port (default: 6768)
   ORCA_PAIRING_ADDRESS  Address clients should dial — Tailscale/LAN IP or
                         hostname, or a full https://…/runtime URL. Empty =

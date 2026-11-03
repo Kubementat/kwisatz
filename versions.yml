@@ -29,7 +29,7 @@
 agentsview:
   datasource: github-releases
   package: kenn-io/agentsview
-  version: "v0.44.0"
+  version: "v0.46.1"
 
 hermes:
   # release v0.21.5; the script installs the commit, Renovate compares tags
@@ -58,12 +58,12 @@ renovate:
 prometheus:
   datasource: docker
   package: prom/prometheus
-  version: "v3.13.2"
+  version: "v3.15.1"
 
 grafana:
   datasource: docker
   package: grafana/grafana
-  version: "13.1.1"
+  version: "13.3.0"
 
 node-exporter:
   datasource: docker
@@ -73,7 +73,7 @@ node-exporter:
 cadvisor:
   datasource: docker
   package: ghcr.io/google/cadvisor
-  version: "v0.60.5"
+  version: "v0.60.6"
 
 # ── postiz (setup-postiz) ─────────────────────────────────────────────────────
 
@@ -141,7 +141,7 @@ nextcloud-redis:
 synapse:
   datasource: docker
   package: matrixdotorg/synapse
-  version: "v1.164.0"
+  version: "v1.164.2"
 
 mas:
   datasource: docker
@@ -156,7 +156,7 @@ element:
 matrix-wellknown:
   datasource: docker
   package: nginx
-  version: "1.30-alpine"
+  version: "1.31-alpine"
 
 livekit:
   datasource: docker
@@ -244,7 +244,7 @@ n8n-postgres:
 concourse:
   datasource: docker
   package: concourse/concourse
-  version: "8.3.0"
+  version: "8.3.3"
 
 concourse-postgres:
   # HELD <16: the data volume is tied to the major, upgrade needs pg_upgrade
@@ -255,7 +255,7 @@ concourse-postgres:
 kestra:
   datasource: docker
   package: kestra/kestra
-  version: "v2.0.0"
+  version: "v2.0.8"
 
 kestra-postgres:
   # HELD <17: the data volume is tied to the major (Kestra docs: 16/17 data-dir issue)
@@ -274,7 +274,7 @@ opencode:
   # also the @opencode/cli npm version the script installs
   datasource: docker
   package: ghcr.io/anomalyco/opencode
-  version: "2.2.0"
+  version: "2.2.5"
 
 nvidia-smoke:
   # base image for the CDI smoke test (no CUDA needed)
@@ -416,7 +416,7 @@ orca:
   # was the floating "latest" until versions.yml
   datasource: github-releases
   package: stablyai/orca
-  version: "v1.4.244"
+  version: "v1.4.247"
 
 llama-swap:
   # was the floating "latest" until versions.yml

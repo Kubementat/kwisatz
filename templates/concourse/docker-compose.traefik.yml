@@ -80,6 +80,10 @@ services:
     stop_signal: SIGUSR2
     stop_grace_period: 60s
     environment:
+      # A fixed worker name: unset, it is the container hostname (= container
+      # id), so every recreate registered a new worker, left the old one stalled
+      # and failed report-volumes on duplicate volume handles.
+      - CONCOURSE_NAME=concourse-worker
       - CONCOURSE_TSA_HOST=concourse-web:2222
       - CONCOURSE_TSA_PUBLIC_KEY=/concourse-keys/web/tsa_host_key.pub
       - CONCOURSE_TSA_WORKER_PRIVATE_KEY=/concourse-keys/worker/worker_key
