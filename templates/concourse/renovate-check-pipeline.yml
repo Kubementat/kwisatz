@@ -6,7 +6,7 @@
 # check as utilities/check-versions.sh. Opens nothing, pushes nothing; the
 # build log ends with one line per entry (`key  current  →  latest`) and a
 # summary count. Runs daily (upstream releases are not commits) and on every
-# develop commit that touches versions.yml or renovate.json.
+# develop commit that touches versions.yml, renovate.json or the formatter.
 #
 # fly -t concourse set-pipeline -p renovate-check \
 #   -c renovate-check-pipeline.yml \
@@ -30,8 +30,11 @@ resources:
       uri: ((kwisatz_git_uri))
       branch: develop
       paths:
+        # everything the lookup reads; the checkout is the newest develop
+        # commit that touched one of them
         - versions.yml
         - renovate.json
+        - utilities/renovate-report.py
 
   - name: daily
     type: time
