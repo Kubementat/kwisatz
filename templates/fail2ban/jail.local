@@ -23,7 +23,7 @@ findtime = ${FAIL2BAN_FINDTIME}
 [sshd-ddos]
 enabled = true
 port = ${FAIL2BAN_SSHD_PORT},ssh
-filter = sshd-ddos
+filter = sshd[mode=ddos]
 backend = ${FAIL2BAN_BACKEND}
 logpath = ${FAIL2BAN_LOGPATH}
 maxretry = 3
@@ -33,7 +33,7 @@ findtime = 60
 [sshd-aggressive]
 enabled = false
 port = ${FAIL2BAN_SSHD_PORT},ssh
-filter = sshd-aggressive
+filter = sshd[mode=aggressive]
 backend = ${FAIL2BAN_BACKEND}
 logpath = ${FAIL2BAN_LOGPATH}
 maxretry = 2
