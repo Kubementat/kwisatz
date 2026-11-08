@@ -1,4 +1,36 @@
-# kwisatz - Private AI Server Setup Automation made easy
+<div align="center">
+
+<img src="docs/assets/kwisatz-header.svg" alt="kwisatz — Private AI on your own hardware: fresh Ubuntu box to private LLM inference server, two YAML files, one command" width="100%">
+
+# kwisatz — Private AI Server Setup Automation made easy
+
+**Your models. Your data. Your hardware.** Self-hosted LLM inference, agents and team tooling — no cloud API, no per-token bill, no prompts leaving your network.
+
+[![Release](https://img.shields.io/github/v/tag/Kubementat/kwisatz?sort=semver&label=release&style=flat-square&color=f59e0b)](https://github.com/Kubementat/kwisatz/tags)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](./MIT-LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/Kubementat/kwisatz?style=flat-square&color=0ea5e9)](https://github.com/Kubementat/kwisatz/commits)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-a855f7?style=flat-square)](#contributing)
+
+[![Private AI](https://img.shields.io/badge/Private_AI-100%25_self--hosted-ea580c?style=flat-square)](#how-it-works)
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-server_%26_desktop-E95420?style=flat-square&logo=ubuntu&logoColor=white)](#quick-start)
+[![NVIDIA CUDA](https://img.shields.io/badge/NVIDIA-CUDA_·_DGX_Spark-76B900?style=flat-square&logo=nvidia&logoColor=white)](#service-setup-scripts-tasks)
+[![AMD](https://img.shields.io/badge/AMD-Strix_Halo-ED1C24?style=flat-square&logo=amd&logoColor=white)](#service-setup-scripts-tasks)
+[![llama.cpp](https://img.shields.io/badge/llama.cpp-%2B_llama--swap-1f2937?style=flat-square)](#model-catalog--model-sync-sync-models)
+[![vLLM](https://img.shields.io/badge/vLLM-supported-1f2937?style=flat-square)](README_VLLM.md)
+
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![pyinfra](https://img.shields.io/badge/engine-pyinfra-0f172a?style=flat-square)](https://pyinfra.com)
+[![Docker](https://img.shields.io/badge/Docker-compose-2496ED?style=flat-square&logo=docker&logoColor=white)](#how-it-works)
+[![Traefik](https://img.shields.io/badge/Traefik-reverse_proxy-24A1C1?style=flat-square&logo=traefikproxy&logoColor=white)](README_TRAEFIK.md)
+[![ShellCheck](https://img.shields.io/badge/ShellCheck-clean-4EAA25?style=flat-square&logo=gnubash&logoColor=white)](AGENTS.md#linting)
+[![Renovate](https://img.shields.io/badge/pins-Renovate-1A1F6C?style=flat-square&logo=renovate&logoColor=white)](versions.yml)
+[![Agent Skills](https://img.shields.io/badge/Agent_Skills-ready-cc785c?style=flat-square&logo=claude&logoColor=white)](#quick-start-with-an-ai-agent)
+
+[Quick Start](#quick-start) · [Agent Quick Start](#quick-start-with-an-ai-agent) · [CLI](#using-the-kwisatz-cli) · [Configuration](#configuration) · [Services](#service-setup-scripts-tasks) · [Models](#model-catalog--model-sync-sync-models) · [Backups](#backups) · [FAQ](#troubleshooting--faq)
+
+</div>
+
+---
 
 > **New Ubuntu machine (e.g Nvidia DGX Spark, AMD Strix Halo) → working local-LLM inference server. Two YAML files. One command.**
 
@@ -42,6 +74,16 @@ graph LR
 - **Backup-solution** - ships with the repository (see [Backups](README.md#backups))
 - **Not just inference** — 50+ automations: Forgejo, Nextcloud, Matrix team chat ([README_MATRIX.md](README_MATRIX.md)), n8n, Postiz, Neovim, monitoring, remote desktop, mesh VPN for remote LAN access ([README_NETBIRD.md](README_NETBIRD.md)), Text-to-speech, dev tools, and more
 - Licensed under MIT License (see [MIT-LICENSE](./MIT-LICENSE))
+
+### Why private AI?
+
+| | Cloud AI API | **kwisatz** |
+|---|---|---|
+| Where your prompts, code and documents go | a third-party datacenter | **stays on your machine / LAN** |
+| Cost model | per token, forever | **hardware you already own** |
+| Model choice | what the vendor offers today | **any open-weight GGUF / vLLM model** |
+| Availability | vendor outages, rate limits, deprecations | **runs offline, pinned versions** |
+| Compliance (GDPR, NDA, air-gapped) | contracts and trust | **data never leaves your network** |
 
 ---
 

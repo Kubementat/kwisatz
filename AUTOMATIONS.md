@@ -8,8 +8,8 @@ Every upstream version the tasks install (images, GitHub releases, PyPI packages
 commits) is pinned in [`versions.yml`](versions.yml); the scripts read their defaults from it
 (`kw_image` / `kw_version` / `kw_pin` in `lib/helpers.sh`) and every `*_IMAGE` / `*_VERSION`
 override still wins; an installed kwisatz (`uvx kwisatz`) layers a sparse user `versions.yml`
-from its config dir over them (`kwisatz versions`). `utilities/check-versions.sh` lists what is outdated; `setup-renovate.sh`
-opens the bump PRs.
+from its config dir over them (`kwisatz versions`). `utilities/check-versions.sh` lists what is outdated (as a daily Concourse
+job: `templates/concourse/renovate-check-pipeline.yml`); `setup-renovate.sh` opens the bump PRs.
 
 To install one of them, prefer the CLI over the bare script — it applies the config's
 `env:`/`args:` and records the run: `kwisatz apply <name>` (`./kwisatz apply basics` also

@@ -37,6 +37,7 @@ packages = ["src/kwisatz"]
 "versions.yml" = "kwisatz/payload/versions.yml"
 "renovate.json" = "kwisatz/payload/renovate.json"
 "utilities/check-versions.sh" = "kwisatz/payload/utilities/check-versions.sh"
+"utilities/renovate-report.py" = "kwisatz/payload/utilities/renovate-report.py"
 "machine-config.yml.example" = "kwisatz/payload/machine-config.yml.example"
 "machine-config-inference.yml.example" = "kwisatz/payload/machine-config-inference.yml.example"
 "models.yml.example" = "kwisatz/payload/models.yml.example"

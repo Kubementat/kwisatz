@@ -33,6 +33,7 @@ def test_payload_files_are_present(wheel_names):
         "kwisatz/payload/machine-config.yml.example",
         "kwisatz/payload/models.yml.default",
         "kwisatz/payload/utilities/check-versions.sh",
+        "kwisatz/payload/utilities/renovate-report.py",
     ):
         assert any(n == needed or n.startswith(needed + "/") for n in wheel_names), needed
 
