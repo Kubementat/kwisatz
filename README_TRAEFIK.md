@@ -205,6 +205,16 @@ networks:
     external: true
 ```
 
+#### WebSocket services (example: Pi Pocket)
+
+Applications that open WebSockets alongside plain HTTP need no extra labels: Traefik
+proxies the upgrade request on the same router. `setup-pi-pocket.sh` is a working
+example — Pi Pocket serves the web UI and its session sockets on one port, and
+`traefik.http.routers.pipocket.*` (plain name, no dots or hyphens: Traefik splits
+label keys on `.`) is all the routing config it needs. If a WebSocket stream later
+fails with `426`/`502`, check the idle timeout behind a `transportName` on the
+router entry before inventing new label sets.
+
 ### Common Router Patterns
 
 #### Host-based routing

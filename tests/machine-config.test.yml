@@ -87,6 +87,16 @@ scripts:
     env: {}
     args: []
 
+  # Upstream ships no container image, so the script builds one: the first run
+  # downloads Node, Chromium and the npm dependencies and eats a 15-30 min
+  # suite budget. Prove it ad-hoc instead, twice for the idempotency check:
+  #   tests/run-vm-tests.sh --scripts setup-docker,setup-traefik,setup-pi-pocket
+  setup-pi-pocket:
+    enabled: false
+    description: Pi Pocket in Docker, built from the pinned tag — ad-hoc via --scripts
+    env: {}
+    args: []
+
   setup-traefik:
     enabled: true
     description: Traefik reverse proxy (docker)
