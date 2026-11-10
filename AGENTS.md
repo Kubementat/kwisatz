@@ -17,6 +17,7 @@ For any request about using, understanding, explaining, configuring, or setting 
 ## Core Facts
 
 - entry point: the `kwisatz` CLI (`./kwisatz apply [target]`, `status`, `list`, `info`, `doctor`, `config`, `services`, `logs`, `run`, `commands --json`); it executes its targets **through** the pyinfra deploy `deploy.py` (`uv run pyinfra @local deploy.py -y -vvv [--data select=<name>]`), so there is one engine, not two. Running `tasks/<name>.sh` by hand stays the manual fallback
+- installed mode: `uvx kwisatz` / `uv tool install kwisatz` run from the wheel's bundled payload with user files in `~/.config/kwisatz/` (`$KWISATZ_HOME`) and state in `~/.local/state/kwisatz/`; a sparse user `versions.yml` there overrides pins (`kwisatz versions`); tasks address user files with `kw_config_file`
 - every upstream version a task installs is pinned in `versions.yml` and read with `kw_image` / `kw_version` / `kw_pin` (`lib/helpers.sh`) — never hard-code a version in `tasks/`; Renovate (`renovate.json`, `tasks/setup-renovate.sh`) proposes bumps, `utilities/check-versions.sh` lists what is outdated
 - use `./kwisatz <cmd> --json` rather than scraping human output; the exit codes are a contract (`specification/features/kwisatz-cli/behaviors.md` §7)
 - systemd-based unix deployments and docker-based deployments; setup scripts generate `docker-compose.yml` for each service
@@ -77,6 +78,9 @@ Release checklist:
 4. Tag and push it: `git tag -a vX.Y.Z -m "release vX.Y.Z"`, then
    `git push forgejo vX.Y.Z && git push github vX.Y.Z`. Annotated only, and never move a tag
    that is already on a remote — cut a new tag instead.
+5. Optional, manual, user-run: `uv build && uv publish` from the tagged tree publishes the wheel
+   (with the bundled payload) for `uvx kwisatz` / `uv tool install kwisatz`. The package version
+   comes from `src/kwisatz/__init__.py`, so bump it together with `VERSION`.
 
 kwisatz has released **v1.0.0**; `docs/releases/` starts there, and for the history before it
 `git log` on `main` is the only record.

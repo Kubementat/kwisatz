@@ -115,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if not args.catalog.is_file():
             if args.default is not None and args.default.is_file():
+                args.catalog.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(args.default, args.catalog)
                 print(f"catalog {args.catalog} seeded from {args.default}")
             else:

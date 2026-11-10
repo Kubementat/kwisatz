@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kwisatz"
-version = "1.2.0"
+dynamic = ["version"]
 description = "One command for a kwisatz-managed machine: apply, status, list, info, doctor."
 requires-python = ">=3.10"
 dependencies = [
@@ -19,15 +19,36 @@ kwisatz = "kwisatz.cli:main"
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
 
+[tool.hatch.version]
+path = "src/kwisatz/__init__.py"
+
 [tool.hatch.build.targets.wheel]
-# the CLI operates on a checkout; the wheel ships the tool, never tasks/, templates/ or lib/
 packages = ["src/kwisatz"]
+
+# The read-only payload rides inside the wheel (installed mode: `uvx kwisatz`, `uv tool install`).
+# Explicit paths only — never a glob over the repo root — so the user-owned files (machine-config.yml,
+# models.yml, gateway.yml), .kwisatz/ and logs/ can never land in a public artifact.
+[tool.hatch.build.targets.wheel.force-include]
+"tasks" = "kwisatz/payload/tasks"
+"lib" = "kwisatz/payload/lib"
+"templates" = "kwisatz/payload/templates"
+"sync_models" = "kwisatz/payload/sync_models"
+"deploy.py" = "kwisatz/payload/deploy.py"
+"versions.yml" = "kwisatz/payload/versions.yml"
+"renovate.json" = "kwisatz/payload/renovate.json"
+"utilities/check-versions.sh" = "kwisatz/payload/utilities/check-versions.sh"
+"utilities/renovate-report.py" = "kwisatz/payload/utilities/renovate-report.py"
+"machine-config.yml.example" = "kwisatz/payload/machine-config.yml.example"
+"machine-config-inference.yml.example" = "kwisatz/payload/machine-config-inference.yml.example"
+"models.yml.example" = "kwisatz/payload/models.yml.example"
+"models.yml.default" = "kwisatz/payload/models.yml.default"
+"gateway.yml.example" = "kwisatz/payload/gateway.yml.example"
 
 [tool.hatch.build.targets.sdist]
 include = ["src", "deploy.py", "pyproject.toml", "README.md", "docs", "specification", "tests"]
 
 [tool.hatch.build]
-exclude = ["/tasks", "/templates", "/lib", "/utilities", "/skills", "/logs"]
+exclude = ["/tasks", "/templates", "/lib", "/utilities", "/skills", "/logs", "__pycache__", "*.pyc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]

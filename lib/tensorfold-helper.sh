@@ -834,7 +834,7 @@ if ! declare -F tensorfold_require_llama_swap_up > /dev/null 2>&1; then
     models="$(curl -sf --max-time 10 "http://localhost:${port}/v1/models" 2>/dev/null || true)"
     if ! printf '%s' "$models" | grep -qF "\"${model}\""; then
       error "llama-swap answers /health but does not list ${model} in /v1/models.
-  Check:  grep -A2 '${model}' ${REPO_ROOT:-.}/models.yml  and  tasks/sync-models.py
+  Check:  grep -A2 '${model}' $(kw_config_file models.yml)  and  tasks/sync-models.py
   Re-run: $0 --force"
     fi
     success "llama-swap is up and serves ${model} in /v1/models (model not loaded — smoke skipped)."

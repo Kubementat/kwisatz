@@ -103,6 +103,30 @@ To *use* the OmniVoice TTS API (speech synthesis, voice registration) instead of
 ---
 
 ## Quick Start
+
+### Installed (no checkout): `uvx` / `uv tool install`
+
+With [uv](https://docs.astral.sh/uv/) installed, kwisatz runs without cloning anything. The tasks, `lib/`,
+templates and the default `versions.yml` ship inside the package; your files live outside it:
+
+```bash
+uvx --from git+https://github.com/Kubementat/kwisatz@vX.Y.Z kwisatz init   # from a tag, before/without PyPI
+uv tool install kwisatz && kwisatz status                                   # once published to PyPI
+kwisatz apply traefik
+uv tool upgrade kwisatz                                                     # new tasks + new default pins
+```
+
+| What | Where |
+|---|---|
+| config (`machine-config.yml`, `models.yml`, `gateway.yml`, sparse `versions.yml`) | `$KWISATZ_HOME`, else `${XDG_CONFIG_HOME:-~/.config}/kwisatz/` |
+| state (lock, run state, config backups, `logs/`) | `${XDG_STATE_HOME:-~/.local/state}/kwisatz/` |
+
+`kwisatz init --import ./machine-config.yml` moves an existing checkout config over. Pin a different upstream
+version without touching the package: `kwisatz versions list`, `versions set forgejo 15.0.1`,
+`versions unset forgejo`, `versions check`. Run kwisatz as your own user, not via `sudo` (it calls `sudo` itself).
+
+### From a checkout (contributors)
+
 1. **Clone the repository** (or download a zip) and `cd` into it:
    ```bash
    git clone https://github.com/Kubementat/kwisatz.git
