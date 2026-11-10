@@ -512,3 +512,22 @@ host-specific paths out of it.
   runs? Not in v1; note it when someone asks for repos from the container.
 - **O-6** — Is `docs/plans` the right home for the follow-up that adds `lib/docker-backup.sh`
   support (`pocket.sqlite` + `data/pi`)?
+
+## Review amendments (2026-11-10)
+
+Changes from code review of the first implementation, applied on this branch:
+
+- **Managed `.env` keys expanded** from `ACCESS`/`BROWSER_ARGS` to
+  `ACCESS, BROWSER_ARGS, PORT, BIND, TRAEFIK, DOMAIN`, read back *before* pre-flight so the
+  checks see the values actually used. Fixes: a plain converge run without exports silently
+  reset a non-default `PI_POCKET_PORT` and flipped the Traefik/direct mode.
+- **Owner sign-in link takes the newest log line** (`tail -n1`): compose logs survive restarts,
+  so the original `head -n1` printed an old, already-consumed token on every converge re-run.
+- **Source checkout stays owned by the invoking user** (not `1000:1000`): it is only the build
+  context, never a container mount, and root/foreign-uid files trip git's dubious-ownership
+  check in the next run's `git status`/`git fetch`, which hard-errors re-runs on hosts where
+  the operator's uid is not 1000.
+- **`PI_POCKET_EXTRA_BINDS` entries must be `absolute:absolute`** (`/*:/*` check): entries
+  without a colon or with relative paths are rejected at render time, not by compose at `up`.
+- Cosmetic: interactive teardown prompt reads `[y/N]` (matches the `y` check); the printed
+  compose commands include `-f docker-compose.override.yml` when extra binds are active.

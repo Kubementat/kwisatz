@@ -110,6 +110,12 @@ ${BOLD}Environment variables${RESET} (all optional):
   variables: add them by hand to PI_POCKET_HOME/.env (mode 600). The compose
   file carries them only as \${VAR:-} placeholders resolved at runtime.
 
+  The layout keys PI_POCKET_PORT, PI_POCKET_BIND, PI_POCKET_TRAEFIK,
+  PI_POCKET_DOMAIN, PI_POCKET_ACCESS and PI_POCKET_BROWSER_ARGS are stored in
+  that .env and reused on re-runs, so a converge run without exports keeps the
+  installed port/mode. An explicit export on this run always wins; to move a
+  converged run (e.g. loopback -> LAN), export the new value.
+
 ${BOLD}Examples:${RESET}
   $0
   PI_POCKET_PORT=9000 $0
@@ -144,6 +150,10 @@ done
 # override an explicit export on this run (the planka POSTGRES_PASSWORD pattern).
 _PI_POCKET_ACCESS_SUPPLIED="${PI_POCKET_ACCESS:-}"
 _PI_POCKET_BROWSER_ARGS_SUPPLIED="${PI_POCKET_BROWSER_ARGS:-}"
+_PI_POCKET_PORT_SUPPLIED="${PI_POCKET_PORT:-}"
+_PI_POCKET_BIND_SUPPLIED="${PI_POCKET_BIND:-}"
+_PI_POCKET_TRAEFIK_SUPPLIED="${PI_POCKET_TRAEFIK:-}"
+_PI_POCKET_DOMAIN_SUPPLIED="${PI_POCKET_DOMAIN:-}"
 
 PI_POCKET_HOME="${PI_POCKET_HOME:-/srv/pi-pocket}"
 PI_POCKET_SRC_REF="${PI_POCKET_SRC_REF:-$(kw_version pi-pocket)}"
@@ -207,6 +217,36 @@ compose() {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# REUSE STORED SETTINGS — explicit export > stored .env > default
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Read back BEFORE pre-flight, so the checks (access mode, Traefik, port
+# conflict) see the values this run will actually use. Nothing is rotated —
+# the write step further down re-emits exactly these values.
+
+if [[ -f "$ENV_FILE" ]]; then
+  info "Found ${ENV_FILE} — reusing its values (provider keys included)."
+  if [[ -z "$_PI_POCKET_ACCESS_SUPPLIED" ]]; then
+    _v="$(env_file_get "$ENV_FILE" PI_POCKET_ACCESS)"
+    PI_POCKET_ACCESS="${_v:-lan}"
+  fi
+  if [[ -z "$_PI_POCKET_BROWSER_ARGS_SUPPLIED" ]]; then
+    _v="$(env_file_get "$ENV_FILE" PI_POCKET_BROWSER_ARGS)"
+    if [[ -n "$_v" ]]; then PI_POCKET_BROWSER_ARGS="$_v"; fi
+  fi
+  _v="$(env_file_get "$ENV_FILE" PI_POCKET_PORT)"
+  if [[ -z "$_PI_POCKET_PORT_SUPPLIED" && -n "$_v" ]]; then PI_POCKET_PORT="$_v"; fi
+  _v="$(env_file_get "$ENV_FILE" PI_POCKET_BIND)"
+  if [[ -z "$_PI_POCKET_BIND_SUPPLIED" && -n "$_v" ]]; then PI_POCKET_BIND="$_v"; fi
+  _v="$(env_file_get "$ENV_FILE" PI_POCKET_TRAEFIK)"
+  if [[ -z "$_PI_POCKET_TRAEFIK_SUPPLIED" && -n "$_v" ]]; then PI_POCKET_TRAEFIK="$_v"; fi
+  _v="$(env_file_get "$ENV_FILE" PI_POCKET_DOMAIN)"
+  if [[ -z "$_PI_POCKET_DOMAIN_SUPPLIED" && -n "$_v" ]]; then PI_POCKET_DOMAIN="$_v"; fi
+  unset _v
+fi
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PRE-FLIGHT CHECKS
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -263,37 +303,27 @@ success "Pre-flight checks passed."
 # SECRETS AND LAYOUT — REUSE WHAT IS THERE, NEVER ROTATE
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# ${ENV_FILE} holds the two layout keys this script manages
-# (PI_POCKET_ACCESS, PI_POCKET_BROWSER_ARGS) plus whatever the operator adds by
-# hand (provider keys). Explicit exports win, then the stored .env value, then
-# the default. The compose file never contains secret values — only ${VAR}
-# placeholders resolved at runtime via --env-file.
-
-step "Reusing existing settings where present"
-
-if [[ -f "$ENV_FILE" ]]; then
-  info "Found ${ENV_FILE} — reusing its values (provider keys included)."
-  if [[ -z "$_PI_POCKET_ACCESS_SUPPLIED" ]]; then
-    PI_POCKET_ACCESS="$(env_file_get "$ENV_FILE" PI_POCKET_ACCESS)"
-    PI_POCKET_ACCESS="${PI_POCKET_ACCESS:-lan}"
-  fi
-  if [[ -z "$_PI_POCKET_BROWSER_ARGS_SUPPLIED" ]]; then
-    _stored_bargs="$(env_file_get "$ENV_FILE" PI_POCKET_BROWSER_ARGS)"
-    [[ -n "$_stored_bargs" ]] && PI_POCKET_BROWSER_ARGS="$_stored_bargs"
-  fi
-fi
-unset _stored_bargs 2>/dev/null || true
+# ${ENV_FILE} holds the layout keys this script manages (ACCESS,
+# BROWSER_ARGS, PORT, BIND, TRAEFIK, DOMAIN — read back and converged in the
+# pre-flight section) plus whatever the operator adds by hand (provider keys).
+# The compose file never contains secret values — only ${VAR} placeholders
+# resolved at runtime via --env-file.
 
 step "Writing ${ENV_FILE} (mode 600)"
 # Re-runs must not rotate anything: keys we do not manage are carried over
-# verbatim, and the two managed keys are written last so they win. No
-# timestamp line — a no-op re-run produces byte-identical content.
+# verbatim, and the managed keys are written last so they win (older, possibly
+# indented duplicates of them are dropped here). No timestamp line — a no-op
+# re-run produces byte-identical content.
 _env_new="$(mktemp)"
 {
   printf '# Pi Pocket — mode 600. Re-runs reuse these values; provider keys (e.g. ANTHROPIC_API_KEY) are added here by hand.\n'
-  grep -vE '^(# Pi Pocket |PI_POCKET_ACCESS=|PI_POCKET_BROWSER_ARGS=)' "$ENV_FILE" 2>/dev/null || true
-  printf 'PI_POCKET_ACCESS=%s\n'      "${PI_POCKET_ACCESS}"
-  printf 'PI_POCKET_BROWSER_ARGS=%s\n' "${PI_POCKET_BROWSER_ARGS}"
+  grep -vE '^[[:space:]]*(# Pi Pocket|PI_POCKET_(ACCESS|BROWSER_ARGS|PORT|BIND|TRAEFIK|DOMAIN)=)' "$ENV_FILE" 2>/dev/null || true
+  printf 'PI_POCKET_ACCESS=%s\n'        "${PI_POCKET_ACCESS}"
+  printf 'PI_POCKET_BROWSER_ARGS=%s\n'  "${PI_POCKET_BROWSER_ARGS}"
+  printf 'PI_POCKET_PORT=%s\n'          "${PI_POCKET_PORT}"
+  printf 'PI_POCKET_BIND=%s\n'          "${PI_POCKET_BIND}"
+  printf 'PI_POCKET_TRAEFIK=%s\n'       "${PI_POCKET_TRAEFIK}"
+  printf 'PI_POCKET_DOMAIN=%s\n'        "${PI_POCKET_DOMAIN}"
 } > "$_env_new"
 
 # Parent dir must exist before the install; storage dirs come one step later.
@@ -320,7 +350,7 @@ if [[ -f "$COMPOSE_FILE" ]]; then
   info "Re-running will converge the existing stack (no tear-down). State under ${PI_POCKET_HOME}/data is preserved."
   RECREATE=false
   if [[ "$INTERACTIVE" == "true" ]]; then
-    read -rp "    Stack exists. Converge (default) or tear down and re-create? [c/N] " answer
+    read -rp "    Stack exists. Converge (default) or tear down and re-create? [y/N] " answer
     [[ "${answer,,}" == "y" ]] && RECREATE=true
   fi
   if [[ "$RECREATE" == "true" ]]; then
@@ -399,7 +429,7 @@ if [[ -n "$PI_POCKET_EXTRA_BINDS" ]]; then
     printf 'services:\n  pi-pocket:\n    volumes:\n'
     _pairs=(); read -ra _pairs <<< "$PI_POCKET_EXTRA_BINDS"
     for _p in "${_pairs[@]}"; do
-      [[ "$_p" == */* && "$_p" != .* ]] || error "PI_POCKET_EXTRA_BINDS entry '$_p' is not host:container"
+      [[ "$_p" == /*:/* ]] || error "PI_POCKET_EXTRA_BINDS entry '$_p' is not host:container (both sides must be absolute paths)"
       printf '      - %s\n' "$_p"
     done
   } > "$_ovr"
@@ -407,6 +437,13 @@ if [[ -n "$PI_POCKET_EXTRA_BINDS" ]]; then
   rm -f "$_ovr"
 else
   sudo rm -f "$OVERRIDE_FILE"
+fi
+
+# The compose command shown to the user afterwards — the same files the
+# internal compose() helper uses, so copy-pasteed commands include extra binds.
+COMPOSE_CMD="docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE}"
+if [[ -f "$OVERRIDE_FILE" ]]; then
+  COMPOSE_CMD+=" -f ${OVERRIDE_FILE}"
 fi
 
 
@@ -429,7 +466,10 @@ else
 fi
 git -C "$PI_POCKET_SRC" checkout --quiet --detach "$PI_POCKET_SRC_REF" \
   || error "cannot check out ${PI_POCKET_SRC_REF} (network, or the tag was removed)"
-sudo chown -R 1000:1000 "$PI_POCKET_SRC" 2>/dev/null || warn "Could not chown ${PI_POCKET_SRC}."
+# Keep the checkout owned by the invoking user: it is only the build context
+# (never mounted into the container), and root-owned files would trip git's
+# dubious-ownership check in the 'git status'/'git fetch' of the next run.
+sudo chown -R "$(id -u):$(id -g)" "$PI_POCKET_SRC" 2>/dev/null || warn "Could not chown ${PI_POCKET_SRC}."
 
 # The digest is a hint that the tag was moved under us — warn, never fail.
 if [[ "$(git -C "$PI_POCKET_SRC" rev-parse HEAD)" != "$(kw_pin pi-pocket digest)" ]]; then
@@ -460,7 +500,7 @@ compose up -d
 # Health gate: prove the containers are actually up before reporting success.
 mapfile -t _ids < <(compose ps -q)
 wait_for_healthy "${WAIT_TIMEOUT}" "${_ids[@]}" \
-  || error "Pi Pocket stack did not come up — see 'docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE} logs'"
+  || error "Pi Pocket stack did not come up — see '${COMPOSE_CMD} logs'"
 
 # HTTP readiness on the published (loopback-reachable) port, bounded.
 step "Waiting for the web UI on ${PI_POCKET_BIND}:${PI_POCKET_PORT}"
@@ -498,7 +538,9 @@ fi
 # print the raw line rather than fail the run.
 
 step "Owner sign-in link"
-link="$(compose logs --no-log-prefix 2>/dev/null | grep -oE '[^[:space:]]*/login\?token=[^[:space:]]*' | head -n1 || true)"
+# The newest line wins: compose logs survive restarts, so head -n1 would
+# print an old, likely already-consumed token on every converge re-run.
+link="$(compose logs --no-log-prefix 2>/dev/null | grep -oE '[^[:space:]]*/login\?token=[^[:space:]]*' | tail -n1 || true)"
 if [[ -n "$link" ]]; then
   if [[ "$link" == *"://"* ]]; then
     _hp="${link#*://}"; path="/${_hp#*/}"        # drop scheme + host, keep /login?token=...
@@ -510,7 +552,7 @@ if [[ -n "$link" ]]; then
   warn "The raw log line names the container's own address; ${PI_POCKET_URL} is where it is reachable."
 else
   warn "No /login?token= line found in the logs yet — read it later with:"
-  echo -e "    docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE} logs | grep '/login?token='"
+  echo -e "    ${COMPOSE_CMD} logs | grep '/login?token='"
 fi
 
 
@@ -540,9 +582,9 @@ warn "port off the public internet. Anyone who steers a session runs commands in
 warn "this container as uid 1000 — that is the real security boundary."
 echo ""
 echo -e "${BOLD}Useful commands:${RESET}"
-echo -e "  Follow logs        :  docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE} logs -f"
-echo -e "  Stop stack         :  docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE} down"
-echo -e "  Start stack        :  docker compose --env-file ${ENV_FILE} -f ${COMPOSE_FILE} up -d"
+echo -e "  Follow logs        :  ${COMPOSE_CMD} logs -f"
+echo -e "  Stop stack         :  ${COMPOSE_CMD} down"
+echo -e "  Start stack        :  ${COMPOSE_CMD} up -d"
 echo -e "  Shell into app     :  docker exec -it pi-pocket bash"
 echo -e "  Rebuild image      :  FORCE=true $0"
 if [[ "$_mode" == "traefik" ]]; then
