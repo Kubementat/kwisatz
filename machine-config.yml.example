@@ -415,6 +415,17 @@ scripts:
     description: Install pi coding agent
     env: {}
     args: []
+  setup-pi-pocket:
+    enabled: false
+    description: Install Pi Pocket (web app for the pi agent) in Docker, built from the pinned tag
+    env:
+      # PI_POCKET_HOME: /srv/pi-pocket   # data root (default)
+      # PI_POCKET_PORT: "8787"
+      # PI_POCKET_TRAEFIK: "true"
+      # PI_POCKET_DOMAIN: "pi.example.com"
+      # PI_POCKET_PI_DIR: /srv/pi-pocket/data/pi   # set to $HOME/.pi to share host sign-ins (opt-in)
+      # PI_POCKET_EXTRA_BINDS: ""   # space-separated host:container project mounts
+    args: []
   setup-ai-agent-skills:
     enabled: false
     description: Install AI agent skills stack (skills, agent profiles, herdr-cli helpers) from ai_agent_skills repo

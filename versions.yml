@@ -456,6 +456,15 @@ nanobot:
   package: HKUDS/nanobot
   version: "v0.4.0"
 
+pi-pocket:
+  # no published container image: the script clones this tag and builds
+  # docker/Dockerfile from it (cf. setup-nanobot.sh). The digest is the commit
+  # the tag points at — lightweight tags make it the same SHA.
+  datasource: github-tags
+  package: TannerMidd/pi-pocket
+  version: "v0.28.0"
+  digest: "5eb3404764613f04d703d785d6e1d46f49a1983f"
+
 omnivoice:
   # no release tags upstream: the commit (digest) follows master, the script
   # builds the commit
