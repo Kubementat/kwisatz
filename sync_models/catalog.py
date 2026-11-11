@@ -1,7 +1,8 @@
 """Catalog resolution, YAML load, and schema validation.
 
 Resolution order (spec *Catalog Resolution*): ``MODELS_YML`` env override →
-``<repo root>/models.yml`` → ``<repo root>/models.yml.default``.
+``<config dir>/models.yml`` (``$KWISATZ_CONFIG_DIR``, else the repo root) →
+``<repo root>/models.yml.default``.
 
 Schema validation collects **all** violations and reports them together
 (each violation is one :class:`~sync_models.PreflightError` message line,
@@ -11,6 +12,7 @@ pre-flight check fires first with the actionable install message.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,7 +60,7 @@ class ModelSpec:
 
     name: str  # canonical id (charset [A-Za-z0-9._/-])
     type: str  # "local" | "remote"
-    provider: "ProviderSpec"  # back-reference to owning provider
+    provider: ProviderSpec  # back-reference to owning provider
     env: list[EnvEntry] = field(default_factory=list)  # per-model env
     download: list[str] = field(default_factory=list)  # non-empty for local
     serve_cmd: str = ""  # non-empty for local
@@ -120,7 +122,8 @@ def resolve_catalog_path(repo_root: Path, models_yml_override: str | None) -> Pa
         if not override.is_file():
             raise PreflightError(f"catalog file not found: {override} (MODELS_YML)")
         return override
-    models_yml = repo_root / "models.yml"
+    # user-owned catalog: the config dir when kwisatz runs installed, else the checkout
+    models_yml = Path(os.environ.get("KWISATZ_CONFIG_DIR") or repo_root) / "models.yml"
     if models_yml.is_file():
         return models_yml
     models_yml_default = repo_root / "models.yml.default"
@@ -149,7 +152,7 @@ def load_catalog(path: Path) -> dict:
 
 def _scalar_to_str(value: object) -> str | None:
     """Coerce a YAML scalar to str; None when not a scalar."""
-    if isinstance(value, bool) or isinstance(value, (str, int, float)):
+    if isinstance(value, (bool, str, int, float)):
         return str(value)
     return None
 

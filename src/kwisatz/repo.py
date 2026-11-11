@@ -25,6 +25,23 @@ from .errors import CliError, Exit
 CONFIG_JSON = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "kwisatz" / "config.json"
 
 
+def payload_dir() -> Path:
+    """The read-only tree shipped inside the wheel (tasks/, lib/, deploy.py, …); absent in a checkout."""
+    return Path(__file__).resolve().parent / "payload"
+
+
+def config_home() -> Path:
+    """Where an installed-mode user keeps machine-config.yml and friends."""
+    if os.environ.get("KWISATZ_HOME"):
+        return Path(os.environ["KWISATZ_HOME"]).expanduser().resolve()
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "kwisatz"
+
+
+def state_home() -> Path:
+    """Lock, run state, config backups and logs of installed mode; also home of the machine-wide lock."""
+    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "kwisatz"
+
+
 @dataclass
 class Repo:
     path: Path
@@ -32,17 +49,38 @@ class Repo:
     branch: str = ""
     #: `.kwisatz/` — lock, state; mode 0700, gitignored
     work: Path | None = None
+    #: "checkout" (path is a git checkout, config lives in it) or "installed" (path is the wheel's payload)
+    mode: str = "checkout"
+    #: where machine-config.yml, models.yml, gateway.yml and the sparse versions.yml live
+    config_dir: Path | None = None
+    logs_dir: Path | None = None
 
     def __post_init__(self) -> None:
         if self.work is None:
             self.work = self.path / ".kwisatz"
+        if self.config_dir is None:
+            self.config_dir = self.path
+
+    @property
+    def payload(self) -> Path:
+        """The read-only tree: tasks/, lib/, templates/, deploy.py, versions.yml, the examples."""
+        return self.path
+
+    @property
+    def run_cwd(self) -> Path:
+        """Where tasks and the deploy run: the checkout, or the state dir in installed mode.
+
+        Never the payload when installed — under `uvx` it lives inside uv's cache, and uv
+        refuses to work with a current directory there (`uv pip install` in setup-basics).
+        """
+        return self.path if self.mode == "checkout" else self.work
 
     @property
     def logs(self) -> Path:
-        return self.path / "logs"
+        return self.logs_dir or self.path / "logs"
 
     def ensure_work(self) -> None:
-        self.work.mkdir(mode=0o700, exist_ok=True)
+        self.work.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.logs.mkdir(mode=0o700, exist_ok=True)
 
 
@@ -84,7 +122,7 @@ def saved_repo_path() -> Path | None:
 
 
 def resolve_repo(cli_arg: str | None = None, *, start: Path | None = None) -> Repo:
-    """--repo → $KWISATZ_REPO → nearest ancestor checkout → the installed path."""
+    """--repo → $KWISATZ_REPO → nearest ancestor checkout → saved config.json → the installed payload."""
     candidates: list[tuple[str, Path]] = []
     if cli_arg:
         candidates.append(("--repo", Path(cli_arg).expanduser().resolve()))
@@ -110,6 +148,12 @@ def resolve_repo(cli_arg: str | None = None, *, start: Path | None = None) -> Re
                 f"{source}: {path} is not a kwisatz checkout (needs deploy.py and tasks/)",
                 hint="point --repo at the checkout root, or run kwisatz install --repo <path>",
             )
+    payload = payload_dir()
+    if _looks_like_repo(payload):
+        # installed mode: the payload is the wheel's, user files and state live outside it. The
+        # payload path is never persisted anywhere — the uvx cache dir is ephemeral.
+        state = state_home()
+        return Repo(path=payload, work=state, mode="installed", config_dir=config_home(), logs_dir=state / "logs")
     raise CliError(
         Exit.PREREQUISITE,
         "no kwisatz checkout found from " + str((start or Path.cwd()).resolve()),
@@ -118,12 +162,12 @@ def resolve_repo(cli_arg: str | None = None, *, start: Path | None = None) -> Re
 
 
 def resolve_config(repo: Repo, cli_arg: str | None = None) -> Path:
-    """-c/--config → $KWISATZ_CONFIG → <repo>/machine-config.yml."""
+    """-c/--config → $KWISATZ_CONFIG → <config dir>/machine-config.yml (the checkout root, or ~/.config/kwisatz)."""
     if cli_arg:
         return Path(cli_arg).expanduser().resolve()
     if os.environ.get("KWISATZ_CONFIG"):
         return Path(os.environ["KWISATZ_CONFIG"]).expanduser().resolve()
-    return repo.path / "machine-config.yml"
+    return repo.config_dir / "machine-config.yml"
 
 
 def pyinfra_command(repo: Repo) -> list[str]:
@@ -187,12 +231,14 @@ def deploy_argv(
 class Lock:
     """`<repo>/.kwisatz/lock` holding PID + start time; stale once the owner is gone."""
 
-    def __init__(self, repo: Repo, timeout: float = 0.0) -> None:
-        self.path = repo.work / "lock"
+    def __init__(self, repo: Repo, timeout: float = 0.0, *, machine: bool = False) -> None:
+        # `machine` is the one lock per user shared by every checkout and the installed mode, so
+        # a checkout run and a uvx run cannot deploy at once; it names no repo, so none is "other"
+        self.path = (state_home() if machine else repo.work) / "lock"
         self.timeout = timeout
         self.held = False
         #: the checkout this lock belongs to, so a stray lock in a reused directory is stale
-        self.owner_path = str(repo.path)
+        self.owner_path = "" if machine else str(repo.path)
 
     def _owner(self) -> dict | None:
         """The recorded owner; None when the file exists but says nothing (see try_acquire)."""
@@ -219,7 +265,7 @@ class Lock:
         return False
 
     def try_acquire(self) -> bool:
-        self.path.parent.mkdir(mode=0o700, exist_ok=True)
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         owner = self._owner()
         if owner and not self._stale(owner):
             return False
@@ -269,13 +315,20 @@ class Lock:
 
 @contextmanager
 def held(repo: Repo, timeout: float = 0.0):
-    """Hold the repo lock for the duration; never taken for read-only commands."""
-    lock = Lock(repo, timeout)
-    lock.acquire()
+    """Hold the repo lock (and the machine-wide one, when it is another file) for the duration;
+    never taken for read-only commands."""
+    locks = [Lock(repo, timeout, machine=True), Lock(repo, timeout)]
+    if locks[0].path == locks[1].path:  # installed mode: the repo lock *is* the machine lock
+        locks = locks[1:]
+    taken: list[Lock] = []
     try:
-        yield lock
+        for lock in locks:
+            lock.acquire()
+            taken.append(lock)
+        yield taken[-1]
     finally:
-        lock.release()
+        for lock in reversed(taken):
+            lock.release()
 
 
 def _utcnow() -> str:
@@ -283,4 +336,12 @@ def _utcnow() -> str:
 
 
 def repo_dict(repo: Repo) -> dict:
-    return {"path": str(repo.path), "git_sha": repo.git_sha, "branch": repo.branch}
+    return {
+        "path": str(repo.path),
+        "git_sha": repo.git_sha,
+        "branch": repo.branch,
+        "mode": repo.mode,
+        "payload": str(repo.payload),
+        "config_dir": str(repo.config_dir),
+        "state": str(repo.work),
+    }

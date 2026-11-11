@@ -34,7 +34,7 @@ DEFAULT_HEALTH_TIMEOUT = 500
 _ENV_HELP = """\
 environment variables:
   MODELS_YML                  explicit catalog path (must exist if set);
-                              default: <repo>/models.yml, then models.yml.default
+                              default: <config dir>/models.yml, then models.yml.default
   LLAMA_SWAP_CONFIG           default: /srv/llama-swap/config/config.yaml
   PI_MODELS_JSON              default: $HOME/.pi/agent/models.json
   OPENCODE_CONFIG             default: $HOME/.config/opencode/opencode.json

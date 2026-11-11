@@ -63,6 +63,31 @@ produced nothing":
   no stack, no unit and no apply log keeps that sentence and exit `3`, and `kwisatz logs` with no
   argument keeps exit `2`.
 
+### Installed mode, locations and `versions`
+
+Repo resolution is `--repo` → `$KWISATZ_REPO` → nearest ancestor checkout → the checkout saved by
+`kwisatz install` → **the installed payload** (`kwisatz/payload/` in the wheel). Only the last is new; it
+replaces the exit-`4` "no kwisatz checkout found" when the payload exists. Three locations:
+
+| | checkout | installed |
+|---|---|---|
+| payload | repo root | `kwisatz/payload/` (read-only, never persisted: the uvx cache is ephemeral) |
+| config (`machine-config.yml`, `models.yml`, `gateway.yml`, `versions.yml`) | repo root | `$KWISATZ_HOME` or `${XDG_CONFIG_HOME:-~/.config}/kwisatz/` |
+| state (`lock`, run state, config backups, `logs/`) | `<repo>/.kwisatz/`, `<repo>/logs/` | `${XDG_STATE_HOME:-~/.local/state}/kwisatz/` |
+
+`-c` / `$KWISATZ_CONFIG` still override the config path. Installed mode exports `KWISATZ_CONFIG_DIR`
+to every task (both engines). `init` writes `machine-config.yml` there (dir 0700, file 0600), never over an
+existing one without `--force`; `init --import <file>` validates and copies an existing config. `--json`
+envelopes report `repo.mode`, `repo.payload`, `repo.config_dir`, `repo.state` (additive).
+`kwisatz install` is deprecated (a note; removal only in a future major) and a no-op in installed mode.
+
+`kwisatz versions list|set|unset|check`: the effective pin per component (`source` = `default` | `user`,
+`stale` when the user pin is older than the bundled one), edits to the sparse `<config dir>/versions.yml`
+(atomic, 0600, backup into the state dir), and a Renovate lookup of the effective pins (`check`, needs
+docker; runs the bundled `utilities/check-versions.sh`). `set --field` takes `version` (default),
+`image` (= the `package` field) or `digest`. In a checkout without `KWISATZ_CONFIG_DIR` there is no
+override file and `set`/`unset` exit `2`. `doctor` warns on stale or unknown overrides and when installed mode runs as root.
+
 ## Behavior 2 — apply
 
 `kwisatz apply` takes every enabled entry, in config order. `kwisatz apply a b c` takes those
@@ -236,7 +261,8 @@ exists but names no owner (`flock`'s empty file, a truncated write after a crash
 file) counts as held for one second and is then reclaimed — deleting it immediately would
 clobber a run that is mid-creation, which is the one failure this class exists to prevent. A
 second run exits `9` unless `--lock-timeout <s>` is given. Read-only commands never take the
-lock.
+lock. Every writer also holds a machine-wide lock at `${XDG_STATE_HOME:-~/.local/state}/kwisatz/lock`
+(the same file as the repo lock in installed mode), so a checkout run and a `uvx` run cannot deploy at once.
 
 ## Behavior 9 — `doctor`'s verdicts
 

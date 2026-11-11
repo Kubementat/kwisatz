@@ -75,6 +75,12 @@ class RepoFixture:
         return path
 
 
+@pytest.fixture(autouse=True)
+def _isolated_state_home(tmp_path_factory, monkeypatch):
+    """The machine-wide lock lives under XDG_STATE_HOME; no test may take the developer's own."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path_factory.mktemp("xdg-state")))
+
+
 @pytest.fixture
 def repo(tmp_path, monkeypatch) -> RepoFixture:
     """A fake checkout: deploy.py, tasks/, example config, and a git-free tree."""

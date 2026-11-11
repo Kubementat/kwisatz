@@ -105,7 +105,7 @@ ${BOLD}Environment variables${RESET} (all optional):
   LLM_GATEWAY_DIR                 Generated project directory (/srv/llm-gateway)
   LLM_GATEWAY_PORT                Effective port; must equal listen.port
   LLM_GATEWAY_IMAGE               Pinned image ($(kw_image litellm))
-  GATEWAY_YML                     Routing config (default: <repo>/gateway.yml)
+  GATEWAY_YML                     Routing config (default: <config dir>/gateway.yml)
   WAIT_TIMEOUT                    Health/smoke wait in seconds (180)
   GATEWAY_WARM                    Warm shared models after start (false)
   GATEWAY_STRICT_BACKENDS         Fail when a required backend is down (false)
@@ -168,9 +168,9 @@ LLM_GATEWAY_IMAGE="${LLM_GATEWAY_IMAGE:-$(kw_image litellm)}"
 : "${GATEWAY_ALLOW_MISSING_ADDRESSES:=false}"
 : "${GATEWAY_ALLOW_NO_SOURCE_FILTER:=false}"
 
-GATEWAY_YML="${GATEWAY_YML:-${REPO_ROOT}/gateway.yml}"
+GATEWAY_YML="${GATEWAY_YML:-$(kw_config_file gateway.yml)}"
 if [[ "$GATEWAY_YML" != /* ]]; then
-  GATEWAY_YML="${REPO_ROOT}/${GATEWAY_YML}"
+  GATEWAY_YML="$(kw_config_file "${GATEWAY_YML}")"
 fi
 
 COMPOSE_FILE="${LLM_GATEWAY_DIR}/docker-compose.yml"
@@ -386,6 +386,7 @@ _require_gateway_yml() {
 
   local example="${REPO_ROOT}/gateway.yml.example"
   if [[ ! -e "$GATEWAY_YML" && -f "$example" ]]; then
+    mkdir -p "$(dirname "$GATEWAY_YML")" 2>/dev/null || true
     if cp "$example" "$GATEWAY_YML" 2>/dev/null; then
       success "Created ${GATEWAY_YML} from gateway.yml.example"
     else

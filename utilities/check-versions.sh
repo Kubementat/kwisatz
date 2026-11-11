@@ -28,6 +28,9 @@ Options:
 
 Environment:
   RENOVATE_IMAGE             Renovate image (default: from versions.yml)
+  KW_CHECK_VERSIONS_FILE     versions file to look up instead of <repo>/versions.yml
+                             (kwisatz versions check passes the bundled pins merged
+                             with the user's overrides)
   RENOVATE_GITHUB_COM_TOKEN  GitHub token for github-releases/-tags lookups and the
                              API rate limit (default: GITHUB_TOKEN, then
                              'gh auth token' if gh is logged in; without one the
@@ -55,7 +58,8 @@ fi
 # the run independent of git worktrees (whose .git points outside any mount).
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-cp "${REPO_DIR}/versions.yml" "${REPO_DIR}/renovate.json" "$WORK/"
+cp "${KW_CHECK_VERSIONS_FILE:-${REPO_DIR}/versions.yml}" "$WORK/versions.yml"
+cp "${REPO_DIR}/renovate.json" "$WORK/"
 chmod -R a+rX "$WORK"
 
 # stderr: stdout carries only the report (or the --json document)

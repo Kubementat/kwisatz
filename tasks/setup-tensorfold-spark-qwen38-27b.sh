@@ -252,7 +252,7 @@ check_status() {
   fi
   tensorfold_status_image "$TENSORFOLD_27B_IMAGE" "$TENSORFOLD_27B_IMAGE_PREBUILT"
   tensorfold_status_disk "$HF_CACHE_DIR"
-  tensorfold_status_catalog "${REPO_ROOT}/models.yml" "$TENSORFOLD_27B_MODEL_NAME"
+  tensorfold_status_catalog "$(kw_config_file models.yml)" "$TENSORFOLD_27B_MODEL_NAME"
   tensorfold_status_llama_swap_entry "${LLAMA_SWAP_DIR}/config/config.yaml" "$TENSORFOLD_27B_MODEL_NAME"
   tensorfold_status_llama_swap_writable "${LLAMA_SWAP_DIR}/config/config.yaml"
   tensorfold_status_container "$TENSORFOLD_27B_CONTAINER"
@@ -352,7 +352,7 @@ export TENSORFOLD_27B_PORT LLAMA_SWAP_PORT PROJECT_DIR HF_CACHE_DIR KERNEL_CACHE
 # shellcheck disable=SC2016  # the last argument is envsubst's literal variable list
 tensorfold_merge_model_entry \
   "${TEMPLATE_DIR}/models-entry.yml" \
-  "${REPO_ROOT}/models.yml" \
+  "$(kw_config_file models.yml)" \
   "${REPO_ROOT}/models.yml.default" \
   "$TENSORFOLD_27B_MODEL_NAME" \
   "$FORCE" \

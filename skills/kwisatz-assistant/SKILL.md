@@ -54,6 +54,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ./kwisatz status
 ```
 
+If kwisatz is installed from PyPI/git (`uvx kwisatz`, `uv tool install kwisatz`) there is no checkout:
+use `kwisatz init` instead of the `cp`, the config lives in `~/.config/kwisatz/` (`$KWISATZ_HOME`), and
+`kwisatz versions list|set|unset|check` manages version-pin overrides (a sparse `versions.yml` in that dir,
+merged over the bundled default). A task's own override variable still wins over both.
+
 Explain the output: it lists the enabled scripts in the order they will run, with the exact
 command line each one gets (pyinfra's, since `apply` runs `deploy.py`). Disabled scripts and env vars/args are not shown — read `machine-config.yml` for those.
 

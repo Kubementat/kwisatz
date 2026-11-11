@@ -479,7 +479,6 @@ wheels = [
 
 [[package]]
 name = "kwisatz"
-version = "1.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "pyinfra" },
