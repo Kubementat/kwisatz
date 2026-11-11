@@ -340,7 +340,10 @@ git_clone_into() {
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
   # Fix dubious ownership for existing repos
   if [[ "${INSTALL_DIR}" != "${HOME}"* ]]; then
-    git config --global --add safe.directory "${INSTALL_DIR}"
+    # -C / so the config call does not resolve the *invoking* directory's
+    # repo — under the VM test harness that is a copied worktree whose
+    # .git points at a host path that does not exist on the guest.
+    git -C / config --global --add safe.directory "${INSTALL_DIR}"
   fi
   info "Existing repo found at ${INSTALL_DIR} – fetching refs and tags…"
 else
@@ -365,7 +368,7 @@ fi
 
 # Fix dubious ownership when directory was created with sudo
 if [[ "${INSTALL_DIR}" != "${HOME}"* ]]; then
-  git config --global --add safe.directory "${INSTALL_DIR}"
+  git -C / config --global --add safe.directory "${INSTALL_DIR}"
 fi
 
 if ! git -C "${INSTALL_DIR}" fetch --tags --force; then
