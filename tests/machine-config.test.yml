@@ -117,6 +117,24 @@ scripts:
     env: {}
     args: []
 
+  # NetBird needs a public domain + ACME for real use; the VM test proves the
+  # stack comes up and converges with a dummy domain (the certificate cannot
+  # issue here — the script's Traefik checks only warn, mirroring setup-matrix).
+  setup-netbird:
+    enabled: false
+    description: NetBird server + dashboard (docker) — ad-hoc via --scripts
+    env:
+      NETBIRD_DOMAIN: "netbird.test"
+    args: []
+
+  # GPU mode cannot run on a VM; preview mode is the CPU path of the script.
+  setup-music-gen:
+    enabled: false
+    description: ACE-Step song generation, CPU preview mode — ad-hoc via --scripts
+    env:
+      MUSIC_GEN_MODE: "preview"
+    args: []
+
   setup-postiz:
     enabled: false
     description: Postiz scheduler (docker + Temporal) — ad-hoc via --scripts
