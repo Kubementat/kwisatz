@@ -562,12 +562,20 @@ if try_admin_login; then
   info "Admin login OK — organization '${POSTIZ_ADMIN_ORG}' already exists."
 else
   info "Login failed — attempting first-time registration of ${POSTIZ_ADMIN_EMAIL} ..."
-  _reg_out=$(curl -sS -w $'\n%{http_code}' -c "$_cookie_jar" \
-    -H 'Content-Type: application/json' \
-    --data "{\"email\":\"${POSTIZ_ADMIN_EMAIL}\",\"password\":\"${POSTIZ_ADMIN_PASSWORD}\",\"company\":\"${POSTIZ_ADMIN_ORG}\",\"provider\":\"LOCAL\"}" \
-    --max-time 30 "${API_BASE}/auth/register" 2>&1) || true
-  _reg_code="${_reg_out##*$'\n'}"
-  _reg_msg="${_reg_out%$'\n'*}"
+  # A cold stack answers POST /auth/register through the Next.js internal proxy
+  # before the backend can serve it: the first attempts return a 502 HTML error
+  # while the GET can-register probe already passes. Retry the POST, not the probe.
+  for _try in 1 2 3 4 5 6; do
+    _reg_out=$(curl -sS -w $'\n%{http_code}' -c "$_cookie_jar" \
+      -H 'Content-Type: application/json' \
+      --data "{\"email\":\"${POSTIZ_ADMIN_EMAIL}\",\"password\":\"${POSTIZ_ADMIN_PASSWORD}\",\"company\":\"${POSTIZ_ADMIN_ORG}\",\"provider\":\"LOCAL\"}" \
+      --max-time 30 "${API_BASE}/auth/register" 2>&1) || true
+    _reg_code="${_reg_out##*$'\n'}"
+    _reg_msg="${_reg_out%$'\n'*}"
+    [[ "$_reg_code" =~ ^5 ]] || break
+    info "register answered HTTP ${_reg_code} (backend warming), retry ${_try}/6"
+    sleep 10
+  done
   if [[ "$_reg_code" == "200" ]]; then
     _admin_created=true
     _api_jwt="$(awk 'tolower($6) == "auth" { print $7 }' "$_cookie_jar")"
