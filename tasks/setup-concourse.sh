@@ -449,6 +449,15 @@ success "Images pulled."
 # ─────────────────────────────────────────────────────────────────────────────
 
 step "Starting Concourse stack (detached)"
+# The privileged worker's garden backend creates iptables chains through the
+# legacy binary; if the guest has no firewall loaded yet, the ip_tables module
+# is simply absent and the worker crash-loops with "Table does not exist".
+# Load it and persist it for the next boot (harmless when a ufw/docker already
+# pulled it in).
+sudo modprobe ip_tables 2>/dev/null || true
+if [[ -d /etc/modules-load.d ]]; then
+  grep -qx ip_tables /etc/modules-load.d/concourse.conf 2>/dev/null || echo ip_tables | sudo tee /etc/modules-load.d/concourse.conf >/dev/null
+fi
 sudo docker compose --env-file "${ENV_FILE}" -f "$COMPOSE_FILE" up -d
 
 # Health gate: prove the containers are actually up before reporting success.
