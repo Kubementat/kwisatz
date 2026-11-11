@@ -134,7 +134,14 @@ cd "${ADR_INSTALL_DIR}"
 bash install.sh --yes || bash install.sh
 
 # Verify installation
-if ! command -v adr &>/dev/null; then
+# Verify installation — the installer drops the binaries into ~/.local/bin,
+# which is not in the PATH of a non-login shell (orchestrator runs).
+# shellcheck disable=SC2016
+if ! command -v adr &>/dev/null && [[ -x "${HOME}/.local/bin/adr" ]]; then
+  warn "$HOME/.local/bin is not on PATH — adding it to ~/.bashrc"
+  grep -qs '.local/bin' "${HOME}/.bashrc" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.bashrc"
+fi
+if ! command -v adr &>/dev/null && [[ ! -x "${HOME}/.local/bin/adr" ]]; then
   error "adr CLI not found after installation. Check PATH."
 fi
 
