@@ -69,12 +69,6 @@ scripts:
       SSHD_PORT: "22"
     args: []
 
-  setup-neovim:
-    enabled: true
-    description: Neovim + plugins
-    env: {}
-    args: []
-
   setup-pi:
     enabled: true
     description: Pi coding agent + extensions
@@ -250,7 +244,7 @@ scripts:
 
   # Ad-hoc tier for the versions.yml migration (one task per pin pattern):
   #   tests/run-vm-tests.sh --scripts setup-basics,setup-docker,setup-traefik,\
-  #     setup-openwebui,setup-agentsview,setup-laya,setup-neovim,setup-renovate
+  #     setup-openwebui,setup-agentsview,setup-laya,setup-renovate
   setup-openwebui:
     enabled: false
     description: Open WebUI (docker, full image ref from versions.yml) — ad-hoc via --scripts

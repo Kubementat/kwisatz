@@ -94,9 +94,6 @@ Installs **fail2ban** (including the Python 3.12 `pyasynchat` compatibility fix)
 
 ### AI & LLM Services
 
-#### `setup-lm-studio.sh`
-Downloads the specified LM Studio AppImage, creates a desktop entry, an optional start script, and optionally installs the **llmster** CLI (`lms`).
-
 #### `setup-llama-cpp.sh`
 Builds and installs llama.cpp from source with auto or manual GPU backend selection. Skips install if binaries are already present.
 
@@ -317,9 +314,6 @@ Installs the Agent Docker Runner (ADR) CLI, a tool that runs coding agents insid
 - Configuration examples included
 - Supports pi, opencode, claude code, and GitHub Copilot Workspace (codex)
 
-#### `setup-nanobot.sh`
-Clones the Nanobot agent repository, builds the Docker image, and runs the onboarding flow.
-
 #### `setup-hermes.sh`
 Installs Hermes Agent natively inside a dedicated KVM virtual machine created with virt-runner. The VM is the sandbox: Hermes gets a whole machine (local terminal backend, passwordless sudo) while the host controls what the VM may reach. Re-running converges the existing VM; it is never destroyed or re-created.
 
@@ -403,9 +397,6 @@ Installs **DeepSeek Harness** (`dsh`) — an open-source agent harness from Deep
 ---
 
 ### Speech & Dictation
-
-#### `setup-whispering.sh`
-Downloads the Whispering speech-to-text AppImage, creates a start script (`~/whispering`) and a desktop shortcut. Backs up any existing binary before downloading.
 
 #### `setup-music-gen.sh`
 Installs **ACE-Step 1.5** (MIT) — a text-to-song generator with vocals/lyrics — natively under systemd (`ace-step.service`, async REST API on port 9294). Pinned to upstream git tag `v0.1.8` via `ACESTEP_VERSION` — ACE-Step 1.5 is published under `v0.1.x` tags (there is no `v1.5` tag). GPU vendor auto-detect: AMD ROCm hosts (gfx1151 — docker deliberately not used there, ROCm/userland matching) get ROCm torch wheels, NVIDIA hosts (e.g. DGX Spark) get CUDA wheels (`MUSIC_GEN_GPU_VENDOR`/`MUSIC_GEN_TORCH_INDEX`, cu128 default on arm64). Preview mode installs a CPU-only musicgen-small CLI (`~/music-preview`) for non-GPU boxes; the instrumental MusicGen service (:9293) remains the separate vault plan. ROCm pitfalls embedded: no `HSA_OVERRIDE_GFX_VERSION` on gfx1151 ("no matching kernel image"), `ACESTEP_LM_BACKEND=pt` (vLLM is CUDA-only), and WAV/FLAC output only — MP3 export is broken on ROCm builds.
@@ -540,9 +531,6 @@ Pulls and runs the Excalidraw virtual whiteboard as a Docker container with an `
 #### `setup-anydesk.sh`
 Installs AnyDesk remote desktop from the official apt repository.
 
-#### `setup-brave.sh`
-Installs the Brave browser from its official apt repository.
-
 #### `setup-netbird.sh`
 Deploys self-hosted NetBird (a WireGuard-based mesh VPN) as Docker containers: the combined server (management + signal + relay + embedded STUN + embedded IdP) and the dashboard, routed through the Traefik reverse proxy (installed via `setup-traefik.sh` first when it is not running), plus an optional routing-peer client for LAN exposure.
 
@@ -558,25 +546,6 @@ Deploys self-hosted NetBird (a WireGuard-based mesh VPN) as Docker containers: t
 - The script fails (not warns) if the peer is not authenticated: `netbird status --check ready` must go through before success is reported.
 - `Signal:` must read **Connected** and `Relays: n/n` non-zero in `docker exec netbird-client netbird status`. `Management: Connected` alone is not enough — a `config.yaml` whose `exposedAddress` omits `:443` leaves every peer logged in but never connected.
 - After enrollment, assign the peer as **Router** of the LAN Network in the dashboard (Networks → *your network* → Routers, masquerade on) — without a router the LAN subnet resources are unreachable.
-
----
-
-### Development Tools
-
-#### `setup-neovim.sh`
-Installs Neovim directly on the host machine (Ubuntu/Debian) with lazy.nvim plugin manager, LSP support via nvim-lspconfig, and essential productivity plugins. Installed via official PPA for latest stable version.
-
-**Features:**
-- lazy.nvim fast plugin manager with on-demand loading
-- nvim-lspconfig for Language Server Protocol support
-- telescope.nvim fuzzy finder
-- nvim-cmp intelligent code completion
-- treesitter advanced syntax highlighting
-- gitsigns git integration
-- oil.nvim modern file explorer
-
-#### `setup-zed.sh`
-Installs the Zed editor on Linux using the official installation script. Supports both stable and preview channels.
 
 ---
 

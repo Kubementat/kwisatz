@@ -18,8 +18,7 @@
 #      literal `:latest`/`:main` or an untagged `image: foo` in a template means
 #      the pinning regressed.
 #   3. No untagged image pulls. An `image:` value without `${`, a `:` tag or a `@digest`
-#      resolves to `:latest`; locally BUILT images (nanobot) are not pulls and are
-#      allowlisted.
+#      resolves to `:latest`.
 #
 # ...plus guards 4-5 for the orchestrator's own contract, because the VM suite cannot see
 # either class of breakage: it feeds its own test config to the precheck, and the remote
@@ -68,16 +67,15 @@ else
 fi
 
 # ── Guard 3: no untagged image pulls. An `image:` value without `${`, a `:` tag
-# or a `@digest` resolves to `:latest`. Locally BUILT images are not pulls, so
-# the nanobot stack (image + build: in the same service) is allowlisted.
+# or a `@digest` resolves to `:latest`.
 untagged_hits="$(grep -rnE '^[[:space:]]*image:[[:space:]]+"?[A-Za-z0-9][A-Za-z0-9._/-]*"?[[:space:]]*$' templates/ \
-  | grep -v '^templates/nanobot/' || true)"
+  || true)"
 if [[ -n "${untagged_hits}" ]]; then
   echo "FAIL: untagged image pull in templates/ (implicitly :latest):"
   echo "${untagged_hits}"
   fail=1
 else
-  echo "ok: no untagged image pulls in templates/ (nanobot builds locally)"
+  echo "ok: no untagged image pulls in templates/"
 fi
 
 # ── Guard 4: every shipped example config must parse with the orchestrator.

@@ -245,13 +245,6 @@ scripts:
       # OMNIVOICE_BASE_MODEL: omnivoice-base-Q8_0.gguf
       # OMNIVOICE_TOKENIZER_MODEL: omnivoice-tokenizer-F32.gguf
     args: []
-  setup-lm-studio:
-    enabled: false
-    description: Install LM Studio server
-    env:
-      LM_STUDIO_PORT: '1234'
-      LM_STUDIO_HOST: 127.0.0.1
-    args: []
   setup-openwebui:
     enabled: false
     description: Install OpenWebUI (web interface for LLMs)
@@ -268,12 +261,6 @@ scripts:
   #     UNSLOTH_STUDIO_BIND: 127.0.0.1
   #     UNSLOTH_STUDIO_HOME: /srv/unsloth
   #   args: []
-  setup-nanobot:
-    enabled: false
-    description: Install Nanobot (long-running AI agent)
-    env:
-      NANOBOT_PORT: '8765'
-    args: []
   setup-hermes:
     enabled: false
     description: Install Hermes Agent in a dedicated KVM VM (virt-runner)
@@ -288,16 +275,6 @@ scripts:
       #   HERMES_LLM_API_KEY: ''   # only if the endpoint requires one
       HERMES_LLM_BASE_URL: ''
       HERMES_LLM_MODEL: ''
-    args: []
-  setup-neovim:
-    enabled: false
-    description: Install and configure Neovim with plugins
-    env: {}
-    args: []
-  setup-zed:
-    enabled: false
-    description: Install Zed editor
-    env: {}
     args: []
   setup-opencode:
     enabled: false
@@ -362,12 +339,6 @@ scripts:
     description: Install Postiz (social-media scheduler, docker + Temporal)
     env: {}
     args: []
-  setup-whispering:
-    enabled: false
-    description: Install Whispering (speech-to-text service)
-    env:
-      WHISPERING_PORT: '5000'
-    args: []
   setup-music-gen:
     enabled: false
     description: Install ACE-Step 1.5 song generation (GPU) or CPU preview
@@ -393,11 +364,6 @@ scripts:
   setup-anydesk:
     enabled: false
     description: Install AnyDesk remote access
-    env: {}
-    args: []
-  setup-brave:
-    enabled: false
-    description: Install Brave browser
     env: {}
     args: []
   setup-upstream-kernel:

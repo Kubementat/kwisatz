@@ -316,18 +316,20 @@ When recommending services, group them logically:
 | Category | Typical Scripts |
 |----------|----------------|
 | **System & Infra** | setup-basics, setup-docker, setup-sshd, configure-firewall, setup-traefik, setup-fail2ban, setup-upstream-kernel, setup-ssh-tunnel-user |
-| **AI / LLM** | setup-llama-cpp, setup-llama-swap, setup-vllm, setup-vllm-omni, setup-lm-studio, setup-openwebui, sync-models |
-| **AI Agents** | setup-omnigent, setup-opencode, setup-nanobot, setup-hermes, setup-pi, setup-agent-docker-runner, setup-deepseek-harness |
-| **Dev Tools** | setup-neovim, setup-zed |
+| **AI / LLM** | setup-llama-cpp, setup-llama-swap, setup-vllm, setup-vllm-omni, setup-openwebui, sync-models |
+| **AI Agents** | setup-omnigent, setup-opencode, setup-hermes, setup-pi, setup-agent-docker-runner, setup-deepseek-harness |
 | **Project Mgmt** | setup-forgejo, setup-planka |
 | **Storage / Files** | setup-nextcloud, setup-samba |
 | **Automation** | setup-n8n |
 | **CI/CD** | setup-concourse, setup-renovate (version-bump PRs for `versions.yml`) |
 | **Backup** | setup-backup-server, setup-backup-client |
 | **Remote Access** | setup-anydesk, setup-virtualization |
-| **Speech** | setup-whispering, setup-omnivoice |
-| **Browser** | setup-brave |
+| **Speech** | setup-omnivoice |
 | **Whiteboarding** | setup-excalidraw |
+
+Editor, browser and desktop tooling (Neovim, Zed, Brave, LM Studio, Whispering,
+Nanobot) lives in the sibling repository **kwisatz-extras** and is not offered
+from here; its scripts still run on their own (`./tasks/setup-<name>.sh`).
 
 ## Utility Scripts
 

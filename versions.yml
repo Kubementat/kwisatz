@@ -406,13 +406,6 @@ ace-step:
   package: ACE-Step/ACE-Step-1.5
   version: "v0.1.8"
 
-lm-studio:
-  # not looked up by Renovate (vendor download site). setup-lm-studio uses it
-  # as the "auto-detect latest" default
-  datasource: custom
-  package: lmstudio.ai
-  version: "0.4.28-2"
-
 orca:
   # was the floating "latest" until versions.yml
   datasource: github-releases
@@ -425,24 +418,11 @@ llama-swap:
   package: mostlygeek/llama-swap
   version: "v272"
 
-neovim:
-  # was the floating "stable" until versions.yml
-  datasource: github-releases
-  package: neovim/neovim
-  version: "v0.12.6"
-
 ollaya:
   # was "latest release" until versions.yml; setup-ollaya strips the "v"
   datasource: github-releases
   package: ollaya-dev/ollaya
   version: "v0.18.0"
-
-whispering:
-  # was resolved to the latest release at runtime until versions.yml;
-  # setup-whispering strips the "v"
-  datasource: github-releases
-  package: EpicenterHQ/epicenter
-  version: "v7.11.0"
 
 llama-cpp:
   # build tags b<N>, several a day; was "newest tag at runtime" until versions.yml
@@ -450,12 +430,6 @@ llama-cpp:
   package: ggml-org/llama.cpp
   version: "b12262"
   versioning: "regex:^b(?<major>\\d+)$"
-
-nanobot:
-  # was "newest tag at runtime" until versions.yml
-  datasource: github-tags
-  package: HKUDS/nanobot
-  version: "v0.4.1"
 
 deepseek-harness:
   # dsh publishes no stable releases (rc/alpha only); npm needs an explicit
@@ -467,7 +441,7 @@ deepseek-harness:
 
 pi-pocket:
   # no published container image: the script clones this tag and builds
-  # docker/Dockerfile from it (cf. setup-nanobot.sh). The digest is the commit
+  # docker/Dockerfile from it. The digest is the commit
   # the tag points at — lightweight tags make it the same SHA.
   datasource: github-tags
   package: TannerMidd/pi-pocket

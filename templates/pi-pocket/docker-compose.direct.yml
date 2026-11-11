@@ -8,7 +8,7 @@ name: pi-pocket
 services:
   pi-pocket:
     # Built locally from the pinned checkout below — upstream publishes no
-    # container image (cf. setup-nanobot.sh).
+    # container image.
     image: ${PI_POCKET_IMAGE}
     build:
       context: ${PI_POCKET_SRC}

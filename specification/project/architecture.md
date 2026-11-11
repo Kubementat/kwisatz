@@ -26,7 +26,7 @@ repository root
 │   ├── setup-basics.sh
 │   ├── setup-sshd.sh
 │   ├── setup-docker.sh
-│   ├── setup-lm-studio.sh
+│   ├── setup-openwebui.sh
 │   ├── configure-firewall.sh
 │   └── ...
 └── utilities/               # Standalone helper scripts
