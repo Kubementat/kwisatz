@@ -46,6 +46,14 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 #     matplotlib \
 #     requests
 
+# -- Node.js (official tarball, same pattern as Go above) ---------------------
+# The pi/opencode tooling below needs npm, which the upstream nanobot image
+# does not reliably ship (build failed with exit 127 on the 2026-11-11 bump).
+ARG NODE_VERSION=22.23.4
+RUN wget -q "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -O /tmp/node.tar.gz && \
+    tar -C /usr/local --strip-components=1 -xf /tmp/node.tar.gz && \
+    rm /tmp/node.tar.gz
+
 # pi
 RUN npm install -g @mariozechner/pi-coding-agent
 

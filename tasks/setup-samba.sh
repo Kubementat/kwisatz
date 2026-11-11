@@ -159,12 +159,22 @@ sed \
 # Restart Samba
 sudo systemctl restart smbd
 
-# Set Samba password
+# Set Samba password — non-interactive. The secret lives in a .env under
+# the share root (mode 600) so re-runs never rotate a credential, per
+# "Secrets and templating" in specification/project/conventions.md.
 step "Setting Samba password for user '${SAMBA_USER}'"
+SMB_ENV_FILE="${BASE_SHARE_PATH}/.samba.env"
 if sudo pdbedit -L | grep -q "^${SAMBA_USER}:"; then
   info "Samba password already set for '${SAMBA_USER}'"
 else
-  sudo smbpasswd -a "${SAMBA_USER}"
+  samba_pass="${SAMBA_PASSWORD:-}"
+  [[ -n "${samba_pass}" ]] || samba_pass="$(env_file_get "${SMB_ENV_FILE}" SAMBA_PASSWORD 2>/dev/null || true)"
+  if [[ -z "${samba_pass}" ]]; then
+    samba_pass="$(openssl rand -base64 12)"
+    info "Generated a new Samba password (see ${SMB_ENV_FILE})"
+  fi
+  printf 'SAMBA_PASSWORD=%s\n' "${samba_pass}" | env_file_write "${SMB_ENV_FILE}"
+  printf '%s\n%s\n' "${samba_pass}" "${samba_pass}" | sudo smbpasswd -a -s "${SAMBA_USER}"
 fi
 
 success "Samba configured successfully"

@@ -327,16 +327,29 @@ esac
 # tag/branch name is built as-is.
 step "Fetching llama.cpp source (ref: ${LLAMA_CPP_REF})"
 REQUESTED_REF="${LLAMA_CPP_REF}"
+# INSTALL_DIR defaults to /opt (created root-owned earlier). Cloning as the
+# invoking user fails there on a fresh host — run git privileged in that
+# case, then hand the tree back to the user so the build stays unprivileged.
+git_clone_into() {
+  if [[ -w "${INSTALL_DIR}" ]]; then
+    git "$@"
+  else
+    sudo git "$@"
+  fi
+}
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
   # Fix dubious ownership for existing repos
   if [[ "${INSTALL_DIR}" != "${HOME}"* ]]; then
-    git config --global --add safe.directory "${INSTALL_DIR}"
+    # -C / so the config call does not resolve the *invoking* directory's
+    # repo — under the VM test harness that is a copied worktree whose
+    # .git points at a host path that does not exist on the guest.
+    git -C / config --global --add safe.directory "${INSTALL_DIR}"
   fi
   info "Existing repo found at ${INSTALL_DIR} – fetching refs and tags…"
 else
   if [[ "${LLAMA_CPP_REF}" == "latest" ]]; then
     info "Cloning into ${INSTALL_DIR} (newest tag is resolved after the tag fetch)…"
-    git clone "${LLAMA_CPP_REPO_URL}" "${INSTALL_DIR}"
+    git_clone_into clone "${LLAMA_CPP_REPO_URL}" "${INSTALL_DIR}"
   else
     info "Cloning into ${INSTALL_DIR} at ${LLAMA_CPP_REF}…"
     # --branch pins the starting point; --depth 1 is deliberately NOT used: a
@@ -344,14 +357,18 @@ else
     # (verified: remote.origin.fetch becomes
     # +refs/tags/<ref>:refs/tags/<ref>), so a later change of LLAMA_CPP_REF could
     # never be fetched. A full --branch clone keeps every branch and tag.
-    git clone --branch "${LLAMA_CPP_REF}" \
+    git_clone_into clone --branch "${LLAMA_CPP_REF}" \
       "${LLAMA_CPP_REPO_URL}" "${INSTALL_DIR}"
+  fi
+  # Drop ownership from the privileged clone so fetch/build/run are unprivileged
+  if ! [[ -w "${INSTALL_DIR}" ]]; then
+    sudo chown -R "$(id -un):$(id -gn)" "${INSTALL_DIR}"
   fi
 fi
 
 # Fix dubious ownership when directory was created with sudo
 if [[ "${INSTALL_DIR}" != "${HOME}"* ]]; then
-  git config --global --add safe.directory "${INSTALL_DIR}"
+  git -C / config --global --add safe.directory "${INSTALL_DIR}"
 fi
 
 if ! git -C "${INSTALL_DIR}" fetch --tags --force; then

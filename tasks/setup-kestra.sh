@@ -200,9 +200,15 @@ if [[ "${KESTRA_TRAEFIK}" == "true" ]]; then
   ensure_proxy_network
 else
   # Direct mode: refuse to take a port another service already holds.
+  # A re-run is not a conflict: tolerate the port being held by our own
+  # `kestra` container (the converge path brings the stack up again).
   if ss -tln 2>/dev/null | grep -qE "[:.]${KESTRA_PORT}[[:space:]]" || \
      netstat -tln 2>/dev/null | grep -q ":${KESTRA_PORT} "; then
-    error "Port ${KESTRA_PORT} is already in use. Choose a different KESTRA_PORT."
+    if docker ps --filter name='^kestra$' --format '{{.Names}}' 2>/dev/null | grep -qx kestra; then
+      info "Port ${KESTRA_PORT} is held by our own kestra container — re-run, converging."
+    else
+      error "Port ${KESTRA_PORT} is already in use. Choose a different KESTRA_PORT."
+    fi
   fi
 fi
 

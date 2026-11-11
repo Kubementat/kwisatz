@@ -132,10 +132,11 @@ fi
 # Cleanup
 rm -f "${INSTALL_SCRIPT}"
 
-# Verify installation
-if command -v "${ZED_BIN_NAME}" &>/dev/null; then
+# Verify installation (~/.local/bin is not in the PATH of a non-login shell,
+# e.g. when run through the orchestrator — accept either lookup location)
+if command -v "${ZED_BIN_NAME}" &>/dev/null || [[ -x "${HOME}/.local/bin/${ZED_BIN_NAME}" ]]; then
   success "Zed installed successfully"
   info "Run 'zed' to start the editor"
 else
-  error "Zed installation failed - binary not found in PATH"
+  error "Zed installation failed - binary not found in PATH or ~/.local/bin"
 fi

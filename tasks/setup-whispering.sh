@@ -152,6 +152,7 @@ if [[ -f "${DESKTOP_LINK_TARGET_PATH}" ]]; then
   info "Desktop link exists at: ${DESKTOP_LINK_TARGET_PATH}. Skipping creation."
 else
   step "Creating desktop link at: ${DESKTOP_LINK_TARGET_PATH}"
+  mkdir -p "$(dirname "${DESKTOP_LINK_TARGET_PATH}")"
   START_SCRIPT_TARGET_PATH="${START_SCRIPT_TARGET_PATH}" envsubst < "${TEMPLATE_DIR}/whispering.desktop.template" > "${DESKTOP_LINK_TARGET_PATH}"
 fi
 
