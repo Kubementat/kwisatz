@@ -50,7 +50,7 @@ Read each project's release notes for breaking changes **before** merging; bump 
 | netbird (server/client/dashboard) | 0.77.1 / v2.91.1 | 0.82.1 / v2.96.1 | all three must move together; check breaking across 5 minors |
 | gufo | 0.8.1 | 0.33.0 | per the comment: **read the upstream source of the new tag** — serve flags can change; verify digest pin moves too |
 
-## C. Majors — bumped on this branch per operator decision, VM-verified here
+## C. Major decisions — one ticket each, never in the sweep commit
 
 | key | current | candidate | what has to go first |
 |---|---|---|---|
@@ -103,6 +103,34 @@ No action in this sweep:
 6. llama-cpp bump + Renovate config fix (F), confirm with a `check-versions.sh --json` re-run that nothing shows up as outdated anymore.
 7. Keep `# HELD` comments and `renovate.json` rules in sync — the unit test enforces it; if a bump changes a rule, change both.
 8. Re-run `./utilities/check-versions.sh --json` on the branch tip as the final "am I done" check.
+
+## Result (2026-11-11, VM end-to-end verdict)
+
+All 53 VM-testable scripts exercised twice (integration + idempotency) via
+virt-runner across rounds 1-6 on branch `chore/versions-yml-2026-11-11`.
+Every failure found was root-caused, fixed and re-verified:
+
+| Failure | Root cause | Fix |
+|---|---|---|
+| zed / agent-docker-runner | `~/.local/bin` not in non-login PATH | verify both paths + export PATH (fe9076b, 213286a) |
+| lm-studio / whispering | `~/Desktop` missing on headless hosts | `mkdir -p` before .desktop write (fe9076b) |
+| kestra idempotency | port check tripped by own running stack | tolerate own `kestra` container (fe9076b) |
+| memory-safety | root-only gate, never used in orchestrator | self-elevate via sudo (fe9076b) |
+| samba | interactive `smbpasswd` despite INTERACTIVE=false | non-interactive + `.samba.env` (fe9076b) |
+| opencode | nvm npm not on PATH → apt prefix → EACCES | load nvm before npm (fe9076b) |
+| deepseek-harness | bare npm resolves `*`, never prereleases | pin `@deepseek-ai/dsh` (fe9076b) |
+| nanobot | upstream base image lost npm | Node tarball in Dockerfile.extend (fe1f6f9) |
+| llama-cpp fresh host | user git clone into root-owned /opt | privileged clone + drop ownership (c539e9e) |
+| llama-cpp VM runs | bare `git config` resolves copied worktree pointer | `git -C /` (02d6ae9) |
+| postiz stack timeout | temporal-ui 2.58 busybox image has no curl | healthcheck → wget (f96df34) |
+| postiz first-run 502 | cold-stack register POST via Next proxy | bounded retry (94c96c0) |
+| concourse re-run crash-loop | `ip_tables` module never loaded in guest | modprobe + modules-load.d (213286a) |
+
+Final rounds: R5 14/15, R6 7/7 — everything the VM layer can prove is
+green, twice per script where idempotency applies. The 10 GPU/DGX-bound
+scripts (vllm, vllm-omni, colqwen, omnivoice, tensorfold ×2, gufo ×2,
+strix-halo-tuning, nvidia-container) keep their pins but need the real
+hardware to verify.
 
 ## Out of scope
 
