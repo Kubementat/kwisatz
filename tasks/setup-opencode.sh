@@ -259,6 +259,15 @@ preflight_systemd() {
 install_opencode_cli() {
     step "Installing/Updating the Opencode CLI (@opencode/cli@${OPENCODE_VERSION})"
 
+    # Load nvm when present (as setup-pi does): a non-login shell does not have
+    # nvm's npm on PATH, and falling through to the apt node below installs a
+    # root-owned prefix that global installs cannot write (EACCES).
+    if ! command -v nvm &>/dev/null; then
+        export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+        # shellcheck disable=SC1091
+        [ -s "${NVM_DIR}/nvm.sh" ] && \. "${NVM_DIR}/nvm.sh"
+    fi
+
     if ! command -v npm &>/dev/null; then
         info "npm is not installed. Installing Node.js and npm..."
         sudo apt update

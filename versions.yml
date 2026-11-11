@@ -457,6 +457,14 @@ nanobot:
   package: HKUDS/nanobot
   version: "v0.4.1"
 
+deepseek-harness:
+  # dsh publishes no stable releases (rc/alpha only); npm needs an explicit
+  # version because a bare install resolves the range `*`, which never matches
+  # prereleases (setup-deepseek-harness.sh).
+  datasource: npm
+  package: "@deepseek-ai/dsh"
+  version: "0.2.2-rc.1"
+
 pi-pocket:
   # no published container image: the script clones this tag and builds
   # docker/Dockerfile from it (cf. setup-nanobot.sh). The digest is the commit

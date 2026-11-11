@@ -20,7 +20,7 @@ REPO = Path(__file__).resolve().parents[2]
 VERSIONS = REPO / "versions.yml"
 RENOVATE = REPO / "renovate.json"
 
-DATASOURCES = {"docker", "github-releases", "github-tags", "pypi", "git-refs", "custom"}
+DATASOURCES = {"docker", "github-releases", "github-tags", "pypi", "npm", "git-refs", "custom"}
 FIELDS = {"datasource", "package", "version", "digest", "versioning"}
 KEY = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 USE = re.compile(r"\bkw_(?:image|version|pin)\s+([a-z0-9-]+)")

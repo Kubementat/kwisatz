@@ -118,7 +118,7 @@ else
   step "Installing DeepSeek Harness"
 fi
 
-npm install -g @deepseek-ai/dsh
+npm install -g "@deepseek-ai/dsh@${DSH_VERSION:-$(kw_version deepseek-harness)}"
 
 success "DeepSeek Harness installed successfully"
 info "Run 'dsh web' to start the Web UI at http://127.0.0.1:3080"

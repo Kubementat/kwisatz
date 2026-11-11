@@ -225,6 +225,13 @@ if ! command -v systemctl &>/dev/null; then
 fi
 
 if [[ $CHECK_ONLY -eq 0 ]] && ! is_root; then
+  # Convention: scripts run as the invoking user. Re-exec once via sudo so an
+  # unprivileged run (orchestrator, plain shell) still converges; error only
+  # when elevation is impossible.
+  if command -v sudo &>/dev/null && sudo -n true &>/dev/null; then
+    info "Re-executing with sudo (needs root for system tuning)"
+    exec sudo "$0" "$@"
+  fi
   error "This script must be run as root (use sudo). Use --check to inspect without changes."
 fi
 

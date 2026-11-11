@@ -183,6 +183,7 @@ EOF
     info "Desktop link exists at: ${DESKTOP_LINK_TARGET_PATH}"
   else
     step "Creating desktop shortcut"
+    mkdir -p "$(dirname "${DESKTOP_LINK_TARGET_PATH}")"
     cat > "${DESKTOP_LINK_TARGET_PATH}" << EOF
 [Desktop Entry]
 Version=1.0
