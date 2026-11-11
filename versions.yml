@@ -29,7 +29,7 @@
 agentsview:
   datasource: github-releases
   package: kenn-io/agentsview
-  version: "v0.46.1"
+  version: "v0.47.0"
 
 hermes:
   # release v0.21.5; the script installs the commit, Renovate compares tags
@@ -41,29 +41,29 @@ hermes:
 openwebui:
   datasource: docker
   package: ghcr.io/open-webui/open-webui
-  version: "v0.11.1"
+  version: "v0.13.3"
 
 litellm:
   # setup-llm-gateway
   datasource: docker
   package: ghcr.io/berriai/litellm
-  version: "v1.106.6"
+  version: "v1.108.5"
 
 renovate:
   datasource: docker
   package: renovate/renovate
-  version: "44.193.0"
+  version: "44.227.4"
 
 # ── monitoring (setup-monitoring) ────────────────────────────────────────────
 prometheus:
   datasource: docker
   package: prom/prometheus
-  version: "v3.15.1"
+  version: "v3.16.0"
 
 grafana:
   datasource: docker
   package: grafana/grafana
-  version: "13.3.0"
+  version: "13.3.1"
 
 node-exporter:
   datasource: docker
@@ -80,7 +80,7 @@ cadvisor:
 postiz:
   datasource: docker
   package: ghcr.io/gitroomhq/postiz-app
-  version: "v2.24.0"
+  version: "v2.25.3"
 
 postiz-postgres:
   # HELD <18: the data volume is tied to the major, upgrade needs pg_upgrade
@@ -97,23 +97,23 @@ temporal-postgres:
 postiz-redis:
   datasource: docker
   package: redis
-  version: "7.2"
+  version: "8.10"
 
 elasticsearch:
   # HELD <8: Temporal's visibility store needs Elasticsearch 7
   datasource: docker
   package: elasticsearch
-  version: "7.17.27"
+  version: "7.17.28"
 
 temporal:
   datasource: docker
   package: temporalio/auto-setup
-  version: "1.28.1"
+  version: "1.29.7"
 
 temporal-ui:
   datasource: docker
   package: temporalio/ui
-  version: "2.34.0"
+  version: "2.58.1"
 
 # ── nextcloud (setup-nextcloud) ───────────────────────────────────────────────
 
@@ -134,19 +134,19 @@ nextcloud-postgres:
 nextcloud-redis:
   datasource: docker
   package: redis
-  version: "7-alpine"
+  version: "8-alpine"
 
 # ── matrix (setup-matrix) — grouped in renovate.json ──────────────────────────
 
 synapse:
   datasource: docker
   package: matrixdotorg/synapse
-  version: "v1.164.2"
+  version: "v1.165.0"
 
 mas:
   datasource: docker
   package: ghcr.io/element-hq/matrix-authentication-service
-  version: "1.28.0"
+  version: "1.29.0"
 
 element:
   datasource: docker
@@ -207,7 +207,7 @@ planka:
   # was the floating :latest until versions.yml
   datasource: docker
   package: ghcr.io/plankanban/planka
-  version: "2.2.1"
+  version: "2.3.1"
 
 planka-postgres:
   # HELD <17: the data volume is tied to the major, upgrade needs pg_upgrade
@@ -221,7 +221,7 @@ traefik:
   # was the floating :v3 in setup-traefik; n8n's sidecar shares this entry
   datasource: docker
   package: traefik
-  version: "v3.7.16"
+  version: "v3.7.18"
 
 socket-proxy:
   # fronts /var/run/docker.sock: tag AND digest pinned
@@ -233,7 +233,7 @@ socket-proxy:
 n8n:
   datasource: docker
   package: docker.n8n.io/n8nio/n8n
-  version: "2.37.4"
+  version: "3.2.0"
 
 n8n-postgres:
   # HELD <16: the data volume is tied to the major, upgrade needs pg_upgrade
@@ -255,7 +255,7 @@ concourse-postgres:
 kestra:
   datasource: docker
   package: kestra/kestra
-  version: "v2.0.8"
+  version: "v2.0.10"
 
 kestra-postgres:
   # HELD <17: the data volume is tied to the major (Kestra docs: 16/17 data-dir issue)
@@ -266,7 +266,7 @@ kestra-postgres:
 dagu:
   datasource: docker
   package: ghcr.io/dagucloud/dagu
-  version: "2.16.2"
+  version: "2.26.0"
 
 # ── opencode, nvidia-container ────────────────────────────────────────────────
 
@@ -274,14 +274,14 @@ opencode:
   # also the @opencode/cli npm version the script installs
   datasource: docker
   package: ghcr.io/anomalyco/opencode
-  version: "2.2.5"
+  version: "2.2.7"
 
 nvidia-smoke:
   # base image for the CDI smoke test (no CUDA needed)
   # HELD to LTS releases (YY.04)
   datasource: docker
   package: ubuntu
-  version: "24.04"
+  version: "26.04"
 
 # ── omnigent (setup-omnigent) ─────────────────────────────────────────────────
 
@@ -289,7 +289,7 @@ omnigent-server:
   # was the floating :latest until versions.yml
   datasource: docker
   package: ghcr.io/omnigent-ai/omnigent-server
-  version: "v0.20.0"
+  version: "v0.21.0"
 
 omnigent-postgres:
   # HELD <17: the data volume is tied to the major, upgrade needs pg_upgrade
@@ -302,17 +302,17 @@ omnigent-postgres:
 netbird-server:
   datasource: docker
   package: netbirdio/netbird-server
-  version: "0.77.1"
+  version: "0.82.1"
 
 netbird-dashboard:
   datasource: docker
   package: netbirdio/dashboard
-  version: "v2.91.1"
+  version: "v2.96.1"
 
 netbird-client:
   datasource: docker
   package: netbirdio/netbird
-  version: "0.77.1"
+  version: "0.82.1"
 
 # ── gufo (setup-gufo-strix-halo-qwen38-flash/-27b) ────────────────────────────
 
@@ -321,8 +321,8 @@ gufo:
   # of the new tag before merging
   datasource: docker
   package: ghcr.io/gufo-org/toolboxes/gufo-runtime
-  version: "0.8.1"
-  digest: "sha256:56f0a052e784fdfd43ebe2aba590336c8fb5b05c5a813aaebb5ac98d61010afd"
+  version: "0.33.0"
+  digest: "sha256:ffc8f50514267959d44f510712e603e0663e1a777bd1a496e468f6279449bbda"
 
 # ── vllm, vllm-omni ───────────────────────────────────────────────────────────
 
@@ -331,7 +331,7 @@ vllm:
   # F21 registry probe (see the script) before merging a bump
   datasource: docker
   package: vllm/vllm-openai
-  version: "v0.27.1"
+  version: "v0.33.0"
 
 vllm-omni:
   # was the floating :latest until versions.yml; aarch64 hosts append -aarch64
@@ -349,10 +349,11 @@ vllm-omni-rocm:
 
 ngc-pytorch:
   # must match the host driver (CUDA) and the torch pin of colpali-engine;
-  # tested: 25.10-py3 + colpali-engine 0.3.13 on DGX Spark
+  # bump: 26.10-py3 — not yet verified against the host driver / torch pin;
+  # last known good was 25.10-py3 + colpali-engine 0.3.13 on DGX Spark
   datasource: docker
   package: nvcr.io/nvidia/pytorch
-  version: "25.10-py3"
+  version: "26.10-py3"
   versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)-py(?<compatibility>\\d+)$"
 
 colpali-engine:
@@ -370,7 +371,7 @@ tensorfold-flash-recipe:
   datasource: git-refs
   package: https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
   version: "main"
-  digest: "4e1239ddb9d9a4cc3c748e771ae4725335c46a95"
+  digest: "20e15e41f2f514a0d287710f4665ee1b5009ba41"
 
 tensorfold-27b-recipe:
   # recipe repo commit (main @ 2026-10-01); moves together with the prebuilt image
@@ -392,12 +393,12 @@ nvm:
   # setup-basics strips the leading "v"
   datasource: github-releases
   package: nvm-sh/nvm
-  version: "v0.40.4"
+  version: "v0.41.0"
 
 laya:
   datasource: pypi
   package: laya
-  version: "0.3.19"
+  version: "0.4.31"
 
 ace-step:
   # project version 1.5.0 is published under v0.1.x tags
@@ -410,19 +411,19 @@ lm-studio:
   # as the "auto-detect latest" default
   datasource: custom
   package: lmstudio.ai
-  version: "0.4.6-1"
+  version: "0.4.28-2"
 
 orca:
   # was the floating "latest" until versions.yml
   datasource: github-releases
   package: stablyai/orca
-  version: "v1.4.247"
+  version: "v1.4.256"
 
 llama-swap:
   # was the floating "latest" until versions.yml
   datasource: github-releases
   package: mostlygeek/llama-swap
-  version: "v268"
+  version: "v272"
 
 neovim:
   # was the floating "stable" until versions.yml
@@ -447,14 +448,14 @@ llama-cpp:
   # build tags b<N>, several a day; was "newest tag at runtime" until versions.yml
   datasource: github-releases
   package: ggml-org/llama.cpp
-  version: "b11981"
+  version: "b12262"
   versioning: "regex:^b(?<major>\\d+)$"
 
 nanobot:
   # was "newest tag at runtime" until versions.yml
   datasource: github-tags
   package: HKUDS/nanobot
-  version: "v0.4.0"
+  version: "v0.4.1"
 
 pi-pocket:
   # no published container image: the script clones this tag and builds
@@ -462,8 +463,8 @@ pi-pocket:
   # the tag points at — lightweight tags make it the same SHA.
   datasource: github-tags
   package: TannerMidd/pi-pocket
-  version: "v0.28.0"
-  digest: "5eb3404764613f04d703d785d6e1d46f49a1983f"
+  version: "v0.28.1"
+  digest: "7cb38266b0d0647af88c005b954bc659c61a199a"
 
 omnivoice:
   # no release tags upstream: the commit (digest) follows master, the script
@@ -471,4 +472,4 @@ omnivoice:
   datasource: git-refs
   package: https://github.com/ServeurpersoCom/omnivoice.cpp
   version: "master"
-  digest: "1a468d8b9d65b3544ca1004d2d7c05dfc65d1f3e"
+  digest: "dbfc792d6fbe0cc3a776817f56de35a3744d7594"
