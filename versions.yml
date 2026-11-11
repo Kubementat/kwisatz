@@ -47,12 +47,12 @@ litellm:
   # setup-llm-gateway
   datasource: docker
   package: ghcr.io/berriai/litellm
-  version: "v1.108.5"
+  version: "v1.109.0"
 
 renovate:
   datasource: docker
   package: renovate/renovate
-  version: "44.227.4"
+  version: "44.234.1"
 
 # ── monitoring (setup-monitoring) ────────────────────────────────────────────
 prometheus:
@@ -151,7 +151,7 @@ mas:
 element:
   datasource: docker
   package: vectorim/element-web
-  version: "v1.12.33"
+  version: "v1.12.34"
 
 matrix-wellknown:
   datasource: docker
@@ -166,7 +166,7 @@ livekit:
 lk-jwt:
   datasource: docker
   package: ghcr.io/element-hq/lk-jwt-service
-  version: "0.9.0"
+  version: "0.10.0"
 
 ketesa:
   datasource: docker
@@ -318,11 +318,13 @@ netbird-client:
 
 gufo:
   # registry tags carry no "v"; a bump changes serve flags — read the source
-  # of the new tag before merging
+  # of the new tag before merging. The digest is the registry manifest digest
+  # (docker images --digests, not docker inspect .Id — the latter is the config
+  # digest and is not a pullable reference).
   datasource: docker
   package: ghcr.io/gufo-org/toolboxes/gufo-runtime
   version: "0.33.0"
-  digest: "sha256:ffc8f50514267959d44f510712e603e0663e1a777bd1a496e468f6279449bbda"
+  digest: "sha256:cf76a084e33e638ec4d934afaf9534aad591a5f2ddd951576bd63a9792b7d601"
 
 # ── vllm, vllm-omni ───────────────────────────────────────────────────────────
 
@@ -425,10 +427,13 @@ ollaya:
   version: "v0.18.0"
 
 llama-cpp:
-  # build tags b<N>, several a day; was "newest tag at runtime" until versions.yml
-  datasource: github-releases
+  # build tags b<N>, several a day; was "newest tag at runtime" until versions.yml.
+  # github-tags, not github-releases: llama.cpp flags every b* release as a
+  # prerelease, so the default ignoreUnstable filter leaves the releases
+  # datasource with nothing to report and the pin silently freezes.
+  datasource: github-tags
   package: ggml-org/llama.cpp
-  version: "b12262"
+  version: "b12287"
   versioning: "regex:^b(?<major>\\d+)$"
 
 deepseek-harness:
@@ -445,8 +450,8 @@ pi-pocket:
   # the tag points at — lightweight tags make it the same SHA.
   datasource: github-tags
   package: TannerMidd/pi-pocket
-  version: "v0.28.1"
-  digest: "7cb38266b0d0647af88c005b954bc659c61a199a"
+  version: "v0.28.2"
+  digest: "5d009fa4d1e2b69db54f05e04f750a6f2e591bb1"
 
 omnivoice:
   # no release tags upstream: the commit (digest) follows master, the script

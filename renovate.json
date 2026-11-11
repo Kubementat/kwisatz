@@ -34,6 +34,13 @@
       "dependencyDashboardApproval": true
     },
     {
+      "description": "llama.cpp moves by build tags b<N> (several a day); the regex versioning classifies every move as a major, so do not hold it for dashboard approval",
+      "matchDepNames": [
+        "llama-cpp"
+      ],
+      "dependencyDashboardApproval": false
+    },
+    {
       "description": "Matrix stack (setup-matrix): released and tested together",
       "groupName": "matrix",
       "matchDepNames": [
