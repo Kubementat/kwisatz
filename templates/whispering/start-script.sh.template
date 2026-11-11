@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# Start script for Whispering AppImage
-#
-# Note: --no-sandbox is required for AppImage in some environments
-# (disables Electron's security sandbox)
-exec "${APP_IMAGE_TARGET_PATH}" --no-sandbox

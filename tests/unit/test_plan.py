@@ -127,5 +127,5 @@ def test_similarity_suggestions_are_gated_by_distance():
     """
     assert planner.similar("aply", ["apply", "status"], 1) == ["apply"]
     assert planner.similar("tragik", ["traefik"], 5) == ["traefik"], "two edits is still a typo"
-    assert planner.similar("zzzzz", ["setup-pi", "setup-zed"], 5) == [], "not a typo at all"
+    assert planner.similar("zzzzz", ["setup-pi", "setup-docker"], 5) == [], "not a typo at all"
     assert planner.similar("stub-ax", ["stub-a", "stub-c"], 5) == ["stub-a", "stub-c"]

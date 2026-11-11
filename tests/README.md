@@ -130,7 +130,6 @@ The default test config enables a fast, safe, non-interactive subset:
 | `setup-docker` | Core dependency for docker-based services |
 | `setup-sshd` | sshd hardening (with `SSHD_PORT: "22"`) |
 | `setup-fail2ban` | systemd service, fast (with `SSHD_PORT: "22"`) |
-| `setup-neovim` | tarball install + plugins |
 | `setup-pi` | npm-based (needs node from `setup-basics`) |
 | `setup-ai-agent-skills` | skills + agent profiles clone, fast |
 | `setup-traefik` | docker-based, needs `setup-docker`; skips cleanly on re-run |

@@ -8,7 +8,7 @@
 #   Deploys Pi Pocket, the multiplayer web app around the Pi coding agent
 #   (https://github.com/TannerMidd/pi-pocket), with Docker Compose. Upstream
 #   publishes no container image, so the script clones the pinned tag from
-#   versions.yml and builds docker/Dockerfile locally (cf. setup-nanobot.sh);
+#   versions.yml and builds docker/Dockerfile locally;
 #   the image is rebuilt only when that ref changes or FORCE=true.
 #
 #   All state lives in bind mounts under PI_POCKET_HOME, so the image stays

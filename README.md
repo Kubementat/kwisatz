@@ -345,6 +345,11 @@ order, stop-at-first-failure).
 
 For a complete list of automations see [AUTOMATIONS.md](AUTOMATIONS.md)
 
+**Scripts that left?** Six recipes — Neovim, Zed, Brave, LM Studio, Whispering, Nanobot — now
+live in the sibling repository `kwisatz-extras`. They install the same software and run
+standalone (`./tasks/setup-<name>.sh`), but they are no longer part of this repository's
+config keys, `versions.yml`, or VM test set.
+
 **Setting up network access?** [README_TRAEFIK.md](README_TRAEFIK.md) covers the reverse
 proxy; [README_NETBIRD.md](README_NETBIRD.md) is the flow guide for reaching your local
 network from outside the LAN — a phone on mobile data, a roaming laptop — over a
@@ -546,7 +551,7 @@ providers:
 There are two ways to customize the setup:
 
 1. **Edit `machine-config.yml`** — Set environment variables and command-line arguments for each script in the configuration file. This is the recommended way for declarative, reproducible setups.
-2. **Edit default values directly** in each task script (e.g., change `LM_STUDIO_VERSION="0.4.0-18"` in `setup-lm-studio.sh`). This is handy for a permanent change across all runs.
+2. **Edit default values directly** in each task script (e.g., change `LLAMA_SWAP_PORT="9292"` in `setup-llama-swap.sh`). This is handy for a permanent change across all runs. Upstream versions are the exception — they live in `versions.yml`, not in the scripts.
 
 ---
 
