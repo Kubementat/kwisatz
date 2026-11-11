@@ -17,10 +17,18 @@
 #
 # Vars:
 #   kwisatz_git_uri  clone URL of the kwisatz repository (no credentials)
-#   github_token     read-only GitHub token for github-releases/-tags
-#                    lookups and the API rate limit; empty → GitHub-hosted
-#                    entries show `skipped: github-token-required`. Prefer a
-#                    credential manager over -v for a real token.
+#   github_token     read-only GitHub token for the github-releases/-tags
+#                    entries of versions.yml and the api.github.com rate limit.
+#                    Empty → those entries report `(skipped:
+#                    github-token-required)` and the run prints how many were
+#                    skipped. The token check-versions.sh picks up (default of
+#                    `gh auth token`) works; it needs no scopes for public
+#                    repositories. Passing it with -v stores it in the ATC
+#                    database where `fly get-pipeline` shows it, so a real
+#                    deployment should serve it from a credential manager
+#                    instead (Vault, or `--dummy-creds-var` on the web node).
+#                    To check that every var resolves before the first run:
+#                    fly set-pipeline … --check-creds
 
 resources:
   - name: kwisatz
@@ -84,6 +92,11 @@ jobs:
                 log="$(mktemp)"
                 echo "renovate $(renovate --version)," \
                   "kwisatz develop @ $(git rev-parse --short HEAD)"
+                # without a token Renovate hides the reason behind per-entry
+                # skip reasons, so say it once where the eye lands first
+                if [[ -z "${RENOVATE_GITHUB_COM_TOKEN:-}" ]]; then
+                  echo "NOTE     no GitHub token: github-hosted entries skipped"
+                fi
                 if ! renovate --platform=local --dry-run=lookup \
                     > "$log" 2>&1; then
                   tail -n 20 "$log"
