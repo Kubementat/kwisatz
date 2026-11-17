@@ -29,10 +29,10 @@
 # KEY ACTIONS:
 #   1. Pre-flight checks: platform path, uv, git, curl, envsubst, systemd
 #   2. Clones ComfyUI and checks out COMFYUI_REF (a release tag)
-#   3. Creates the venv and installs torch/torchvision/torchaudio from the
-#      PyTorch index, then writes the constraints file
+#   3. Creates the venv and installs torch/torchvision/torchaudio (versions
+#      from versions.yml) from the PyTorch index, then writes the constraints file
 #   4. Installs requirements.txt (incl. the pinned comfy-aimdo) and, on NVIDIA
-#      platforms, onnxruntime-gpu — all under the constraints
+#      platforms, the pinned onnxruntime-gpu — all under the constraints
 #   5. Cleans up conflicting OpenCV variants left behind by custom nodes
 #   6. Optionally builds SageAttention from source (GB10 only, opt-in)
 #   7. Installs the Model Resolver custom node at a pinned tag (default on)
@@ -149,6 +149,13 @@ SAGE_REPO_URL="https://github.com/thu-ml/SageAttention.git"
 RESOLVER_REPO_URL="https://github.com/Azornes/Comfyui-Model-Resolver.git"
 TORCH_INDEX_CUDA="https://download.pytorch.org/whl/cu130"
 TORCH_INDEX_CPU="https://download.pytorch.org/whl/cpu"
+# The PyTorch index serves these PyPI versions with a local label (+cu130,
+# +cpu); "==<version>" matches it.
+TORCH_VERSION="$(kw_version torch)"
+TORCHVISION_VERSION="$(kw_version torchvision)"
+TORCHAUDIO_VERSION="$(kw_version torchaudio)"
+ONNXRUNTIME_VERSION="$(kw_version onnxruntime-gpu)"
+TORCH_STACK_PINS="${TORCH_VERSION} ${TORCHVISION_VERSION} ${TORCHAUDIO_VERSION}"
 SERVICE_NAME="comfyui"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 MANAGED_MARKER="Managed by tasks/setup-comfyui.sh"
@@ -220,7 +227,9 @@ ${BOLD}Environment variables${RESET} (all optional):
                                  memory — keep this off unless workloads are sized.
   COMFYUI_PYTHON                 Python version for the venv (default: 3.12)
   COMFYUI_TORCH_INDEX_URL        PyTorch wheel index (default: ${TORCH_INDEX_CUDA}
-                                 with an NVIDIA GPU, ${TORCH_INDEX_CPU} without)
+                                 with an NVIDIA GPU, ${TORCH_INDEX_CPU} without).
+                                 It must serve the versions pinned in versions.yml:
+                                 torch ${TORCH_VERSION}, torchvision ${TORCHVISION_VERSION}, torchaudio ${TORCHAUDIO_VERSION}
   COMFYUI_INSTALL_FFMPEG         Install ffmpeg via apt (default: true)
   COMFYUI_RESERVE_VRAM           --reserve-vram in GB (default: 8)
   COMFYUI_DISABLE_PINNED_MEMORY  Pass --disable-pinned-memory (default: false)
@@ -318,6 +327,14 @@ index_cuda_version() {
   if [[ "$tag" =~ ^cu([0-9]+)([0-9])$ ]]; then
     echo "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
   fi
+}
+
+# Prints the installed torch, torchvision and torchaudio versions without the
+# local label ("2.14.0 0.29.0 2.11.0"), in the order of TORCH_STACK_PINS, or
+# nothing when the venv cannot report them.
+torch_stack_versions() {
+  "$VENV_PY" -c 'from importlib.metadata import version
+print(*(version(p).split("+")[0] for p in ("torch", "torchvision", "torchaudio")))' 2>/dev/null || true
 }
 
 # Finds a uv binary COMFYUI_USER can run: their own install first (sudo does
@@ -1021,6 +1038,12 @@ if [[ $CHECK_ONLY -eq 1 ]]; then
         check_fail "torch was installed from ${installed_index}, configured index is ${COMFYUI_TORCH_INDEX_URL}"
       fi
     fi
+    installed_stack="$(torch_stack_versions)"
+    if [[ "$installed_stack" == "$TORCH_STACK_PINS" ]]; then
+      success "torch stack matches versions.yml (torch torchvision torchaudio: ${TORCH_STACK_PINS})"
+    else
+      check_fail "torch stack is ${installed_stack:-unknown}, versions.yml pins ${TORCH_STACK_PINS} (torch torchvision torchaudio) — re-run to install it"
+    fi
     if verify_install; then
       success "Python environment verified"
     else
@@ -1375,6 +1398,8 @@ elif [[ "$(manifest_get torch_index)" != "$COMFYUI_TORCH_INDEX_URL" ]]; then
   TORCH_REASON="index changed to ${COMFYUI_TORCH_INDEX_URL}"
 elif [[ "$installed_cuda" != "${expected_cuda:-None}" ]]; then
   TORCH_REASON="installed build is CUDA ${installed_cuda}, index serves ${expected_cuda:-CPU}"
+elif [[ "$(torch_stack_versions)" != "$TORCH_STACK_PINS" ]]; then
+  TORCH_REASON="installed $(torch_stack_versions), versions.yml pins ${TORCH_STACK_PINS}"
 elif [[ ! -f "$CONSTRAINTS" ]]; then
   TORCH_REASON="constraints file missing"
 fi
@@ -1384,7 +1409,7 @@ if [[ -n "$TORCH_REASON" ]]; then
   info "Installing torch, torchvision, torchaudio from ${COMFYUI_TORCH_INDEX_URL} (${TORCH_REASON})"
   uv_pip install --index-url "$COMFYUI_TORCH_INDEX_URL" \
     --reinstall-package torch --reinstall-package torchvision --reinstall-package torchaudio \
-    torch torchvision torchaudio \
+    "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" "torchaudio==${TORCHAUDIO_VERSION}" \
     || error "Installing the torch stack failed (see uv's message above). The CUDA wheels also pull from pypi.nvidia.com; network errors clear on a re-run."
   # Freeze exactly what the index delivered — including the CUDA runtime
   # wheels torch depends on — so no later install can move any of it.
@@ -1405,9 +1430,9 @@ success "requirements.txt satisfied"
 if [[ "$PLATFORM" != "cpu" ]]; then
   # Official aarch64 wheel with native sm_121 kernels; the extras pull the
   # CUDA 13 runtime and cuDNN wheels it links against.
-  uv_pip install --quiet "onnxruntime-gpu[cuda,cudnn]" --constraint "$CONSTRAINTS" \
+  uv_pip install --quiet "onnxruntime-gpu[cuda,cudnn]==${ONNXRUNTIME_VERSION}" --constraint "$CONSTRAINTS" \
     || error "Installing onnxruntime-gpu under ${CONSTRAINTS} failed (see uv's message above)"
-  success "onnxruntime-gpu satisfied"
+  success "onnxruntime-gpu ${ONNXRUNTIME_VERSION} satisfied"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -71,6 +71,15 @@
       ]
     },
     {
+      "description": "setup-comfyui installs one torch stack: torchvision and torchaudio require their torch",
+      "groupName": "comfyui-torch",
+      "matchDepNames": [
+        "torch",
+        "torchvision",
+        "torchaudio"
+      ]
+    },
+    {
       "description": "HELD: postgres data volume is tied to the major (pg_upgrade)",
       "matchDepNames": [
         "postiz-postgres"
