@@ -321,7 +321,7 @@ When recommending services, group them logically:
 | Category | Typical Scripts |
 |----------|----------------|
 | **System & Infra** | setup-basics, setup-docker, setup-sshd, configure-firewall, setup-traefik, setup-fail2ban, setup-upstream-kernel, setup-ssh-tunnel-user |
-| **AI / LLM** | setup-llama-cpp, setup-llama-swap, setup-vllm, setup-vllm-omni, setup-openwebui, sync-models |
+| **AI / LLM** | setup-llama-cpp, setup-llama-swap, setup-vllm, setup-vllm-omni, setup-comfyui, setup-openwebui, sync-models |
 | **AI Agents** | setup-omnigent, setup-opencode, setup-hermes, setup-pi, setup-agent-docker-runner, setup-deepseek-harness |
 | **Project Mgmt** | setup-forgejo, setup-planka |
 | **Storage / Files** | setup-nextcloud, setup-samba |

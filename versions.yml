@@ -389,6 +389,39 @@ tensorfold-27b-prebuilt:
   version: "v0.6.0-fb91a0019fdc"
   versioning: "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>[0-9a-f]+)$"
 
+# ── comfyui (setup-comfyui) ───────────────────────────────────────────────────
+
+comfyui:
+  # releases, not tags: upstream tags patch versions before it publishes them
+  datasource: github-releases
+  package: Comfy-Org/ComfyUI
+  version: "v0.35.0"
+
+comfyui-model-resolver:
+  datasource: github-releases
+  package: Azornes/Comfyui-Model-Resolver
+  version: "v1.2.1"
+
+sageattention:
+  # opt-in GB10 source build (COMFYUI_SAGE_BUILD); main needs c03f15fb for
+  # sm_121, the script builds the commit
+  datasource: git-refs
+  package: https://github.com/thu-ml/SageAttention
+  version: "main"
+  digest: "d1a57a546c3d395b1ffcbeecc66d81db76f3b4b5"
+
+mcp:
+  # MCP server venv (COMFYUI_MCP); the server uses the mcp 2.x MCPServer API
+  datasource: pypi
+  package: mcp
+  version: "2.2.0"
+
+comfy-cli:
+  # MCP server venv (COMFYUI_MCP); the server parses its JSON envelope/1
+  datasource: pypi
+  package: comfy-cli
+  version: "1.20.0"
+
 # ── host tools: GitHub releases / tags, PyPI, git, vendor ─────────────────────
 
 nvm:

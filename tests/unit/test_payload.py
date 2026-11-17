@@ -33,6 +33,8 @@ def test_payload_files_are_present(wheel_names):
         "kwisatz/payload/machine-config.yml.example",
         "kwisatz/payload/models.yml.default",
         "kwisatz/payload/utilities/check-versions.sh",
+        # setup-comfyui.sh installs the MCP server from ../comfyui_mcp (COMFYUI_MCP=true)
+        "kwisatz/payload/comfyui_mcp/server.py",
     ):
         assert any(n == needed or n.startswith(needed + "/") for n in wheel_names), needed
 

@@ -108,6 +108,8 @@ scripts:
     env:
       LLAMA_SWAP_PORT: '9292'
       LLAMA_SWAP_DIR: /srv/llama-swap
+      # Extra config files merged into config.yaml (setup-comfyui drops here)
+      # LLAMA_SWAP_FRAGMENT_DIR: /srv/llama-swap/conf.d
     args: []
       # - --force
   setup-vllm:
@@ -233,6 +235,35 @@ scripts:
     env:
       VLLM_OMNI_PORT: '8091'
       # VLLM_OMNI_MODEL: Tongyi-MAI/Z-Image-Turbo
+    args: []
+  setup-comfyui:
+    enabled: false
+    description: Install ComfyUI (own service or behind llama-swap; DGX Spark)
+    env:
+      # systemd: own comfyui.service | llama-swap: model comfyui_auto,
+      # started via http://<host>:9292/comfyui/ (run setup-llama-swap first)
+      COMFYUI_SUPERVISOR: systemd
+      # Release tag pinned in versions.yml — set only to deviate here
+      # COMFYUI_REF: v<tag>
+      COMFYUI_PORT: '8188'
+      # ComfyUI has no authentication — keep it on loopback
+      COMFYUI_LISTEN: 127.0.0.1
+      # Off by default: ComfyUI next to a loaded LLM can exhaust unified memory
+      COMFYUI_AUTOSTART: 'false'
+      # COMFYUI_SAGE_BUILD: 'false'
+      # Custom node that finds/downloads a workflow's missing models ('false'
+      # disables it, settings kept). Its API returns stored HF/CivitAI keys
+      # to anyone who can reach ComfyUI.
+      COMFYUI_MODEL_RESOLVER: 'true'
+      # COMFYUI_MODEL_RESOLVER_REF: v<tag>   # default: versions.yml
+      # COMFYUI_EXTRA_ARGS: --bf16-unet --bf16-vae --bf16-text-enc
+      # MCP server for this ComfyUI as llama-swap model comfyui-mcp
+      # (COMFYUI_SUPERVISOR=llama-swap and apiKeys in llama-swap required).
+      # Afterwards add comfyui-mcp to every matrix set in llama-swap's config.
+      # Download tokens and limits (HF_API_TOKEN, CIVITAI_API_TOKEN,
+      # COMFYUI_MCP_DOWNLOAD_MAX_GB, COMFYUI_MCP_DISK_RESERVE_GB) belong in
+      # /srv/comfyui-mcp/.env, not here.
+      # COMFYUI_MCP: 'false'
     args: []
   setup-omnivoice:
     enabled: false

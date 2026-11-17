@@ -138,6 +138,8 @@ Deploys llama-swap, a multi-model LLM proxy with hot-swap support, as a native s
 - Web UI at `/ui`
 - Health check endpoint at `/health`
 - Comprehensive config with all options documented
+- Loads extra config files from `LLAMA_SWAP_FRAGMENT_DIR` (default `/srv/llama-swap/conf.d`, `--config-dir`), so other tasks can add models without touching `config.yaml` — used by `setup-comfyui.sh` in llama-swap mode
+- Re-runs keep the binary and `config.yaml`, but converge the systemd unit
 
 #### `setup-llm-gateway.sh`
 Deploys a **private LiteLLM gateway** (`/srv/llm-gateway`, port `4000`) in front of one or more llama-swap boxes, so agents and apps use **one OpenAI/Anthropic-compatible base URL and one key** while the gateway picks the box that serves each request. llama-swap stays the per-box front door; its behaviour does not change.
@@ -208,6 +210,31 @@ Deploys **vLLM-Omni** — the official vLLM sub-project for omni-modality servin
 - Model-agnostic: without `VLLM_OMNI_MODEL` the container is not started (prints next steps)
 - Optional Traefik reverse-proxy integration
 - Idempotent; supports `--force` and `--check`
+
+#### `setup-comfyui.sh`
+Installs **ComfyUI** (node-based diffusion workflows for images and video) from a pinned release tag into a uv venv under `/srv/comfyui`, and runs it either as its own `comfyui` systemd service or behind llama-swap (`COMFYUI_SUPERVISOR`). Tuned for NVIDIA DGX Spark (GB10, sm_121, aarch64); other NVIDIA GPUs take a generic path, machines without one get CPU wheels and `--cpu`.
+
+**Features:**
+- Guards against the documented install hazard: torch/torchvision/torchaudio come from the PyTorch cu130 index and are frozen into a constraints file, so ComfyUI's unpinned `requirements.txt` cannot replace them; a re-run repairs a replaced torch build
+- Verifies the result: `torch.version.cuda`, compute capability, a real CUDA matmul, torchaudio, comfy-aimdo, onnxruntime `CUDAExecutionProvider`; records the resolved versions in `state/install-manifest` and prints upgrades as a diff
+- `onnxruntime-gpu` from PyPI (native sm_121 kernels) for pose/ControlNet preprocessor nodes
+- Removes conflicting OpenCV variants left behind by custom nodes
+- Optional SageAttention source build for GB10 (`COMFYUI_SAGE_BUILD=true`), rebuilt when torch changes
+- [Model Resolver](https://github.com/Azornes/Comfyui-Model-Resolver) custom node (default on, pinned tag `COMFYUI_MODEL_RESOLVER_REF`): finds a loaded workflow's missing models locally or downloads them from Hugging Face / CivitAI into the model folders. Requirements install under the torch constraints; the run fails if the node does not load. Its frontend imports ComfyUI's `scripts/*.js` with one `../` too many, which breaks it below llama-swap's `/comfyui/` prefix; the task rewrites them to the right depth (a no-op once upstream is fixed) and undoes that before a tag switch. `COMFYUI_MODEL_RESOLVER=false` renames it to `*.disabled`, keeping its settings — API keys entered there are stored in the checkout and returned by its API to anyone who can reach ComfyUI
+- Loopback bind and no autostart by default (ComfyUI has no authentication; next to a loaded LLM it can exhaust unified memory)
+- `COMFYUI_SUPERVISOR=llama-swap`: ComfyUI becomes llama-swap's `comfyui_auto` model — `http://<host>:9292/comfyui/` starts it, requesting any other model stops it, so ComfyUI and an LLM never hold unified memory at the same time. Paths and user are read from the installed llama-swap unit (v249+); the config fragment is validated with `llama-swap -validate` before it is installed; ComfyUI still runs as `COMFYUI_USER` (via `setpriv`), on loopback and the fixed `COMFYUI_PORT` so local tools such as comfy-cli can reach it directly; an outdated loaded ComfyUI is unloaded instead of restarting llama-swap. Switching back to `systemd` removes everything the llama-swap mode installed
+- `COMFYUI_MCP=true` (llama-swap mode only): installs the MCP server from `comfyui_mcp/` (`mcp` and `comfy-cli` pinned in `versions.yml`, in its own venv under `/srv/comfyui-mcp`) as llama-swap model `comfyui-mcp`, reachable at `http://<host>:9292/upstream/comfyui-mcp/mcp` with the same API keys as the LLMs. Tools: search nodes, list models, queue a workflow and poll it, show the installed and available ComfyUI releases, and download a model in the background — Hugging Face `/resolve/` or CivitAI download URLs only, into the known model folders only, size known up front and below `COMFYUI_MCP_DOWNLOAD_MAX_GB` (default 50), at least `COMFYUI_MCP_DISK_RESERVE_GB` (default 100) left free, one at a time, never overwriting. Tokens (`HF_API_TOKEN`, `CIVITAI_API_TOKEN`) and those limits go into `/srv/comfyui-mcp/.env`; re-run the task afterwards so llama-swap restarts with them. Requires `apiKeys` in llama-swap; the server gets its own key (`/srv/comfyui-mcp/.env`, passed to llama-swap through a drop-in and appended to `apiKeys` by the `51-comfyui-mcp.yaml` fragment) to load ComfyUI through `/comfyui/`. The fragment is validated together with `config.yaml`, also when switching it off, so a matrix that still names `comfyui-mcp` stops the run before anything changes. You add `comfyui-mcp` to the matrix yourself; the run and `--check` report every set without it and every model in no set, because llama-swap would unload the MCP server mid-call (see `docs/plans/comfyui-mcp-server.md`)
+- Idempotent; supports `--check`, `--force` and `--interactive`
+
+**Environment variables (all optional):** `COMFYUI_SUPERVISOR` (`systemd` or `llama-swap`, default `systemd`), `COMFYUI_MCP` (default `false`), `COMFYUI_MCP_DIR` (default `/srv/comfyui-mcp`), `COMFYUI_DIR`, `COMFYUI_REF` (default: `versions.yml`), `COMFYUI_USER`, `COMFYUI_LISTEN` (default `127.0.0.1`), `COMFYUI_PORT` (default `8188`), `COMFYUI_MODELS_DIR`, `COMFYUI_AUTOSTART` (default `false`), `COMFYUI_TORCH_INDEX_URL`, `COMFYUI_RESERVE_VRAM` (default `8`), `COMFYUI_DISABLE_PINNED_MEMORY`, `COMFYUI_EXTRA_ARGS`, `COMFYUI_SAGE_BUILD`, `COMFYUI_SAGE_REF` (default: `versions.yml`), `COMFYUI_MODEL_RESOLVER` (default `true`), `COMFYUI_MODEL_RESOLVER_REF` (default: `versions.yml`) — see `--help` for all of them.
+
+```bash
+./tasks/setup-comfyui.sh                          # install / converge
+./tasks/setup-comfyui.sh --check                  # verify, change nothing
+COMFYUI_AUTOSTART=true ./tasks/setup-comfyui.sh   # also start at boot
+COMFYUI_SUPERVISOR=llama-swap ./tasks/setup-comfyui.sh   # behind llama-swap
+COMFYUI_REF=v0.36.0 ./tasks/setup-comfyui.sh      # upgrade ComfyUI
+```
 
 #### `setup-tensorfold-spark-qwen38-flash.sh`
 Deploys **Qwen3.8 Flash Next** on one DGX Spark (GB10, 128 GB unified memory) via TensorFold's Zig engine (`tensorfold-native`), **managed by llama-swap** (no standalone stack). Clones the pinned MiaAI-Lab recipe into `/srv/tensorfold`, runs its `scripts/prepare.sh` (prebuilt image + ~122 GiB checkpoint `azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound`, pinned revision), and merges a `qwen3.8-flash-next` entry into the llama-swap catalog (`models.yml`) + `sync-models.py`. llama-swap owns the container lifecycle: `serve.cmd` runs the upstream `start.sh` (blocking, `FOREGROUND=1`), `cmdStop` stops it, and requests are proxied from port 9292 to TensorFold on `TENSORFOLD_PORT` (default 8888, fixed host-network port). Spark is hard-required (the recipe is Spark-sized).

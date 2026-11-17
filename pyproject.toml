@@ -33,6 +33,7 @@ packages = ["src/kwisatz"]
 "lib" = "kwisatz/payload/lib"
 "templates" = "kwisatz/payload/templates"
 "sync_models" = "kwisatz/payload/sync_models"
+"comfyui_mcp" = "kwisatz/payload/comfyui_mcp"
 "deploy.py" = "kwisatz/payload/deploy.py"
 "versions.yml" = "kwisatz/payload/versions.yml"
 "renovate.json" = "kwisatz/payload/renovate.json"
