@@ -69,7 +69,7 @@ Automated testing is limited to static analysis (ShellCheck plus the project's m
 
 | Test ID | Description | Expected Result |
 |---------|-------------|-----------------|
-| T3.1 | Inspect generated `.env` | Contains `NGC_PYTORCH_TAG`, `COLPALI_VERSION`, `COLQWEN_MODEL_DIR`, `COLQWEN_MODEL`, `COLQWEN_PORT` with comments |
+| T3.1 | Inspect generated `.env` | Contains `NGC_PYTORCH_TAG`, `COLPALI_VERSION`, `COLQWEN_MODEL_DIR`, `COLQWEN_MODEL`, `COLQWEN_PORT`, `COLQWEN_BIND` with comments |
 | T3.2 | `docker compose config` in project dir | Values from `.env` resolved into build args, volume, environment, and port mapping |
 | T3.3 | Change `COLPALI_VERSION` in `.env`, rebuild | Image contains new colpali-engine version (`pip show colpali-engine` inside container) without re-running the setup script |
 | T3.4 | Re-run script with different `--port` but without `--force` | Existing `.env` untouched; status output points this out |

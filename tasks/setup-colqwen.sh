@@ -34,6 +34,11 @@ COLQWEN_MODEL="${COLQWEN_MODEL:-vidore/colqwen2.5-v0.2}"
 COLPALI_VERSION="${COLPALI_VERSION:-$(kw_version colpali-engine)}"
 NGC_PYTORCH_TAG="${NGC_PYTORCH_TAG:-$(kw_version ngc-pytorch)}"
 COLQWEN_PORT="${COLQWEN_PORT:-8100}"
+# Loopback by default: the service is unauthenticated, so publishing it on
+# all interfaces would expose /embed/* to the network. ufw does NOT cover
+# this - Docker inserts its published-port DNAT rules ahead of ufw's filter
+# chains, so a default-deny policy does not keep the port closed.
+COLQWEN_BIND="${COLQWEN_BIND:-127.0.0.1}"
 
 FORCE=0
 CHECK_ONLY=0
@@ -62,6 +67,7 @@ usage() {
   echo "  --colpali-version <ver>   colpali-engine version  (default: $(kw_version colpali-engine))"
   echo "  --ngc-tag <tag>           NGC PyTorch base image tag  (default: $(kw_version ngc-pytorch))"
   echo "  --port <n>                Host port for the service  (default: 8100)"
+  echo "  --bind <addr>             Host address to publish on  (default: 127.0.0.1)"
   echo "  --force                   Re-generate over an existing project"
   echo "  --interactive             Offer tear-down/re-create of an existing stack (default: converge)"
   echo "  --check                   Show installation status and exit"
@@ -69,7 +75,7 @@ usage() {
   echo ""
   echo -e "${BOLD}Environment variables${RESET} (flag equivalents):"
   echo "  PROJECT_DIR, COLQWEN_MODEL_DIR, COLQWEN_MODEL,"
-  echo "  COLPALI_VERSION, NGC_PYTORCH_TAG, COLQWEN_PORT"
+  echo "  COLPALI_VERSION, NGC_PYTORCH_TAG, COLQWEN_PORT, COLQWEN_BIND"
   echo "  COLQWEN_HEALTH_TIMEOUT  Seconds to wait for the stack to come up"
   echo "                           after 'docker compose up -d' (default: 600 -"
   echo "                           model loading is slow)"
@@ -98,6 +104,7 @@ while [[ $# -gt 0 ]]; do
     --colpali-version)  shift; COLPALI_VERSION="$1" ;;
     --ngc-tag)          shift; NGC_PYTORCH_TAG="$1" ;;
     --port)             shift; COLQWEN_PORT="$1" ;;
+    --bind)             shift; COLQWEN_BIND="$1" ;;
     --force)            FORCE=1 ;;
     --interactive)      INTERACTIVE=true ;;
     --check)            CHECK_ONLY=1 ;;
@@ -138,6 +145,14 @@ validate_port() {
   fi
 }
 
+# IPv4/IPv6 literal or hostname. Characters only - a wrong-but-well-formed
+# address is caught by Docker at `compose up`, not here.
+validate_bind() {
+  if [[ ! "$COLQWEN_BIND" =~ ^[A-Za-z0-9.:_-]+$ ]]; then
+    error "COLQWEN_BIND contains invalid characters. Allowed: A-Z a-z 0-9 . : _ -  (got: ${COLQWEN_BIND})"
+  fi
+}
+
 # HF model ID or absolute path - like safe strings but slashes are allowed.
 validate_model() {
   if [[ ! "$COLQWEN_MODEL" =~ ^[A-Za-z0-9._/-]+$ || "$COLQWEN_MODEL" == *..* ]]; then
@@ -151,6 +166,7 @@ validate_model
 validate_safe_string "COLPALI_VERSION"    "$COLPALI_VERSION"
 validate_safe_string "NGC_PYTORCH_TAG"    "$NGC_PYTORCH_TAG"
 validate_port
+validate_bind
 
 # ── Pre-flight checks ─────────────────────────────────────────────────────────
 step "Pre-flight checks"
@@ -264,6 +280,13 @@ add_warning() {
   WARNINGS+=("$1")
 }
 
+# The service has no authentication. Publishing it anywhere but loopback puts
+# /embed/queries and /embed/images on the network - and ufw will not stop that,
+# because Docker's DNAT rules sit ahead of its filter chains.
+if [[ "$COLQWEN_BIND" != "127.0.0.1" && "$COLQWEN_BIND" != "::1" && "$COLQWEN_BIND" != "localhost" ]]; then
+  add_warning "COLQWEN_BIND=${COLQWEN_BIND} publishes the unauthenticated service beyond loopback. ufw does not protect Docker-published ports."
+fi
+
 if [[ ! -d "$COLQWEN_MODEL_DIR" ]]; then
   if [[ "$MODEL_DIR_EXPLICIT" -eq 0 ]]; then
     mkdir -p "$COLQWEN_MODEL_DIR"
@@ -310,6 +333,7 @@ _env_reuse COLPALI_VERSION COLPALI_VERSION
 _env_reuse COLQWEN_MODEL_DIR COLQWEN_MODEL_DIR
 _env_reuse COLQWEN_MODEL     COLQWEN_MODEL
 _env_reuse COLQWEN_PORT      COLQWEN_PORT
+_env_reuse COLQWEN_BIND      COLQWEN_BIND
 if [[ ${#_env_reused[@]} -gt 0 ]]; then
   info "Reused ${#_env_reused[@]} value(s) from ${ENV_FILE} (explicit env/CLI values win)."
 fi
@@ -321,9 +345,9 @@ fi
 
 GENERATED_DATE="$(date -Iseconds)"
 export NGC_PYTORCH_TAG COLPALI_VERSION COLQWEN_MODEL_DIR COLQWEN_MODEL \
-  COLQWEN_PORT GENERATED_DATE
+  COLQWEN_PORT COLQWEN_BIND GENERATED_DATE
 # shellcheck disable=SC2016  # envsubst expects the literal variable list
-envsubst '${NGC_PYTORCH_TAG} ${COLPALI_VERSION} ${COLQWEN_MODEL_DIR} ${COLQWEN_MODEL} ${COLQWEN_PORT} ${GENERATED_DATE}' \
+envsubst '${NGC_PYTORCH_TAG} ${COLPALI_VERSION} ${COLQWEN_MODEL_DIR} ${COLQWEN_MODEL} ${COLQWEN_PORT} ${COLQWEN_BIND} ${GENERATED_DATE}' \
   < "${TEMPLATE_DIR}/env.template" > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 success ".env written (mode 600): ${ENV_FILE}"
@@ -389,7 +413,7 @@ echo -e "  ${BOLD}Model dir:${RESET}        ${COLQWEN_MODEL_DIR}  (mounted read-
 echo -e "  ${BOLD}Model:${RESET}            ${COLQWEN_MODEL}"
 echo -e "  ${BOLD}NGC PyTorch tag:${RESET}  ${NGC_PYTORCH_TAG}"
 echo -e "  ${BOLD}colpali-engine:${RESET}   ${COLPALI_VERSION}"
-echo -e "  ${BOLD}Port:${RESET}             ${COLQWEN_PORT}"
+echo -e "  ${BOLD}Port:${RESET}             ${COLQWEN_BIND}:${COLQWEN_PORT}"
 echo -e "  ${BOLD}Config:${RESET}           ${ENV_FILE}"
 echo ""
 if [[ "$COLQWEN_CONVERGED" == "true" ]]; then

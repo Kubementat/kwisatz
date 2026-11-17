@@ -193,6 +193,9 @@ scripts:
     env:
       COLQWEN_MODEL: vidore/colqwen2.5-v0.2
       COLQWEN_PORT: '8100'
+      # Unauthenticated service - keep on loopback unless something
+      # authenticating sits in front. ufw does not cover Docker ports.
+      COLQWEN_BIND: 127.0.0.1
       # COLQWEN_MODEL_DIR: /home/<user>/.cache/huggingface
     args: []  # add --force to re-generate over an existing project
   setup-monitoring:
