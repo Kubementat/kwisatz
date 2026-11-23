@@ -29,7 +29,7 @@
 agentsview:
   datasource: github-releases
   package: kenn-io/agentsview
-  version: "v0.47.0"
+  version: "v0.48.0"
 
 hermes:
   # release v0.21.5; the script installs the commit, Renovate compares tags
@@ -41,18 +41,18 @@ hermes:
 openwebui:
   datasource: docker
   package: ghcr.io/open-webui/open-webui
-  version: "v0.13.3"
+  version: "v0.13.4"
 
 litellm:
   # setup-llm-gateway
   datasource: docker
   package: ghcr.io/berriai/litellm
-  version: "v1.109.0"
+  version: "v1.110.2"
 
 renovate:
   datasource: docker
   package: renovate/renovate
-  version: "44.234.1"
+  version: "44.258.1"
 
 # ── monitoring (setup-monitoring) ────────────────────────────────────────────
 prometheus:
@@ -68,19 +68,19 @@ grafana:
 node-exporter:
   datasource: docker
   package: quay.io/prometheus/node-exporter
-  version: "v1.12.1"
+  version: "v1.13.1"
 
 cadvisor:
   datasource: docker
   package: ghcr.io/google/cadvisor
-  version: "v0.60.6"
+  version: "v0.61.1"
 
 # ── postiz (setup-postiz) ─────────────────────────────────────────────────────
 
 postiz:
   datasource: docker
   package: ghcr.io/gitroomhq/postiz-app
-  version: "v2.25.3"
+  version: "v2.26.0"
 
 postiz-postgres:
   # HELD <18: the data volume is tied to the major, upgrade needs pg_upgrade
@@ -151,7 +151,7 @@ mas:
 element:
   datasource: docker
   package: vectorim/element-web
-  version: "v1.12.34"
+  version: "v1.12.35"
 
 matrix-wellknown:
   datasource: docker
@@ -188,7 +188,7 @@ forgejo:
   # next LTS here and in renovate.json
   datasource: docker
   package: codeberg.org/forgejo/forgejo
-  version: "15.0.11"
+  version: "15.0.12"
 
 forgejo-postgres:
   # HELD <15: the data volume is tied to the major, upgrade needs pg_upgrade
@@ -221,7 +221,7 @@ traefik:
   # was the floating :v3 in setup-traefik; n8n's sidecar shares this entry
   datasource: docker
   package: traefik
-  version: "v3.7.18"
+  version: "v3.7.19"
 
 socket-proxy:
   # fronts /var/run/docker.sock: tag AND digest pinned
@@ -233,7 +233,7 @@ socket-proxy:
 n8n:
   datasource: docker
   package: docker.n8n.io/n8nio/n8n
-  version: "3.2.0"
+  version: "3.3.0"
 
 n8n-postgres:
   # HELD <16: the data volume is tied to the major, upgrade needs pg_upgrade
@@ -255,7 +255,7 @@ concourse-postgres:
 kestra:
   datasource: docker
   package: kestra/kestra
-  version: "v2.0.10"
+  version: "v2.0.12"
 
 kestra-postgres:
   # HELD <17: the data volume is tied to the major (Kestra docs: 16/17 data-dir issue)
@@ -266,7 +266,7 @@ kestra-postgres:
 dagu:
   datasource: docker
   package: ghcr.io/dagucloud/dagu
-  version: "2.26.0"
+  version: "2.27.0"
 
 # ── opencode, nvidia-container ────────────────────────────────────────────────
 
@@ -274,7 +274,7 @@ opencode:
   # also the @opencode/cli npm version the script installs
   datasource: docker
   package: ghcr.io/anomalyco/opencode
-  version: "2.2.7"
+  version: "2.4.1"
 
 nvidia-smoke:
   # base image for the CDI smoke test (no CUDA needed)
@@ -289,7 +289,7 @@ omnigent-server:
   # was the floating :latest until versions.yml
   datasource: docker
   package: ghcr.io/omnigent-ai/omnigent-server
-  version: "v0.21.0"
+  version: "v0.23.0"
 
 omnigent-postgres:
   # HELD <17: the data volume is tied to the major, upgrade needs pg_upgrade
@@ -302,17 +302,17 @@ omnigent-postgres:
 netbird-server:
   datasource: docker
   package: netbirdio/netbird-server
-  version: "0.82.1"
+  version: "0.83.2"
 
 netbird-dashboard:
   datasource: docker
   package: netbirdio/dashboard
-  version: "v2.96.1"
+  version: "v2.98.0"
 
 netbird-client:
   datasource: docker
   package: netbirdio/netbird
-  version: "0.82.1"
+  version: "0.83.2"
 
 # ── gufo (setup-gufo-strix-halo-qwen38-flash/-27b) ────────────────────────────
 
@@ -323,8 +323,8 @@ gufo:
   # digest and is not a pullable reference).
   datasource: docker
   package: ghcr.io/gufo-org/toolboxes/gufo-runtime
-  version: "0.33.0"
-  digest: "sha256:cf76a084e33e638ec4d934afaf9534aad591a5f2ddd951576bd63a9792b7d601"
+  version: "0.35.0"
+  digest: "sha256:99e9b5471b7a9b007c686c2aa795afaf966744d64e753cb009c89541f9e9c2b6"
 
 # ── vllm, vllm-omni ───────────────────────────────────────────────────────────
 
@@ -333,7 +333,7 @@ vllm:
   # F21 registry probe (see the script) before merging a bump
   datasource: docker
   package: vllm/vllm-openai
-  version: "v0.33.0"
+  version: "v0.34.0"
 
 vllm-omni:
   # was the floating :latest until versions.yml; aarch64 hosts append -aarch64
@@ -351,11 +351,11 @@ vllm-omni-rocm:
 
 ngc-pytorch:
   # must match the host driver (CUDA) and the torch pin of colpali-engine;
-  # bump: 26.10-py3 — not yet verified against the host driver / torch pin;
+  # bump: 26.11-py3 — not yet verified against the host driver / torch pin;
   # last known good was 25.10-py3 + colpali-engine 0.3.13 on DGX Spark
   datasource: docker
   package: nvcr.io/nvidia/pytorch
-  version: "26.10-py3"
+  version: "26.11-py3"
   versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)-py(?<compatibility>\\d+)$"
 
 colpali-engine:
@@ -373,7 +373,7 @@ tensorfold-flash-recipe:
   datasource: git-refs
   package: https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
   version: "main"
-  digest: "20e15e41f2f514a0d287710f4665ee1b5009ba41"
+  digest: "b956dba8a468f1cf376d60bbbd9b9ed51ff2f0a9"
 
 tensorfold-27b-recipe:
   # recipe repo commit (main @ 2026-10-01); moves together with the prebuilt image
@@ -395,12 +395,12 @@ comfyui:
   # releases, not tags: upstream tags patch versions before it publishes them
   datasource: github-releases
   package: Comfy-Org/ComfyUI
-  version: "v0.35.0"
+  version: "v0.46.0"
 
 comfyui-model-resolver:
   datasource: github-releases
   package: Azornes/Comfyui-Model-Resolver
-  version: "v1.2.1"
+  version: "v1.3.1"
 
 sageattention:
   # opt-in GB10 source build (COMFYUI_SAGE_BUILD); main needs c03f15fb for
@@ -414,13 +414,13 @@ mcp:
   # MCP server venv (COMFYUI_MCP); the server uses the mcp 2.x MCPServer API
   datasource: pypi
   package: mcp
-  version: "2.2.0"
+  version: "2.3.0"
 
 comfy-cli:
   # MCP server venv (COMFYUI_MCP); the server parses its JSON envelope/1
   datasource: pypi
   package: comfy-cli
-  version: "1.20.0"
+  version: "1.28.0"
 
 # ── host tools: GitHub releases / tags, PyPI, git, vendor ─────────────────────
 
@@ -433,7 +433,7 @@ nvm:
 laya:
   datasource: pypi
   package: laya
-  version: "0.4.31"
+  version: "0.5.3"
 
 ace-step:
   # project version 1.5.0 is published under v0.1.x tags
@@ -445,13 +445,13 @@ orca:
   # was the floating "latest" until versions.yml
   datasource: github-releases
   package: stablyai/orca
-  version: "v1.4.256"
+  version: "v1.4.272"
 
 llama-swap:
   # was the floating "latest" until versions.yml
   datasource: github-releases
   package: mostlygeek/llama-swap
-  version: "v272"
+  version: "v275"
 
 ollaya:
   # was "latest release" until versions.yml; setup-ollaya strips the "v"
@@ -466,7 +466,7 @@ llama-cpp:
   # datasource with nothing to report and the pin silently freezes.
   datasource: github-tags
   package: ggml-org/llama.cpp
-  version: "b12287"
+  version: "b12653"
   versioning: "regex:^b(?<major>\\d+)$"
 
 deepseek-harness:
@@ -475,7 +475,7 @@ deepseek-harness:
   # prereleases (setup-deepseek-harness.sh).
   datasource: npm
   package: "@deepseek-ai/dsh"
-  version: "0.2.2-rc.1"
+  version: "0.2.2-rc.5"
 
 pi-pocket:
   # no published container image: the script clones this tag and builds
@@ -483,8 +483,8 @@ pi-pocket:
   # the tag points at — lightweight tags make it the same SHA.
   datasource: github-tags
   package: TannerMidd/pi-pocket
-  version: "v0.28.2"
-  digest: "5d009fa4d1e2b69db54f05e04f750a6f2e591bb1"
+  version: "v0.30.1"
+  digest: "2f060f2624f1010cb99b6a56287a1a057e9410bb"
 
 omnivoice:
   # no release tags upstream: the commit (digest) follows master, the script
@@ -492,4 +492,4 @@ omnivoice:
   datasource: git-refs
   package: https://github.com/ServeurpersoCom/omnivoice.cpp
   version: "master"
-  digest: "dbfc792d6fbe0cc3a776817f56de35a3744d7594"
+  digest: "a650381a67905fd6ad08b323ed026b042a07b623"
