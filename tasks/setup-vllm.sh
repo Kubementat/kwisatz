@@ -471,6 +471,14 @@ _env_reuse() { # <var-name> <key>
   local var_name="$1" key="$2" current
   if [[ -z "${!var_name}" && -f "$ENV_FILE" ]]; then
     current="$(grep -m1 "^${key}=" "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)"
+    # Compose env_file semantics: " #…" after the value is a comment, not part
+    # of the value. Without this the template's own inline comments are reused
+    # as values on a re-run (the lever lines end in " # …"), and land verbatim
+    # in the rendered compose command.
+    current="${current#"${current%%[![:space:]]*}"}"    # ltrim
+    current="${current%% #*}"                           # drop trailing comment
+    [[ "$current" == \#* ]] && current=""               # value was comment-only
+    current="${current%"${current##*[![:space:]]}"}"    # rtrim
     if [[ -n "$current" ]]; then
       printf -v "$var_name" '%s' "$current"
       _env_reused+=("${key}")
