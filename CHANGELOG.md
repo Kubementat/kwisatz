@@ -9,6 +9,14 @@ number follows the semver rule in [`AGENTS.md`](AGENTS.md): **MAJOR** = breaking
 `machine-config.yml` keys, removed/renamed `tasks/` scripts, or a breaking change to the
 `kwisatz` CLI · **MINOR** = a new `tasks/` script or a new config option · **PATCH** = fixes.
 
+## [v2.0.0] — 2026-11-24
+
+[Full notes](docs/releases/v2.0.0.md) · 33 commits since v1.2.0
+
+Installed mode (`uvx kwisatz` / `uv tool install kwisatz`) with a payload/config/state split,
+`kwisatz versions` with a sparse per-machine `versions.yml` override, the `setup-comfyui` and
+`setup-pi-pocket` services, and six host/desktop recipes moved to kwisatz-extras (breaking).
+
 ## [v1.2.0] — 2026-11-04
 
 [Full notes](docs/releases/v1.2.0.md) · 56 commits since v1.1.0
@@ -69,6 +77,7 @@ number follows the semver rule in [`AGENTS.md`](AGENTS.md): **MAJOR** = breaking
 [Full notes](docs/releases/v1.0.0.md) · 335 commits, the only record before this tag is
 `git log`.
 
+[v2.0.0]: https://github.com/Kubementat/kwisatz/compare/v1.2.0...v2.0.0
 [v1.2.0]: https://github.com/Kubementat/kwisatz/compare/v1.1.0...v1.2.0
 [v1.1.0]: https://github.com/Kubementat/kwisatz/compare/v1.0.0...v1.1.0
 [v1.0.0]: https://github.com/Kubementat/kwisatz/releases/tag/v1.0.0
